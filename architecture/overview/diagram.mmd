@@ -1,0 +1,4 @@
+flowchart LR
+  UI[Docs UI] -->|GET topics/details| API[Backend /docs]
+  API -->|Read| DB[(Database)]
+  API -->|Return| UI
