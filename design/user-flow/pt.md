@@ -1,40 +1,40 @@
 ---
-title: Jornada do Fluxo do Usuário
-summary: Do onboarding aos check-ins diários.
+title: Jornada do Fluxo do Usuario
+summary: Do onboarding aos check-ins diarios.
 ---
 
-O design abaixo mostra a experiência completa para um novo usuário, combinando narrativa e diagramas.
+O design abaixo mostra a experiencia completa para um novo usuario, combinando narrativa e diagramas.
 
-## Sequência de onboarding
+## Sequencia de onboarding
 
 ```mermaid
 sequenceDiagram
-  participant U as Usuário
+  participant U as Usuario
   participant App as Beyou App
   participant API as Backend
   U->>App: Abre o Beyou
-  App->>API: Verifica sessão
-  API-->>App: Sessão inválida
+  App->>API: Verifica sessao
+  API-->>App: Sessao invalida
   App-->>U: Mostra onboarding
-  U->>App: Cria primeiro hábito
-  App->>API: Salva hábito
-  API-->>App: Hábito salvo
+  U->>App: Cria primeiro habito
+  App->>API: Salva habito
+  API-->>App: Habito salvo
 ```
 
-## Fluxo diário
+## Fluxo diario
 
 ```mermaid
 flowchart LR
   Start([Abrir app]) --> Dash[Dashboard]
   Dash --> Check{Check-in?}
-  Check -->|Sim| Habit[Registrar hábito]
-  Check -->|Não| Explore[Explorar dicas]
+  Check -->|Sim| Habit[Registrar habito]
+  Check -->|Nao| Explore[Explorar dicas]
   Habit --> Reward[XP + streak]
   Reward --> Dash
   Explore --> Dash
 ```
 
-## Observações
+## Observacoes
 
-- Mantenha o CTA de check-in visível após o onboarding.
-- O feedback de recompensa deve ser imediato para reforçar o loop de hábito.
+- Mantenha o CTA de check-in visivel apos o onboarding.
+- O feedback de recompensa deve ser imediato para reforcar o loop de habito.
