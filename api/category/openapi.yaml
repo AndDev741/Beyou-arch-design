@@ -1,0 +1,154 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /category:
+    get:
+      tags:
+      - category-controller
+      operationId: getCategories
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponseDTO'
+    put:
+      tags:
+      - category-controller
+      operationId: editCategory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryEditRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+    post:
+      tags:
+      - category-controller
+      operationId: createCategory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /category/{categoryId}:
+    delete:
+      tags:
+      - category-controller
+      operationId: deleteCategory
+      parameters:
+      - name: categoryId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+components:
+  schemas:
+    CategoryEditRequestDTO:
+      type: object
+      properties:
+        categoryId:
+          type: string
+        name:
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+    CategoryRequestDTO:
+      required:
+      - icon
+      - level
+      - name
+      - xp
+      type: object
+      properties:
+        name:
+          maxLength: 256
+          minLength: 2
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+        level:
+          type: integer
+          format: int32
+        xp:
+          type: integer
+          format: int32
+    CategoryResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        habits:
+          type: object
+          additionalProperties:
+            type: string
+        tasks:
+          type: object
+          additionalProperties:
+            type: string
+        goals:
+          type: object
+          additionalProperties:
+            type: string
+        xp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        actualLevelXp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        createdAt:
+          type: string
+          format: date-time

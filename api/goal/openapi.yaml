@@ -1,0 +1,413 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /goal:
+    get:
+      tags:
+      - goal-controller
+      operationId: getGoals
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GoalResponseDTO'
+    put:
+      tags:
+      - goal-controller
+      operationId: editGoal
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditGoalRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    post:
+      tags:
+      - goal-controller
+      operationId: createGoal
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGoalRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /goal/increase:
+    put:
+      tags:
+      - goal-controller
+      operationId: increaseCurrentValue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+              format: uuid
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/GoalResponseDTO'
+  /goal/decrease:
+    put:
+      tags:
+      - goal-controller
+      operationId: decreaseCurrentValue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+              format: uuid
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/GoalResponseDTO'
+  /goal/complete:
+    put:
+      tags:
+      - goal-controller
+      operationId: setAsComplete
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+              format: uuid
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RefreshUiDTO'
+  /goal/{goalId}:
+    delete:
+      tags:
+      - goal-controller
+      operationId: deleteGoal
+      parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+components:
+  schemas:
+    LocalTime:
+      type: object
+      properties:
+        hour:
+          type: integer
+          format: int32
+        minute:
+          type: integer
+          format: int32
+        second:
+          type: integer
+          format: int32
+        nano:
+          type: integer
+          format: int32
+    EditGoalRequestDTO:
+      required:
+      - categoriesId
+      - complete
+      - currentValue
+      - endDate
+      - goalId
+      - name
+      - startDate
+      - status
+      - targetValue
+      - term
+      - unit
+      type: object
+      properties:
+        goalId:
+          type: string
+          format: uuid
+        name:
+          maxLength: 256
+          minLength: 2
+          type: string
+        iconId:
+          type: string
+        description:
+          type: string
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        currentValue:
+          type: number
+          format: double
+        complete:
+          type: boolean
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        motivation:
+          maxLength: 256
+          minLength: 0
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+          - NOT_STARTED
+          - IN_PROGRESS
+          - COMPLETED
+        term:
+          type: string
+          enum:
+          - SHORT_TERM
+          - MEDIUM_TERM
+          - LONG_TERM
+    CategoryMiniDTO:
+      type: object
+      properties:
+        name:
+          type: string
+        iconId:
+          type: string
+    GoalResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        description:
+          type: string
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        currentValue:
+          type: number
+          format: double
+        complete:
+          type: boolean
+        categories:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/CategoryMiniDTO'
+        motivation:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        xpReward:
+          type: number
+          format: double
+        status:
+          type: string
+          enum:
+          - NOT_STARTED
+          - IN_PROGRESS
+          - COMPLETED
+        term:
+          type: string
+          enum:
+          - SHORT_TERM
+          - MEDIUM_TERM
+          - LONG_TERM
+        completeDate:
+          type: string
+          format: date
+    BaseCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        checkDate:
+          type: string
+          format: date
+        checkTime:
+          $ref: '#/components/schemas/LocalTime'
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        xpGenerated:
+          type: number
+          format: double
+    RefreshItemCheckedDTO:
+      type: object
+      properties:
+        groupItemId:
+          type: string
+          format: uuid
+        check:
+          $ref: '#/components/schemas/BaseCheck'
+    RefreshObjectDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+    RefreshUiDTO:
+      type: object
+      properties:
+        refreshUser:
+          $ref: '#/components/schemas/RefreshUserDTO'
+        refreshCategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshHabit:
+          $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshItemChecked:
+          $ref: '#/components/schemas/RefreshItemCheckedDTO'
+    RefreshUserDTO:
+      type: object
+      properties:
+        currentConstance:
+          type: integer
+          format: int32
+        alreadyIncreaseConstanceToday:
+          type: boolean
+        maxConstance:
+          type: integer
+          format: int32
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+    CreateGoalRequestDTO:
+      required:
+      - categoriesId
+      - currentValue
+      - endDate
+      - name
+      - startDate
+      - status
+      - targetValue
+      - term
+      - unit
+      type: object
+      properties:
+        name:
+          maxLength: 256
+          minLength: 2
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        currentValue:
+          type: number
+          format: double
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        motivation:
+          maxLength: 256
+          minLength: 0
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+          - NOT_STARTED
+          - IN_PROGRESS
+          - COMPLETED
+        term:
+          type: string
+          enum:
+          - SHORT_TERM
+          - MEDIUM_TERM
+          - LONG_TERM

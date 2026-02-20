@@ -1,0 +1,82 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /docs/architecture/topics:
+    get:
+      tags:
+      - architecture-docs-controller
+      operationId: getTopics_1
+      parameters:
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArchitectureTopicListItemDTO'
+  /docs/architecture/topics/{key}:
+    get:
+      tags:
+      - architecture-docs-controller
+      operationId: getTopic_1
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ArchitectureTopicDetailDTO'
+components:
+  schemas:
+    ArchitectureTopicListItemDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        orderIndex:
+          type: integer
+          format: int32
+        updatedAt:
+          type: string
+          format: date-time
+    ArchitectureTopicDetailDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        diagramMermaid:
+          type: string
+        docMarkdown:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time

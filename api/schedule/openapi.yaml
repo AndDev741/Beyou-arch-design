@@ -1,0 +1,136 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /schedule:
+    get:
+      tags:
+      - schedule-controller
+      operationId: getAllSchedules
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+    put:
+      tags:
+      - schedule-controller
+      operationId: updateSchedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/Schedule'
+    post:
+      tags:
+      - schedule-controller
+      operationId: createSchedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/Schedule'
+  /schedule/{scheduleId}:
+    delete:
+      tags:
+      - schedule-controller
+      operationId: deleteSchedule
+      parameters:
+      - name: scheduleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    UpdateScheduleDTO:
+      type: object
+      properties:
+        scheduleId:
+          type: string
+          format: uuid
+        days:
+          uniqueItems: true
+          type: array
+          items:
+            type: string
+            enum:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+        routineId:
+          type: string
+          format: uuid
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        days:
+          uniqueItems: true
+          type: array
+          items:
+            type: string
+            enum:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+    CreateScheduleDTO:
+      required:
+      - days
+      - routineId
+      type: object
+      properties:
+        days:
+          uniqueItems: true
+          type: array
+          items:
+            type: string
+            enum:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+        routineId:
+          type: string
+          format: uuid

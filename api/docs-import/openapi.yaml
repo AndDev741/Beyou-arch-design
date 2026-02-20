@@ -1,0 +1,106 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /docs/admin/import/design:
+    post:
+      tags:
+      - docs-import-controller
+      operationId: importDesign
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesignDocsImportRequestDTO'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /docs/admin/import/architecture:
+    post:
+      tags:
+      - docs-import-controller
+      operationId: importArchitecture
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchitectureDocsImportRequestDTO'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /docs/admin/import/api:
+    post:
+      tags:
+      - docs-import-controller
+      operationId: importApi
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiDocsImportRequestDTO'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+components:
+  schemas:
+    DesignDocsImportRequestDTO:
+      type: object
+      properties:
+        repoOwner:
+          type: string
+        repoName:
+          type: string
+        branch:
+          type: string
+        path:
+          type: string
+        token:
+          type: string
+    ArchitectureDocsImportRequestDTO:
+      type: object
+      properties:
+        repoOwner:
+          type: string
+        repoName:
+          type: string
+        branch:
+          type: string
+        path:
+          type: string
+        token:
+          type: string
+    ApiDocsImportRequestDTO:
+      type: object
+      properties:
+        repoOwner:
+          type: string
+        repoName:
+          type: string
+        branch:
+          type: string
+        path:
+          type: string
+        token:
+          type: string

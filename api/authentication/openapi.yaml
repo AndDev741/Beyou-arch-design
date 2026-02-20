@@ -1,0 +1,216 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /auth/reset-password:
+    post:
+      tags:
+      - authentication-controller
+      operationId: resetPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /auth/register:
+    post:
+      tags:
+      - authentication-controller
+      operationId: doRegister
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /auth/refresh:
+    post:
+      tags:
+      - authentication-controller
+      operationId: refreshAccess
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: string
+  /auth/logout:
+    post:
+      tags:
+      - authentication-controller
+      operationId: logout
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: string
+  /auth/login:
+    post:
+      tags:
+      - authentication-controller
+      operationId: doLogin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /auth/forgot-password:
+    post:
+      tags:
+      - authentication-controller
+      operationId: forgotPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /auth/verify:
+    get:
+      tags:
+      - authentication-controller
+      operationId: verifyAuthentication
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: string
+  /auth/reset-password/validate:
+    get:
+      tags:
+      - authentication-controller
+      operationId: validateResetPasswordToken
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /auth/google:
+    get:
+      tags:
+      - authentication-controller
+      operationId: googleAuth
+      parameters:
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+components:
+  schemas:
+    ResetPasswordRequestDTO:
+      required:
+      - password
+      - token
+      type: object
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+    UserRegisterDTO:
+      required:
+      - email
+      - name
+      - password
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          maxLength: 256
+          minLength: 0
+          type: string
+        password:
+          type: string
+        isGoogleAccount:
+          type: boolean
+    UserLoginDTO:
+      required:
+      - email
+      - password
+      type: object
+      properties:
+        email:
+          maxLength: 256
+          minLength: 0
+          type: string
+        password:
+          maxLength: 300
+          minLength: 0
+          type: string
+    ForgotPasswordRequestDTO:
+      required:
+      - email
+      type: object
+      properties:
+        email:
+          maxLength: 256
+          minLength: 0
+          type: string

@@ -1,0 +1,175 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /task:
+    get:
+      tags:
+      - task-controller
+      operationId: getTasks
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskResponseDTO'
+    put:
+      tags:
+      - task-controller
+      operationId: editTask
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditTaskRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    post:
+      tags:
+      - task-controller
+      operationId: createTask
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /task/{taskId}:
+    delete:
+      tags:
+      - task-controller
+      operationId: deleteTask
+      parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+components:
+  schemas:
+    EditTaskRequestDTO:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        difficulty:
+          type: integer
+          format: int32
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        oneTimeTask:
+          type: boolean
+    CategoryMiniDTO:
+      type: object
+      properties:
+        name:
+          type: string
+        iconId:
+          type: string
+    CreateTaskRequestDTO:
+      required:
+      - iconId
+      - name
+      type: object
+      properties:
+        name:
+          maxLength: 256
+          minLength: 2
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        difficulty:
+          type: integer
+          format: int32
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        oneTimeTask:
+          type: boolean
+    TaskResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        difficulty:
+          type: integer
+          format: int32
+        categories:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/CategoryMiniDTO'
+        oneTimeTask:
+          type: boolean
+        markedToDelete:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date
+        updatedAt:
+          type: string
+          format: date

@@ -1,0 +1,114 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /user:
+    put:
+      tags:
+      - user-controller
+      operationId: editUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserEditDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/UserResponseDTO'
+components:
+  schemas:
+    UserEditDTO:
+      type: object
+      properties:
+        name:
+          maxLength: 256
+          minLength: 0
+          pattern: .*\S.*\S.*
+          type: string
+        photo:
+          maxLength: 2048
+          minLength: 0
+          pattern: (?i)^(?:$|https?://.+)
+          type: string
+        phrase:
+          maxLength: 256
+          minLength: 0
+          type: string
+        phrase_author:
+          maxLength: 256
+          minLength: 0
+          type: string
+        widgetsId:
+          type: array
+          items:
+            type: string
+        theme:
+          type: string
+        constanceConfiguration:
+          type: string
+          enum:
+          - ANY
+          - COMPLETE
+        language:
+          type: string
+        isTutorialCompleted:
+          type: boolean
+    UserResponseDTO:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phrase:
+          type: string
+        phrase_author:
+          type: string
+        constance:
+          type: integer
+          format: int32
+        photo:
+          type: string
+        isGoogleAccount:
+          type: boolean
+        widgetsId:
+          type: array
+          items:
+            type: string
+        themeInUse:
+          type: string
+        xp:
+          type: number
+          format: double
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        constanceConfiguration:
+          type: string
+          enum:
+          - ANY
+          - COMPLETE
+        constanceIncreaseToday:
+          type: boolean
+        maxConstance:
+          type: integer
+          format: int32
+        isTutorialCompleted:
+          type: boolean
+        languageInUse:
+          type: string

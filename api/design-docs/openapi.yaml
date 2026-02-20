@@ -1,0 +1,80 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /docs/design/topics:
+    get:
+      tags:
+      - design-docs-controller
+      operationId: getTopics
+      parameters:
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DesignTopicListItemDTO'
+  /docs/design/topics/{key}:
+    get:
+      tags:
+      - design-docs-controller
+      operationId: getTopic
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/DesignTopicDetailDTO'
+components:
+  schemas:
+    DesignTopicListItemDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        orderIndex:
+          type: integer
+          format: int32
+        updatedAt:
+          type: string
+          format: date-time
+    DesignTopicDetailDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        docMarkdown:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time

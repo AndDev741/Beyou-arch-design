@@ -1,0 +1,226 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /habit:
+    get:
+      tags:
+      - habit-controller
+      operationId: getHabits
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HabitResponseDTO'
+    put:
+      tags:
+      - habit-controller
+      operationId: editHabit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditHabitDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    post:
+      tags:
+      - habit-controller
+      operationId: createHabit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHabitDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /habit/{habitId}:
+    delete:
+      tags:
+      - habit-controller
+      operationId: deleteHabit
+      parameters:
+      - name: habitId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+components:
+  schemas:
+    EditHabitDTO:
+      type: object
+      properties:
+        habitId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        motivationalPhrase:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        dificulty:
+          type: integer
+          format: int32
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+    CreateHabitDTO:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        motivationalPhrase:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        dificulty:
+          type: integer
+          format: int32
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        xp:
+          type: integer
+          format: int32
+        level:
+          type: integer
+          format: int32
+    Category:
+      required:
+      - name
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          maxLength: 256
+          minLength: 2
+          type: string
+        description:
+          maxLength: 256
+          minLength: 0
+          type: string
+        iconId:
+          type: string
+        xpProgress:
+          $ref: '#/components/schemas/XpProgress'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    HabitResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        motivationalPhrase:
+          type: string
+        iconId:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        dificulty:
+          type: integer
+          format: int32
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        xp:
+          type: number
+          format: double
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        constance:
+          type: integer
+          format: int32
+        createdAt:
+          type: string
+          format: date
+        updatedAt:
+          type: string
+          format: date
+        routines:
+          type: object
+          additionalProperties:
+            type: string
+    XpProgress:
+      type: object
+      properties:
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double

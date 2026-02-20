@@ -1,0 +1,82 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /docs/api/controllers:
+    get:
+      tags:
+      - api-docs-controller
+      operationId: getControllers
+      parameters:
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiControllerListItemDTO'
+  /docs/api/controllers/{key}:
+    get:
+      tags:
+      - api-docs-controller
+      operationId: getController
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ApiControllerDetailDTO'
+components:
+  schemas:
+    ApiControllerListItemDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        orderIndex:
+          type: integer
+          format: int32
+        updatedAt:
+          type: string
+          format: date-time
+    ApiControllerDetailDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        apiCatalog:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
