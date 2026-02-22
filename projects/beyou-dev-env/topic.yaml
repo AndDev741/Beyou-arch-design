@@ -1,0 +1,12 @@
+key: beyou-dev-env
+orderIndex: 5
+status: ACTIVE
+designTopicKey: user-flow
+architectureTopicKey: overview
+repositoryUrl: https://github.com/AndDev741/Beyou-dev-env
+tags:
+  - docker
+  - docker-compose
+  - postgres
+  - mailhog
+  - development

@@ -1,3 +1,7 @@
+---
+title: "Beyou Frontend"
+summary: "React-based frontend for the Beyou application, providing a user interface for habit tracking and productivity."
+---
 # Beyou Frontend
 
 This is the frontend application for the Beyou productivity platform.

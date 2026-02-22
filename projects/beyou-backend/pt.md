@@ -1,3 +1,7 @@
+---
+title: "Beyou Backend"
+summary: "Backend Spring Boot para a aplicação Beyou, fornecendo APIs REST para metas, hábitos, tarefas e gestão de utilizadores."
+---
 # Beyou Backend
 Backend Spring Boot para a aplicação Beyou, fornecendo APIs REST para metas, hábitos, tarefas e gestão de utilizadores.
 

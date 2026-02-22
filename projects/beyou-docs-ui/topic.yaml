@@ -1,12 +1,12 @@
-key: beyou-frontend
-orderIndex: 2
+key: beyou-docs-ui
+orderIndex: 3
 status: ACTIVE
 designTopicKey: user-flow
 architectureTopicKey: overview
-repositoryUrl: https://github.com/AndDev741/Beyou-Frontend
+repositoryUrl: https://github.com/AndDev741/Beyou-docs-ui
 tags:
   - react
   - typescript
-  - vite
   - tailwind
-  - shadcn/ui
+  - openapi
+  - markdown
