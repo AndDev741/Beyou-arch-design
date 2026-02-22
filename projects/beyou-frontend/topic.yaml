@@ -1,0 +1,9 @@
+key: beyou-frontend
+title: Beyou Frontend
+summary: React/TypeScript frontend application for the Beyou productivity platform.
+orderIndex: 1
+status: ACTIVE
+tags: ["react", "typescript", "vite", "tailwind"]
+repositoryUrl: https://github.com/AndDev741/Beyou-Frontend
+designTopicKey: user-flow
+architectureTopicKey: overview

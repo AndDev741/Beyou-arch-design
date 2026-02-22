@@ -1,0 +1,33 @@
+---
+title: Beyou Backend Architecture
+---
+
+flowchart TD
+    Client[Web/ Mobile Client]
+    LB[Load Balancer<br/>NGINX]
+    App[Spring Boot Application]
+    DB[(PostgreSQL)]
+    Cache[(Redis Cache)]
+    Queue[RabbitMQ]
+    Mail[Email Service]
+
+    Client --> LB
+    LB --> App
+    App --> DB
+    App --> Cache
+    App --> Queue
+    Queue --> Mail
+
+    subgraph "Spring Boot Modules"
+        Auth[Authentication Module]
+        Goals[Goals Module]
+        Habits[Habits Module]
+        Docs[Documentation Module]
+        Notif[Notification Module]
+    end
+
+    App --> Auth
+    App --> Goals
+    App --> Habits
+    App --> Docs
+    App --> Notif

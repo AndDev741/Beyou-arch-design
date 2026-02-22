@@ -1,0 +1,16 @@
+flowchart TD
+    A[User] -->|Visits| B(Frontend App)
+    B --> C{Authentication}
+    C -->|Logged In| D[Dashboard]
+    C -->|Not Logged In| E[Login Page]
+    D --> F[Goal Tracking]
+    D --> G[Habit Management]
+    D --> H[Task Board]
+    D --> I[Routine Calendar]
+    F --> J[Progress Charts]
+    G --> K[Streak Visualization]
+    H --> L[Drag & Drop]
+    I --> M[Schedule View]
+    D --> N[Settings]
+    N --> O[Profile]
+    N --> P[Notifications]

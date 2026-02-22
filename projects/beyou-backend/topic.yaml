@@ -1,0 +1,11 @@
+key: beyou-backend
+orderIndex: 1
+status: ACTIVE
+designTopicKey: user-flow
+architectureTopicKey: overview
+repositoryUrl: https://github.com/AndDev741/Beyou-backend-spring
+tags:
+  - java
+  - spring
+  - postgres
+  - docker
