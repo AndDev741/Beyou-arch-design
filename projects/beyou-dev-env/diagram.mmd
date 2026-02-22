@@ -1,0 +1,47 @@
+---
+title: Beyou Dev Environment Docker Compose
+---
+flowchart TD
+    Docker[Docker Compose]
+
+    subgraph "Core Services"
+        Postgres[PostgreSQL<br/>port 5432]
+        Backend[Backend Spring Boot<br/>port 8080]
+        Frontend[Frontend React<br/>port 5173]
+        DocsUI[Docs UI<br/>port 3000]
+    end
+
+    subgraph "Supporting Services"
+        MailHog[MailHog<br/>port 8025]
+        Redis[Redis<br/>optional]
+        RabbitMQ[RabbitMQ<br/>optional]
+    end
+
+    Docker --> Postgres
+    Docker --> Backend
+    Docker --> Frontend
+    Docker --> DocsUI
+    Docker --> MailHog
+    Docker --> Redis
+    Docker --> RabbitMQ
+
+    Backend --> Postgres
+    Backend --> Redis
+    Backend --> RabbitMQ
+    Backend --> MailHog
+
+    Frontend --> Backend
+    DocsUI --> Backend
+
+    User[Developer] --> Frontend
+    User --> DocsUI
+    User --> MailHog
+
+    subgraph "Networks"
+        Net[Internal network<br/>beyou‑dev‑net]
+    end
+
+    Postgres -.-> Net
+    Backend -.-> Net
+    Frontend -.-> Net
+    DocsUI -.-> Net

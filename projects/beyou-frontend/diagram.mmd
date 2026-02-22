@@ -1,16 +1,56 @@
+---
+title: Beyou Frontend Architecture
+---
 flowchart TD
-    A[User] -->|Visits| B(Frontend App)
-    B --> C{Authentication}
-    C -->|Logged In| D[Dashboard]
-    C -->|Not Logged In| E[Login Page]
-    D --> F[Goal Tracking]
-    D --> G[Habit Management]
-    D --> H[Task Board]
-    D --> I[Routine Calendar]
-    F --> J[Progress Charts]
-    G --> K[Streak Visualization]
-    H --> L[Drag & Drop]
-    I --> M[Schedule View]
-    D --> N[Settings]
-    N --> O[Profile]
-    N --> P[Notifications]
+    User[User]
+    Browser[Browser]
+    React[React App]
+    Vite[Vite Dev Server]
+    Backend[Backend API]
+
+    User --> Browser
+    Browser --> React
+    React --> Vite
+    React --> Backend
+
+    subgraph "React Components"
+        Pages[Pages<br/>Dashboard, Goals, Habits, Projects]
+        Shared[Shared Components<br/>Cards, Forms, Modals]
+        Hooks[Custom Hooks<br/>useAuth, useGoals]
+        Context[Context Providers<br/>Theme, Auth]
+    end
+
+    React --> Pages
+    React --> Shared
+    React --> Hooks
+    React --> Context
+
+    subgraph "Styling & UI"
+        Tailwind[Tailwind CSS]
+        Shadcn[shadcn/ui]
+        Icons[Lucide Icons]
+    end
+
+    React --> Tailwind
+    React --> Shadcn
+    React --> Icons
+
+    subgraph "State Management"
+        ReactState[React State]
+        ReactQuery[TanStack Query]
+        Zustand[Zustand Store]
+    end
+
+    React --> ReactState
+    React --> ReactQuery
+    React --> Zustand
+
+    subgraph "Build & Deployment"
+        ViteBuild[Vite Build]
+        Vercel[Vercel Deployment]
+        CI[GitHub Actions CI]
+    end
+
+    Vite --> ViteBuild
+    ViteBuild --> Vercel
+    CI --> Vercel
