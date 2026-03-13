@@ -1,4 +1,13 @@
 flowchart LR
-  UI[Docs UI] -->|GET topics/details| API[Backend /docs]
-  API -->|Read| DB[(Database)]
-  API -->|Return| UI
+  FE["⚛️ Frontend\nReact · TypeScript · Vite"]
+  BE["🍃 Backend\nSpring Boot · Java 21"]
+  DB[("🐘 Database\nPostgreSQL 15")]
+  GO["🔐 Google OAuth"]
+  GH["📦 GitHub API"]
+  ML["✉️ SMTP Server"]
+
+  FE -->|"REST API (JWT)"| BE
+  BE -->|JPA / Hibernate| DB
+  BE <-->|OAuth 2.0| GO
+  BE <-->|Docs Import| GH
+  BE -->|Password Reset| ML
