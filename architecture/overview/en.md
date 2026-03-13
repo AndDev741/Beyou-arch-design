@@ -80,16 +80,14 @@ sequenceDiagram
   participant GO as Google
 
   rect rgba(59, 130, 246, 0.25)
-  Note right of U: Email + Password Login
-  U->>FE: Enter credentials
+  U->>FE: 🔑 Email + Password Login
   FE->>BE: POST /auth/login
   BE-->>FE: JWT (header) + Refresh Token (HttpOnly cookie)
   FE->>FE: Store JWT in memory
   end
 
   rect rgba(234, 88, 12, 0.25)
-  Note right of U: Google OAuth Login
-  U->>FE: Click Google login
+  U->>FE: 🔐 Google OAuth Login
   FE->>GO: Authorization redirect
   GO-->>FE: Authorization code
   FE->>BE: GET /auth/google?code=...
@@ -99,8 +97,7 @@ sequenceDiagram
   end
 
   rect rgba(16, 185, 129, 0.25)
-  Note right of U: Token Refresh (automatic)
-  FE->>BE: Request with expired JWT
+  FE->>BE: 🔄 Token Refresh — request with expired JWT
   BE-->>FE: 401 Unauthorized
   FE->>BE: POST /auth/refresh (cookie)
   BE-->>FE: New JWT + new Refresh Token

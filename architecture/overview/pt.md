@@ -80,16 +80,14 @@ sequenceDiagram
   participant GO as Google
 
   rect rgba(59, 130, 246, 0.25)
-  Note right of U: Login com Email + Senha
-  U->>FE: Insere credenciais
+  U->>FE: 🔑 Login com Email + Senha
   FE->>BE: POST /auth/login
   BE-->>FE: JWT (header) + Refresh Token (cookie HttpOnly)
   FE->>FE: Armazena JWT em memória
   end
 
   rect rgba(234, 88, 12, 0.25)
-  Note right of U: Login com Google OAuth
-  U->>FE: Clica login com Google
+  U->>FE: 🔐 Login com Google OAuth
   FE->>GO: Redirecionamento de autorização
   GO-->>FE: Código de autorização
   FE->>BE: GET /auth/google?code=...
@@ -99,8 +97,7 @@ sequenceDiagram
   end
 
   rect rgba(16, 185, 129, 0.25)
-  Note right of U: Refresh de Token (automático)
-  FE->>BE: Requisição com JWT expirado
+  FE->>BE: 🔄 Refresh de Token — requisição com JWT expirado
   BE-->>FE: 401 Unauthorized
   FE->>BE: POST /auth/refresh (cookie)
   BE-->>FE: Novo JWT + novo Refresh Token
