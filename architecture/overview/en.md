@@ -9,9 +9,9 @@ This document describes the overall architecture of the Beyou application, cover
 
 ```mermaid
 flowchart LR
-  FE["⚛️ Frontend\nReact · TypeScript · Vite"]
-  BE["🍃 Backend\nSpring Boot · Java 21"]
-  DB[("🐘 Database\nPostgreSQL 15")]
+  FE["⚛️ Frontend<br/>React · TypeScript · Vite"]
+  BE["🍃 Backend<br/>Spring Boot · Java 21"]
+  DB[("🐘 Database<br/>PostgreSQL 15")]
   GO["🔐 Google OAuth"]
   GH["📦 GitHub API"]
   ML["✉️ SMTP Server"]
@@ -64,8 +64,8 @@ erDiagram
 - **User** — profile, preferences (theme, language, widgets), and embedded XP progression (level, xp, constance streak).
 - **Category** — groups habits, tasks, and goals via ManyToMany. Has its own XP/level.
 - **Habit** — trackable behavior with importance, difficulty, motivational phrase, and XP/level progression.
-- **Task** — similar to habit but can be one-time (`oneTimeTask`) with soft-delete via `markedToDelete`.
-- **Goal** — target-based with `currentValue` / `targetValue`, status (active/completed/failed), and term (short/long/life).
+- **Task** — similar to habit but can be one-time (oneTimeTask) with soft-delete via markedToDelete.
+- **Goal** — target-based with currentValue / targetValue, status (active/completed/failed), and term (short/long/life).
 - **Routine** — abstract base with DiaryRoutine concrete type. Contains sections with habit/task groups.
 - **Schedule** — days of the week (Monday–Sunday) linked to a routine.
 - **Checks** — daily check/skip records for habit and task groups inside routines, with XP generation tracking.
@@ -79,13 +79,16 @@ sequenceDiagram
   participant BE as Backend
   participant GO as Google
 
-  Note over U,BE: Email + Password Login
+  rect rgba(59, 130, 246, 0.25)
+  Note right of U: Email + Password Login
   U->>FE: Enter credentials
   FE->>BE: POST /auth/login
   BE-->>FE: JWT (header) + Refresh Token (HttpOnly cookie)
   FE->>FE: Store JWT in memory
+  end
 
-  Note over U,GO: Google OAuth Login
+  rect rgba(234, 88, 12, 0.25)
+  Note right of U: Google OAuth Login
   U->>FE: Click Google login
   FE->>GO: Authorization redirect
   GO-->>FE: Authorization code
@@ -93,18 +96,21 @@ sequenceDiagram
   BE->>GO: Exchange code for access token
   GO-->>BE: User profile
   BE-->>FE: JWT + Refresh Token
+  end
 
-  Note over FE,BE: Token Refresh (automatic)
+  rect rgba(16, 185, 129, 0.25)
+  Note right of U: Token Refresh (automatic)
   FE->>BE: Request with expired JWT
   BE-->>FE: 401 Unauthorized
   FE->>BE: POST /auth/refresh (cookie)
   BE-->>FE: New JWT + new Refresh Token
   FE->>BE: Retry original request
+  end
 ```
 
 ### Token details
 
-- **Access token (JWT)** — 15 minutes, HMAC256, sent in `Authorization: Bearer` header.
+- **Access token (JWT)** — 15 minutes, HMAC256, sent in the Authorization: Bearer header.
 - **Refresh token** — 15 days, opaque hashed token, HttpOnly cookie. Old token revoked on refresh.
 - **Password reset** — secure token via email, 30 min TTL, 5 min cooldown between requests. All refresh tokens revoked on reset.
 
@@ -114,39 +120,39 @@ sequenceDiagram
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
-| **Auth** | AuthenticationController | `/auth/*` |
-| **Core entities** | CategoryController, HabitController, TaskController, GoalController | `/category`, `/habit`, `/task`, `/goal` |
-| **Routines** | RoutineController, ScheduleController | `/routine`, `/schedule` |
-| **User** | UserController | `/user` |
-| **Docs** | ArchitectureDocsController, DesignDocsController, ApiDocsController, ProjectDocsController, SearchDocsController, DocsImportController | `/docs/*` |
+| **Auth** | AuthenticationController | /auth/* |
+| **Core entities** | CategoryController, HabitController, TaskController, GoalController | /category, /habit, /task, /goal |
+| **Routines** | RoutineController, ScheduleController | /routine, /schedule |
+| **User** | UserController | /user |
+| **Docs** | ArchitectureDocsController, DesignDocsController, ApiDocsController, ProjectDocsController, SearchDocsController, DocsImportController | /docs/* |
 
 ### Request/response pattern
 
 ```mermaid
 flowchart LR
-  REQ["📥 Request"] --> FILT["🛡️ Security Filter\nJWT validation"]
-  FILT --> CTRL["🎯 Controller\nDTO validation"]
-  CTRL --> SVC["⚙️ Service\nBusiness logic"]
-  SVC --> REPO["💾 Repository\nJPA queries"]
+  REQ["📥 Request"] --> FILT["🛡️ Security Filter<br/>JWT validation"]
+  FILT --> CTRL["🎯 Controller<br/>DTO validation"]
+  CTRL --> SVC["⚙️ Service<br/>Business logic"]
+  SVC --> REPO["💾 Repository<br/>JPA queries"]
   REPO --> DB[("🐘 PostgreSQL")]
   DB --> REPO
   REPO --> SVC
-  SVC --> MAP["🔄 Mapper\nEntity → DTO"]
+  SVC --> MAP["🔄 Mapper<br/>Entity → DTO"]
   MAP --> CTRL
   CTRL --> RES["📤 Response"]
 ```
 
-- Request DTOs validated with Jakarta Bean Validation (`@NotBlank`, `@Size`, `@Email`).
+- Request DTOs validated with Jakarta Bean Validation (@NotBlank, @Size, @Email).
 - Responses mapped through dedicated Mapper classes (entity → response DTO).
-- Global exception handler translates errors into standardized `ApiErrorResponse` with error keys for frontend i18n.
+- Global exception handler translates errors into standardized ApiErrorResponse with error keys for frontend i18n.
 
 ## State Management (Frontend)
 
 ```mermaid
 flowchart TD
   AX["Axios + Interceptor"]
-  ST["Redux Store\n16 slices"]
-  PS["redux-persist\nlocalStorage"]
+  ST["Redux Store<br/>16 slices"]
+  PS["redux-persist<br/>localStorage"]
   UI["React Components"]
 
   UI -->|"dispatch actions"| ST
@@ -161,40 +167,40 @@ flowchart TD
 
 | Slice | Purpose |
 |-------|---------|
-| `perfil` | User profile, XP, level, theme, language, constance |
-| `habits`, `tasks`, `goals`, `routines`, `categories` | Entity lists |
-| `editHabit`, `editTask`, `editGoal`, `editRoutine`, `editCategory` | Edit mode state |
-| `todayRoutine` | Today's scheduled routine for dashboard |
-| `viewFilters` | Sort/filter preferences per page |
-| `register`, `errorHandler` | Auth and error state |
+| perfil | User profile, XP, level, theme, language, constance |
+| habits, tasks, goals, routines, categories | Entity lists |
+| editHabit, editTask, editGoal, editRoutine, editCategory | Edit mode state |
+| todayRoutine | Today's scheduled routine for dashboard |
+| viewFilters | Sort/filter preferences per page |
+| register, errorHandler | Auth and error state |
 
 ## Gamification System
 
 ```mermaid
 flowchart LR
-  ACT["✅ Check habit/task\nin routine"] --> XP["🎮 XP Calculator"]
-  XP --> UXP["👤 User XP\n+ level up"]
-  XP --> HXP["💪 Habit XP\n+ level up"]
-  XP --> CXP["📂 Category XP\n+ level up"]
-  XP --> RXP["📋 Routine XP\n+ level up"]
-  ACT --> STR["🔥 Constance\nstreak tracking"]
+  ACT["✅ Check habit/task<br/>in routine"] --> XP["🎮 XP Calculator"]
+  XP --> UXP["👤 User XP<br/>+ level up"]
+  XP --> HXP["💪 Habit XP<br/>+ level up"]
+  XP --> CXP["📂 Category XP<br/>+ level up"]
+  XP --> RXP["📋 Routine XP<br/>+ level up"]
+  ACT --> STR["🔥 Constance<br/>streak tracking"]
 ```
 
 - **XpProgress** is an embeddable component shared by User, Category, Habit, and Routine.
 - XP is generated when a habit or task is checked inside a routine.
-- Level progression follows a seeded XP-per-level table (`XpByLevelSeeder`).
+- Level progression follows a seeded XP-per-level table (XpByLevelSeeder).
 - Constance (streak) tracks consecutive completed days on the User entity.
-- Goals award a fixed `xpReward` on completion.
+- Goals award a fixed xpReward on completion.
 
 ## Infrastructure
 
 ```mermaid
 flowchart TB
   subgraph Docker Compose
-    FE["⚛️ Frontend\n:3000"]
-    BE["🍃 Backend\n:8099"]
-    DB[("🐘 PostgreSQL\n:5490")]
-    NG["🌐 nginx\n(prod only)"]
+    FE["⚛️ Frontend<br/>:3000"]
+    BE["🍃 Backend<br/>:8099"]
+    DB[("🐘 PostgreSQL<br/>:5490")]
+    NG["🌐 nginx<br/>(prod only)"]
   end
 
   NG --> FE
@@ -203,7 +209,7 @@ flowchart TB
   BE --> DB
 ```
 
-- **Dev mode** — `up-dev.sh`: hot-reload for frontend and backend, direct port access.
-- **Prod mode** — `up-prod.sh`: nginx reverse proxy routing `/api` → backend, `/` → frontend.
-- **Reset** — `reset-db.sh`: wipes PostgreSQL data volume.
-- Environment configured via `.env` file with secrets for JWT, Google OAuth, SMTP, CORS, and docs import.
+- **Dev mode** — up-dev.sh: hot-reload for frontend and backend, direct port access.
+- **Prod mode** — up-prod.sh: nginx reverse proxy routing /api → backend, / → frontend.
+- **Reset** — reset-db.sh: wipes PostgreSQL data volume.
+- Environment configured via .env file with secrets for JWT, Google OAuth, SMTP, CORS, and docs import.
