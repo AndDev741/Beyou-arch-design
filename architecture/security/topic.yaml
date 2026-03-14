@@ -1,0 +1,10 @@
+key: security
+orderIndex: 3
+status: ACTIVE
+tags:
+  - security
+  - spring
+  - jwt
+  - oauth
+  - authentication
+projectKey: null

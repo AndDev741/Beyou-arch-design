@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant C as Client
+  participant F as Security Filter
+  participant T as Token Service
+  participant S as Spring Security
+  participant DB as Database
+
+  C->>F: Request + Authorization header
+  F->>F: Extract Bearer token
+  F->>T: validateToken(jwt)
+  T->>T: Verify HMAC256 signature + expiry
+  T-->>F: User email
+  F->>DB: Find user by email
+  DB-->>F: User entity
+  F->>S: Set authentication context
+  S-->>C: Request proceeds to controller
