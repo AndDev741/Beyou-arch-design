@@ -1,0 +1,22 @@
+erDiagram
+  USER ||--o{ CATEGORY : owns
+  USER ||--o{ HABIT : owns
+  USER ||--o{ TASK : owns
+  USER ||--o{ GOAL : owns
+  USER ||--o{ ROUTINE : owns
+
+  CATEGORY }o--o{ HABIT : categorizes
+  CATEGORY }o--o{ TASK : categorizes
+  CATEGORY }o--o{ GOAL : categorizes
+
+  ROUTINE ||--o{ ROUTINE_SECTION : contains
+  ROUTINE ||--o| SCHEDULE : "scheduled by"
+
+  ROUTINE_SECTION ||--o{ HABIT_GROUP : groups
+  ROUTINE_SECTION ||--o{ TASK_GROUP : groups
+
+  HABIT_GROUP }o--|| HABIT : references
+  TASK_GROUP }o--|| TASK : references
+
+  HABIT_GROUP ||--o{ HABIT_GROUP_CHECK : tracks
+  TASK_GROUP ||--o{ TASK_GROUP_CHECK : tracks

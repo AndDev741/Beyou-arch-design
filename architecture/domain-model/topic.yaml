@@ -1,0 +1,10 @@
+key: domain-model
+orderIndex: 2
+status: ACTIVE
+tags:
+  - domain
+  - spring
+  - jpa
+  - postgres
+  - gamification
+projectKey: null
