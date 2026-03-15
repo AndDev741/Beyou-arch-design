@@ -1,0 +1,22 @@
+flowchart TD
+  REQ["📥 Incoming Request"]
+  REQ --> CA["🔍 Controller Aspect<br/>@Around + @AfterThrowing"]
+
+  subgraph "Controller Layer"
+    CA --> CTRL["🎯 RestController"]
+  end
+
+  CTRL --> SA["🔍 Service Aspect<br/>@Before + @Around + @AfterReturning"]
+
+  subgraph "Service Layer"
+    SA --> SVC["⚙️ Service"]
+  end
+
+  SVC --> REPO["💾 Repository"]
+
+  CA -.->|"[REQUEST] signature, args, duration"| LOG["📋 SLF4J Logs"]
+  CA -.->|"[EXCEPTION] error details"| LOG
+  SA -.->|"[START] method entry"| LOG
+  SA -.->|"[PERFORMANCE] execution time"| LOG
+  SA -.->|"[END] return value"| LOG
+  SA -.->|"[ERROR] exception details"| LOG
