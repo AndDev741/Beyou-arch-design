@@ -1,0 +1,9 @@
+key: email-service
+orderIndex: 5
+status: ACTIVE
+tags:
+  - email
+  - spring
+  - notification
+  - security
+projectKey: null

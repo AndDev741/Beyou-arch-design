@@ -1,0 +1,19 @@
+sequenceDiagram
+  participant U as User
+  participant FE as Frontend
+  participant BE as PasswordResetService
+  participant ES as EmailService
+  participant TX as Transaction Manager
+  participant SMTP as SMTP Server
+
+  U->>FE: Forgot password
+  FE->>BE: POST /auth/forgot-password
+  BE->>BE: Validate user + cooldown
+  BE->>BE: Create token (BCrypt hash)
+  BE->>TX: Register afterCommit callback
+  TX->>TX: Commit transaction
+  TX->>ES: Send email (after commit)
+  ES->>ES: Build bilingual HTML template
+  ES->>SMTP: Send MIME message
+  SMTP-->>ES: Delivered
+  BE-->>FE: 200 OK
