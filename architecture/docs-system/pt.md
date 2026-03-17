@@ -142,7 +142,6 @@ sequenceDiagram
   GH-->>BE: Listagem do diretório (pastas de tópicos)
   end
 
-  rect rgba(16, 185, 129, 0.25)
   loop Cada diretório de tópico
     BE->>GH: GET .../contents/architecture/meu-topico/
     GH-->>BE: Listagem de arquivos
@@ -153,7 +152,6 @@ sequenceDiagram
     GH-->>BE: Conteúdos dos arquivos
     BE->>PAR: Parse metadados YAML + frontmatter do markdown
     PAR-->>BE: Dados estruturados do tópico
-  end
   end
 
   rect rgba(168, 85, 247, 0.25)

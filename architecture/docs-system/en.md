@@ -142,7 +142,6 @@ sequenceDiagram
   GH-->>BE: Directory listing (topic folders)
   end
 
-  rect rgba(16, 185, 129, 0.25)
   loop Each topic directory
     BE->>GH: GET .../contents/architecture/my-topic/
     GH-->>BE: File listing
@@ -153,7 +152,6 @@ sequenceDiagram
     GH-->>BE: File contents
     BE->>PAR: Parse YAML metadata + markdown frontmatter
     PAR-->>BE: Structured topic data
-  end
   end
 
   rect rgba(168, 85, 247, 0.25)
