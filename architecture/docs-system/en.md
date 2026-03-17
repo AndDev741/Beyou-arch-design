@@ -133,7 +133,7 @@ sequenceDiagram
   participant ADM as Admin
   participant BE as Import Service
   participant GH as GitHub API
-  participant PAR as Parser
+  participant P as Parser
   participant DB as Database
 
   rect rgba(59, 130, 246, 0.25)
@@ -150,8 +150,8 @@ sequenceDiagram
     BE->>GH: GET en.md (Base64 content)
     BE->>GH: GET pt.md (Base64 content)
     GH-->>BE: File contents
-    BE->>PAR: Parse YAML metadata + markdown frontmatter
-    PAR-->>BE: Structured topic data
+    BE->>P: Extract YAML metadata + markdown frontmatter
+    P-->>BE: Structured topic data
   end
 
   rect rgba(168, 85, 247, 0.25)
