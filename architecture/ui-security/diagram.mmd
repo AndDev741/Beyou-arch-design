@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant U as User
+  participant FE as React App
+  participant AX as Axios Interceptor
+  participant BE as Backend
+
+  U->>FE: Navigate to /dashboard
+  FE->>FE: useAuthGuard()
+  FE->>BE: GET /auth/verify
+  BE-->>FE: 401 Unauthorized
+  AX->>BE: POST /auth/refresh (cookie)
+  BE-->>AX: New JWT + new cookie
+  AX->>BE: Retry GET /auth/verify
+  BE-->>FE: 200 OK
+  FE->>FE: Render protected page

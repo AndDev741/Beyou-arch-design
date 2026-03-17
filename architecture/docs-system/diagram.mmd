@@ -1,0 +1,5 @@
+flowchart LR
+  GH["📦 GitHub Repo<br/>Beyou-arch-design"]
+  GH -->|"GitHub API v3<br/>(admin import)"| BE["🍃 Backend<br/>Import + Store"]
+  BE -->|"JPA"| DB[("🐘 PostgreSQL<br/>docs tables")]
+  DB -->|"REST API<br/>(public)"| UI["⚛️ Docs UI<br/>Render + Search"]

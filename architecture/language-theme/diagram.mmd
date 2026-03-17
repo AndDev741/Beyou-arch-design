@@ -1,0 +1,16 @@
+flowchart LR
+  subgraph "Theme System"
+    TS["🎨 ThemeSelector<br/>9 themes"]
+    TS --> CTX["ThemeContext<br/>CSS variables"]
+    TS --> RDX["Redux<br/>perfil.themeInUse"]
+    TS --> API["Backend API<br/>persist preference"]
+    CTX --> CSS["🖌️ :root CSS vars<br/>--background, --primary..."]
+  end
+
+  subgraph "Language System"
+    LS["🌐 LanguageSelector<br/>EN · PT"]
+    LS --> I18N["i18next<br/>changeLanguage()"]
+    LS --> RDX2["Redux<br/>perfil.languageInUse"]
+    LS --> API2["Backend API<br/>persist preference"]
+    I18N --> TRANS["📝 translation.json<br/>500+ keys"]
+  end

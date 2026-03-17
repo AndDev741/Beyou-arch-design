@@ -1,0 +1,20 @@
+flowchart TD
+  APP["⚛️ App.tsx<br/>Router + ThemeProvider"]
+  APP --> AUTH["🔐 Auth Pages<br/>Login · Register · Reset"]
+  APP --> PROT["🛡️ Protected Pages"]
+
+  PROT --> HDR["📌 Header"]
+  PROT --> DASH["📊 Dashboard"]
+  PROT --> FEAT["📋 Feature Pages<br/>Habits · Tasks · Goals<br/>Categories · Routines"]
+  PROT --> CFG["⚙️ Configuration"]
+
+  FEAT --> SORT["🔽 SortFilterBar"]
+  FEAT --> CREATE["➕ Create Form"]
+  FEAT --> RENDER["📦 Render Grid"]
+  FEAT --> EDIT["✏️ Edit Form"]
+
+  DASH --> PROFILE["👤 Profile Card"]
+  DASH --> SHORTCUTS["🔗 Shortcuts"]
+  DASH --> ROUTINE["📋 Day Routine"]
+  DASH --> GOALS["🎯 Goals View"]
+  DASH --> WIDGETS["📈 Widgets"]

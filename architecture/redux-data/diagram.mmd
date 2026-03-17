@@ -1,0 +1,8 @@
+flowchart TD
+  UI["⚛️ React Components"]
+  UI -->|"dispatch(action)"| STORE["🗄️ Redux Store<br/>16 slices"]
+  STORE -->|"useSelector()"| UI
+  STORE <-->|"hydrate / persist"| LS["💾 localStorage<br/>redux-persist"]
+  UI -->|"API calls"| AX["📡 Axios"]
+  AX -->|"dispatch on success"| STORE
+  AX -->|"auto 401 → refresh"| AX
