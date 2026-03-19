@@ -1,7 +1,7 @@
 key: beyou-backend
 orderIndex: 1
 status: ACTIVE
-designTopicKey: user-flow
+blogTopicKey: building-auth-system
 architectureTopicKey: overview
 repositoryUrl: https://github.com/AndDev741/Beyou-backend-spring
 tags:

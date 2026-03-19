@@ -1,7 +1,7 @@
 key: beyou-arch-design
 orderIndex: 4
 status: ACTIVE
-designTopicKey: user-flow
+blogTopicKey: building-auth-system
 architectureTopicKey: overview
 repositoryUrl: https://github.com/AndDev741/Beyou-arch-design
 tags:

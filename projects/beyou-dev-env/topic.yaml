@@ -1,7 +1,7 @@
 key: beyou-dev-env
 orderIndex: 5
 status: ACTIVE
-designTopicKey: user-flow
+blogTopicKey: building-auth-system
 architectureTopicKey: overview
 repositoryUrl: https://github.com/AndDev741/Beyou-dev-env
 tags:

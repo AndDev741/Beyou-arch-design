@@ -45,7 +45,7 @@ O sistema suporta quatro categorias de documentação, cada uma com seu próprio
 | Tipo | Caminho GitHub | Endpoint de Importação | Endpoints da API | Conteúdo |
 |------|---------------|----------------------|------------------|----------|
 | **Architecture** | architecture/ | /docs/admin/import/architecture | /docs/architecture/topics | Design de sistema, diagramas, decisões técnicas |
-| **Design** | design/ | /docs/admin/import/design | /docs/design/topics | Fluxos UX, jornadas de usuário, padrões de design |
+| **Blog** | blog/ | /docs/admin/import/blog | /docs/blog/topics | Posts técnicos de blog, diários de dev, deep dives |
 | **API** | api/ | /docs/admin/import/api | /docs/api/controllers | Specs OpenAPI, documentação de endpoints |
 | **Projects** | projects/ | /docs/admin/import/projects | /docs/projects/topics | Visões gerais por repo, tópicos relacionados |
 
@@ -189,7 +189,7 @@ Cada tipo de doc tem duas tabelas: uma para o tópico e uma para conteúdo espec
 ```mermaid
 erDiagram
   ARCHITECTURE_TOPIC ||--o{ ARCHITECTURE_CONTENT : "tem conteúdo por locale"
-  DESIGN_TOPIC ||--o{ DESIGN_CONTENT : "tem conteúdo por locale"
+  BLOG_TOPIC ||--o{ BLOG_CONTENT : "tem conteúdo por locale"
   API_CONTROLLER_TOPIC ||--o{ API_CONTROLLER_CONTENT : "tem conteúdo por locale"
   PROJECT_TOPIC ||--o{ PROJECT_CONTENT : "tem conteúdo por locale"
 ```
@@ -221,7 +221,7 @@ erDiagram
 | docMarkdown | Text | Corpo completo do markdown (sem frontmatter) |
 | topic_id | UUID | Chave estrangeira para o tópico pai |
 
-Outros tipos de doc seguem o mesmo padrão. Docs de API adicionalmente armazenam a spec OpenAPI em um campo apiCatalog. Docs de projeto armazenam campos extras como repositoryUrl, designTopicKey e architectureTopicKey.
+Outros tipos de doc seguem o mesmo padrão. Docs de API adicionalmente armazenam a spec OpenAPI em um campo apiCatalog. Docs de projeto armazenam campos extras como repositoryUrl, blogTopicKey e architectureTopicKey.
 
 ## API Pública
 
@@ -236,13 +236,13 @@ Todos os endpoints de leitura são públicos (sem auth) e suportam locale via qu
 
 ### Design, Projects, API
 
-Mesmo padrão — /docs/design/topics, /docs/projects/topics, /docs/api/controllers — com campos específicos do tipo.
+Mesmo padrão — /docs/blog/topics, /docs/projects/topics, /docs/api/controllers — com campos específicos do tipo.
 
 ### Busca
 
 | Endpoint | Método | Parâmetros | Resposta |
 |----------|--------|-----------|----------|
-| /docs/search | GET | q (obrigatório, mín 2 chars), locale, category (all/architecture/design/api/project), limit, offset | Resultados paginados com score e destaques |
+| /docs/search | GET | q (obrigatório, mín 2 chars), locale, category (all/architecture/blog/api/project), limit, offset | Resultados paginados com score e destaques |
 
 Comportamento da busca:
 
@@ -260,7 +260,7 @@ A docs UI busca dados da API pública e renderiza com componentes especializados
 flowchart TD
   API["🍃 API Backend"]
   API --> ARCH["Página Architecture"]
-  API --> DES["Página Design"]
+  API --> DES["Página Blog"]
   API --> PROJ["Página Projects"]
   API --> APIP["Página API"]
   API --> SRCH["Busca"]

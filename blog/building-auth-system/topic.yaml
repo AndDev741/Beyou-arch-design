@@ -1,0 +1,9 @@
+key: building-auth-system
+category: technical
+tags: [spring, security, jwt, oauth]
+featured: true
+publishedAt: 2026-03-19
+coverColor: "#8b5cf6"
+coverEmoji: "\U0001F512"
+author: "Anderson"
+status: active

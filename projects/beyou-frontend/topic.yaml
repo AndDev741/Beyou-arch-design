@@ -1,7 +1,7 @@
 key: beyou-frontend
 orderIndex: 2
 status: ACTIVE
-designTopicKey: user-flow
+blogTopicKey: building-auth-system
 architectureTopicKey: overview
 repositoryUrl: https://github.com/AndDev741/Beyou-Frontend
 tags:

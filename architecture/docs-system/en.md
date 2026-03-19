@@ -45,7 +45,7 @@ The system supports four documentation categories, each with its own GitHub dire
 | Type | GitHub Path | Import Endpoint | API Endpoints | Content |
 |------|-------------|-----------------|---------------|---------|
 | **Architecture** | architecture/ | /docs/admin/import/architecture | /docs/architecture/topics | System design, diagrams, technical decisions |
-| **Design** | design/ | /docs/admin/import/design | /docs/design/topics | UX flows, user journeys, design patterns |
+| **Blog** | blog/ | /docs/admin/import/blog | /docs/blog/topics | Technical blog posts, dev journals, deep dives |
 | **API** | api/ | /docs/admin/import/api | /docs/api/controllers | OpenAPI specs, endpoint documentation |
 | **Projects** | projects/ | /docs/admin/import/projects | /docs/projects/topics | Per-repo overviews, related topics |
 
@@ -189,7 +189,7 @@ Each doc type has two tables: one for the topic and one for locale-specific cont
 ```mermaid
 erDiagram
   ARCHITECTURE_TOPIC ||--o{ ARCHITECTURE_CONTENT : "has content per locale"
-  DESIGN_TOPIC ||--o{ DESIGN_CONTENT : "has content per locale"
+  BLOG_TOPIC ||--o{ BLOG_CONTENT : "has content per locale"
   API_CONTROLLER_TOPIC ||--o{ API_CONTROLLER_CONTENT : "has content per locale"
   PROJECT_TOPIC ||--o{ PROJECT_CONTENT : "has content per locale"
 ```
@@ -221,7 +221,7 @@ erDiagram
 | docMarkdown | Text | Full markdown body (without frontmatter) |
 | topic_id | UUID | Foreign key to parent topic |
 
-Other doc types follow the same pattern. API docs additionally store the OpenAPI spec in an apiCatalog field. Project docs store extra fields like repositoryUrl, designTopicKey, and architectureTopicKey.
+Other doc types follow the same pattern. API docs additionally store the OpenAPI spec in an apiCatalog field. Project docs store extra fields like repositoryUrl, blogTopicKey, and architectureTopicKey.
 
 ## Public API
 
@@ -236,13 +236,13 @@ All read endpoints are public (no auth required) and support locale via query pa
 
 ### Design, Projects, API
 
-Same pattern — /docs/design/topics, /docs/projects/topics, /docs/api/controllers — with type-specific fields.
+Same pattern — /docs/blog/topics, /docs/projects/topics, /docs/api/controllers — with type-specific fields.
 
 ### Search
 
 | Endpoint | Method | Parameters | Response |
 |----------|--------|-----------|----------|
-| /docs/search | GET | q (required, min 2 chars), locale, category (all/architecture/design/api/project), limit, offset | Paginated results with score and highlights |
+| /docs/search | GET | q (required, min 2 chars), locale, category (all/architecture/blog/api/project), limit, offset | Paginated results with score and highlights |
 
 Search behavior:
 
@@ -260,7 +260,7 @@ The docs UI fetches data from the public API and renders it with specialized com
 flowchart TD
   API["🍃 Backend API"]
   API --> ARCH["Architecture Page"]
-  API --> DES["Design Page"]
+  API --> DES["Blog Page"]
   API --> PROJ["Projects Page"]
   API --> APIP["API Page"]
   API --> SRCH["Search"]
