@@ -6,13 +6,23 @@ servers:
 - url: http://localhost:8099
   description: Generated server url
 paths:
-  /docs/design/topics:
+  /docs/blog/topics:
     get:
       tags:
-      - design-docs-controller
+      - blog-docs-controller
       operationId: getTopics
       parameters:
       - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: tag
         in: query
         required: false
         schema:
@@ -25,11 +35,11 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DesignTopicListItemDTO'
-  /docs/design/topics/{key}:
+                  $ref: '#/components/schemas/BlogTopicListItemDTO'
+  /docs/blog/topics/{key}:
     get:
       tags:
-      - design-docs-controller
+      - blog-docs-controller
       operationId: getTopic
       parameters:
       - name: key
@@ -48,10 +58,10 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: '#/components/schemas/DesignTopicDetailDTO'
+                $ref: '#/components/schemas/BlogTopicDetailDTO'
 components:
   schemas:
-    DesignTopicListItemDTO:
+    BlogTopicListItemDTO:
       type: object
       properties:
         key:
@@ -60,13 +70,25 @@ components:
           type: string
         summary:
           type: string
-        orderIndex:
-          type: integer
-          format: int32
+        category:
+          type: string
+        tags:
+          type: string
+        featured:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date
+        coverColor:
+          type: string
+        coverEmoji:
+          type: string
+        author:
+          type: string
         updatedAt:
           type: string
-          format: date-time
-    DesignTopicDetailDTO:
+          format: date
+    BlogTopicDetailDTO:
       type: object
       properties:
         key:
@@ -75,6 +97,21 @@ components:
           type: string
         docMarkdown:
           type: string
+        category:
+          type: string
+        tags:
+          type: string
+        featured:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date
+        coverColor:
+          type: string
+        coverEmoji:
+          type: string
+        author:
+          type: string
         updatedAt:
           type: string
-          format: date-time
+          format: date

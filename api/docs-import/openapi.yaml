@@ -6,16 +6,16 @@ servers:
 - url: http://localhost:8099
   description: Generated server url
 paths:
-  /docs/admin/import/design:
+  /docs/admin/import/blog:
     post:
       tags:
       - docs-import-controller
-      operationId: importDesign
+      operationId: importBlog
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DesignDocsImportRequestDTO'
+              $ref: '#/components/schemas/BlogDocsImportRequestDTO'
       responses:
         '200':
           description: OK
@@ -63,9 +63,28 @@ paths:
                 type: object
                 additionalProperties:
                   type: object
+  /docs/admin/import/projects:
+    post:
+      tags:
+      - docs-import-controller
+      operationId: importProjects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectDocsImportRequestDTO'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
 components:
   schemas:
-    DesignDocsImportRequestDTO:
+    BlogDocsImportRequestDTO:
       type: object
       properties:
         repoOwner:
@@ -92,6 +111,19 @@ components:
         token:
           type: string
     ApiDocsImportRequestDTO:
+      type: object
+      properties:
+        repoOwner:
+          type: string
+        repoName:
+          type: string
+        branch:
+          type: string
+        path:
+          type: string
+        token:
+          type: string
+    ProjectDocsImportRequestDTO:
       type: object
       properties:
         repoOwner:
