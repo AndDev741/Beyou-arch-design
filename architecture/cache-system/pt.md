@@ -42,7 +42,7 @@ flowchart LR
   CM --> T2
   CM --> T3
   SC -->|cache miss| DB
-  CM -->|.recordStats()| PR
+  CM -->|recordStats| PR
   PR --> GR
 ```
 
