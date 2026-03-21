@@ -1,0 +1,9 @@
+key: cache-system
+orderIndex: 11
+status: ACTIVE
+tags:
+  - cache
+  - caffeine
+  - performance
+  - spring
+projectKey: null

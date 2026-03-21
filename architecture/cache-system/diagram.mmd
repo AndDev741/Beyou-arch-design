@@ -1,0 +1,30 @@
+sequenceDiagram
+  participant C as Client
+  participant BE as Spring Boot
+  participant CM as CacheManager
+  participant CF as Caffeine Cache
+  participant DB as PostgreSQL
+
+  C->>BE: GET /category (Bearer JWT)
+  BE->>CM: @Cacheable lookup (key: userId)
+  CM->>CF: get(userId)
+  alt Cache Hit
+    CF-->>CM: Cached data
+    CM-->>BE: Return cached DTO list
+    BE-->>C: 200 OK (no DB query)
+  else Cache Miss
+    CF-->>CM: null
+    CM-->>BE: Proceed to method
+    BE->>DB: SELECT * FROM categories WHERE user_id = ?
+    DB-->>BE: Category rows
+    BE->>BE: Map to DTOs
+    BE->>CF: put(userId, dtoList)
+    BE-->>C: 200 OK
+  end
+
+  Note over C,DB: On any write operation:
+  C->>BE: POST /category (create)
+  BE->>DB: INSERT INTO categories
+  BE->>CM: UserCacheEvictService.evictAllUserCaches(userId)
+  CM->>CF: evict categories, habits, tasks, goals, routines, schedules, todayRoutine
+  BE-->>C: 200 OK
