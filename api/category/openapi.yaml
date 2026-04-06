@@ -94,9 +94,8 @@ components:
     CategoryRequestDTO:
       required:
       - icon
-      - level
       - name
-      - xp
+      - experience
       type: object
       properties:
         name:
@@ -107,12 +106,15 @@ components:
           type: string
         description:
           type: string
-        level:
-          type: integer
-          format: int32
-        xp:
-          type: integer
-          format: int32
+        experience:
+          $ref: '#/components/schemas/ExperienceLevel'
+    ExperienceLevel:
+      type: string
+      description: Starting experience tier. Server resolves to actual xp/level values.
+      enum:
+      - BEGINNER
+      - INTERMEDIARY
+      - ADVANCED
     CategoryResponseDTO:
       type: object
       properties:

@@ -6,6 +6,61 @@ servers:
 - url: http://localhost:8099
   description: Generated server url
 paths:
+  /user/export:
+    get:
+      tags:
+      - user-export-controller
+      summary: Export all user data (GDPR)
+      description: Returns all data belonging to the authenticated user in JSON format. Includes profile, categories, habits, goals, and tasks.
+      operationId: exportUserData
+      responses:
+        '200':
+          description: User data export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exportedAt:
+                    type: string
+                    format: date-time
+                  profile:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      email:
+                        type: string
+                      photo:
+                        type: string
+                      createdAt:
+                        type: string
+                        format: date
+                      isGoogleAccount:
+                        type: boolean
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                  habits:
+                    type: array
+                    items:
+                      type: object
+                  goals:
+                    type: array
+                    items:
+                      type: object
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+        '429':
+          description: Rate limited
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
   /user:
     put:
       tags:

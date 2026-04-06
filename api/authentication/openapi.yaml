@@ -122,6 +122,36 @@ paths:
             '*/*':
               schema:
                 type: string
+  /auth/verify-email:
+    get:
+      tags:
+      - auth-verification-controller
+      summary: Verify user email address
+      description: Validates the email verification token sent during registration. Sets emailVerified=true on success.
+      operationId: verifyEmail
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Email verified successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: string
+                    example: Email verified successfully
+        '400':
+          description: Invalid or expired verification token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
   /auth/reset-password/validate:
     get:
       tags:
@@ -182,15 +212,27 @@ components:
       type: object
       properties:
         name:
+          maxLength: 256
+          minLength: 2
           type: string
         email:
           maxLength: 256
           minLength: 0
           type: string
         password:
+          maxLength: 256
+          minLength: 12
           type: string
-        isGoogleAccount:
-          type: boolean
+          description: Must contain at least 2 character classes (lowercase, uppercase, digits, special)
+    ApiErrorResponse:
+      type: object
+      properties:
+        errorKey:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
     UserLoginDTO:
       required:
       - email

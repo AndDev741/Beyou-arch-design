@@ -82,6 +82,9 @@ paths:
 components:
   schemas:
     EditHabitDTO:
+      required:
+      - importance
+      - dificulty
       type: object
       properties:
         habitId:
@@ -98,15 +101,23 @@ components:
         importance:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 5
         dificulty:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 5
         categoriesId:
           type: array
           items:
             type: string
             format: uuid
     CreateHabitDTO:
+      required:
+      - importance
+      - dificulty
+      - experience
       type: object
       properties:
         name:
@@ -120,20 +131,27 @@ components:
         importance:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 5
         dificulty:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 5
         categoriesId:
           type: array
           items:
             type: string
             format: uuid
-        xp:
-          type: integer
-          format: int32
-        level:
-          type: integer
-          format: int32
+        experience:
+          $ref: '#/components/schemas/ExperienceLevel'
+    ExperienceLevel:
+      type: string
+      description: Starting experience tier. Server resolves to actual xp/level values.
+      enum:
+      - BEGINNER
+      - INTERMEDIARY
+      - ADVANCED
     Category:
       required:
       - name
