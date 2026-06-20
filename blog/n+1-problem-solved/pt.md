@@ -1,5 +1,5 @@
 ---
-title: "Como eu identifico e resolvo o problema N+1 no Beyou"
+title: "Como eu identifiquei e resolvi o problema N+1 no Beyou"
 summary: "O problema N+1 é comum em apps que dependem de JPA e Hibernate. Parei pra investigar como eles aparecem, como identificar e como resolver."
 ---
 
