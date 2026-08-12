@@ -1,0 +1,158 @@
+name: Publish docs
+
+# Content lives here; the site that shows it is built somewhere else.
+#
+# The chain has three links and they only work in order:
+#   1. this workflow imports the markdown into the backend's database
+#   2. it then asks Beyou-docs-ui to rebuild
+#   3. that build prerenders every page by reading the API, and publishes an
+#      image which watchtower rolls out
+#
+# Step 3 reads the database, so importing has to finish first. That is the whole
+# reason the dispatch lives at the end of this job rather than in its own
+# workflow: a rebuild that starts before the import lands publishes the previous
+# version of the content and looks like nothing happened.
+
+on:
+  push:
+    branches: [main]
+    # Only content moves the site. Editing a README should not spend eight
+    # minutes rebuilding and redeploying it.
+    paths:
+      - "architecture/**"
+      - "blog/**"
+      - "api/**"
+      - "projects/**"
+  workflow_dispatch:
+
+# Never let two runs import at once. The importers archive any topic missing
+# from the source, so interleaving an older run with a newer one can archive
+# something the newer run just added. Queue instead of cancelling: a cancelled
+# run may have imported some collections but not dispatched, leaving the
+# database ahead of the published site.
+concurrency:
+  group: publish-docs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Import content and rebuild the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      API_URL: ${{ vars.DOCS_API_URL || 'https://api.beyouweb.com/api/v1' }}
+
+    steps:
+      - name: Sign in
+        env:
+          EMAIL: ${{ secrets.DOCS_IMPORT_EMAIL }}
+          PASSWORD: ${{ secrets.DOCS_IMPORT_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EMAIL:-}" ] || [ -z "${PASSWORD:-}" ]; then
+            echo "::error::DOCS_IMPORT_EMAIL / DOCS_IMPORT_PASSWORD are not set."
+            exit 1
+          fi
+
+          headers="$(mktemp)"
+
+          # jq builds the JSON so a password containing quotes or backslashes
+          # cannot break out of the string.
+          status="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' \
+            -X POST "$API_URL/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p}')")"
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Login failed with HTTP $status."
+            echo "A 401 means bad credentials; a 403 with EMAIL_NOT_VERIFIED means"
+            echo "the account exists but never confirmed its address."
+            exit 1
+          fi
+
+          # The access token comes back as a response header, not in the body --
+          # the body carries the user and, for mobile clients, a refresh token.
+          # `|| true` matters under `set -o pipefail`: grep exits 1 when it finds
+          # nothing, which would kill the step here and skip the explanation below
+          # -- the exact case the check exists for.
+          token="$(grep -i '^x-access-token:' "$headers" | tr -d '\r' | cut -d' ' -f2- || true)"
+          rm -f "$headers"
+
+          if [ -z "$token" ]; then
+            echo "::error::Login returned 200 but no X-Access-Token header."
+            exit 1
+          fi
+
+          # Registers the value with the runner so it is redacted from every log
+          # line from here on, including ones written by later steps.
+          echo "::add-mask::$token"
+          echo "ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Import content
+        env:
+          IMPORT_SECRET: ${{ secrets.DOCS_IMPORT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${IMPORT_SECRET:-}" ]; then
+            echo "::error::DOCS_IMPORT_SECRET is not set."
+            exit 1
+          fi
+
+          # Order does not matter -- the four collections are independent -- but
+          # all of them must succeed before the site is told to rebuild.
+          for collection in architecture blog api projects; do
+            body="$(mktemp)"
+            status="$(curl -sS -o "$body" -w '%{http_code}' \
+              -X POST "$API_URL/docs/admin/import/$collection" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "X-Docs-Import-Secret: $IMPORT_SECRET")"
+
+            if [ "$status" != "200" ]; then
+              echo "::error::Import of '$collection' failed with HTTP $status: $(cat "$body")"
+              echo "401 means the token was rejected, 403 means the import secret was."
+              exit 1
+            fi
+
+            imported="$(jq -r '.importedTopics // "?"' < "$body" 2>/dev/null || echo '?')"
+            archived="$(jq -r '.archivedTopics // "?"' < "$body" 2>/dev/null || echo '?')"
+            # Archived is how a deletion travels: a topic no longer present here
+            # is archived in the database, disappears from the API, and the next
+            # build simply stops emitting its page.
+            echo "$collection: $imported imported, $archived archived"
+            rm -f "$body"
+          done
+
+      - name: Rebuild the site
+        env:
+          # A PAT, not GITHUB_TOKEN: the built-in token cannot dispatch events to
+          # a different repository. Needs no more than repo scope on Beyou-docs-ui.
+          DISPATCH_TOKEN: ${{ secrets.DOCS_UI_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "::error::DOCS_UI_DISPATCH_TOKEN is not set."
+            exit 1
+          fi
+
+          status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "https://api.github.com/repos/AndDev741/Beyou-docs-ui/dispatches" \
+            -H "Authorization: Bearer $DISPATCH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --data '{"event_type":"docs-content-updated"}')"
+
+          # A dispatch that is accepted returns 204 with no body.
+          if [ "$status" != "204" ]; then
+            echo "::error::Dispatch to Beyou-docs-ui failed with HTTP $status."
+            echo "404 usually means the token cannot see that repository."
+            exit 1
+          fi
+
+          echo "Rebuild requested: https://github.com/AndDev741/Beyou-docs-ui/actions"
