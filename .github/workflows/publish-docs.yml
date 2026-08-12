@@ -130,8 +130,16 @@ jobs:
 
       - name: Rebuild the site
         env:
-          # A PAT, not GITHUB_TOKEN: the built-in token cannot dispatch events to
-          # a different repository. Needs no more than repo scope on Beyou-docs-ui.
+          # A PAT, not GITHUB_TOKEN: the built-in token is scoped to the
+          # repository running the workflow, so it cannot raise an event in
+          # Beyou-docs-ui.
+          #
+          # GitHub documents `repo` scope for a classic token on this endpoint.
+          # It does not document the fine-grained equivalent; in practice a
+          # fine-grained token limited to Beyou-docs-ui with Contents:
+          # read and write works, and is worth preferring because `repo` grants
+          # far more than dispatching. If the fine-grained one is not enough the
+          # call returns 404 rather than 403 -- see the message below.
           DISPATCH_TOKEN: ${{ secrets.DOCS_UI_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
