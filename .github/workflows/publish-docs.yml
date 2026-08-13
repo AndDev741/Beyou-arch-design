@@ -156,10 +156,23 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             --data '{"event_type":"docs-content-updated"}')"
 
-          # A dispatch that is accepted returns 204 with no body.
+          # A dispatch that is accepted returns 204 with no body. The three ways
+          # it fails are distinct and point at different fixes, so name them --
+          # a message that only explains one of them sends the reader down the
+          # wrong path when they hit another.
           if [ "$status" != "204" ]; then
             echo "::error::Dispatch to Beyou-docs-ui failed with HTTP $status."
-            echo "404 usually means the token cannot see that repository."
+            case "$status" in
+              401) echo "The token was not accepted at all: expired, revoked, or mistyped." ;;
+              403) echo "The token is valid and can see the repository, but is not allowed"
+                   echo "to dispatch. This endpoint needs 'repo' scope on a classic token"
+                   echo "(a token with no scopes can still read public repos, which is why"
+                   echo "one borrowed from a read-only job authenticates and then fails"
+                   echo "here), or Contents: read and write on a fine-grained one." ;;
+              404) echo "The token cannot see AndDev741/Beyou-docs-ui. GitHub returns 404"
+                   echo "rather than 403 when a token has no visibility at all, so check"
+                   echo "the repository is in the token's scope before checking permissions." ;;
+            esac
             exit 1
           fi
 
