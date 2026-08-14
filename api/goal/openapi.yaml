@@ -67,8 +67,7 @@ paths:
         content:
           application/json:
             schema:
-              type: string
-              format: uuid
+              $ref: '#/components/schemas/UpdateGoalValueDTO'
         required: true
       responses:
         '200':
@@ -86,8 +85,7 @@ paths:
         content:
           application/json:
             schema:
-              type: string
-              format: uuid
+              $ref: '#/components/schemas/UpdateGoalValueDTO'
         required: true
       responses:
         '200':
@@ -411,3 +409,16 @@ components:
           - SHORT_TERM
           - MEDIUM_TERM
           - LONG_TERM
+    UpdateGoalValueDTO:
+      required:
+      - goalId
+      type: object
+      properties:
+        goalId:
+          type: string
+          format: uuid
+        value:
+          minimum: 0
+          exclusiveMinimum: true
+          type: number
+          format: double
