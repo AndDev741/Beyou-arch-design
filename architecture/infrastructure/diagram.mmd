@@ -1,0 +1,39 @@
+flowchart TB
+  U["🌍 Visitors"]
+  CF["☁️ Cloudflare edge<br/>DNS · TLS · Tunnel"]
+  CP["📄 Cloudflare Pages<br/>beyouweb.com"]
+  TS["🔗 Tailscale<br/>private network"]
+  GH["📦 GHCR<br/>published images"]
+
+  subgraph home["Home network · no ports forwarded"]
+    RT["📡 Router"]
+    subgraph laptop["LG S460 · Debian 13 headless"]
+      CD["cloudflared<br/>outbound tunnel"]
+      TSD["tailscaled<br/>SSH access"]
+      F2B["fail2ban"]
+      subgraph docker["Docker · loopback only"]
+        WEBN["web nginx :3000<br/>app.beyouweb.com"]
+        DOCSN["docs nginx :3002<br/>docs.beyouweb.com"]
+        GF["Grafana :3001<br/>obs.beyouweb.com"]
+        GT["GlitchTip :8000<br/>mnt.beyouweb.com"]
+        BE["backend :8099"]
+        DB[("postgres")]
+        WT["watchtower"]
+      end
+    end
+  end
+
+  U --> CF
+  U --> CP
+  laptop ---|"LAN cable"| RT
+  F2B -.-|"guards sshd"| TSD
+  CD ---|"dials out, stays connected"| CF
+  CD --> WEBN
+  CD --> DOCSN
+  CD --> GF
+  CD --> GT
+  WEBN -->|"/api/v1 proxy"| BE
+  DOCSN -->|"/api/v1 proxy"| BE
+  BE --> DB
+  TSD ---|"admin SSH"| TS
+  WT -->|"pulls new images"| GH
