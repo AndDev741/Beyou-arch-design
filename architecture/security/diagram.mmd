@@ -1,16 +1,25 @@
-sequenceDiagram
-  participant C as Client
-  participant F as Security Filter
-  participant T as Token Service
-  participant S as Spring Security
-  participant DB as Database
+flowchart LR
+  subgraph client["Client"]
+    FE["⚛️ Web / 📱 Mobile<br/>JWT in memory · 15 min"]
+  end
 
-  C->>F: Request + Authorization header
-  F->>F: Extract Bearer token
-  F->>T: validateToken(jwt)
-  T->>T: Verify HMAC256 signature + expiry
-  T-->>F: User email
-  F->>DB: Find user by email
-  DB-->>F: User entity
-  F->>S: Set authentication context
-  S-->>C: Request proceeds to controller
+  subgraph pipeline["Request pipeline"]
+    SF["🛡️ SecurityFilter<br/>Bearer JWT · HMAC256"]
+    RL["🚦 RateLimitFilter<br/>10 bucket tiers"]
+    DS["🔏 DocsImportSecretFilter"]
+  end
+
+  subgraph server["Server side"]
+    LA["🔒 Login lockout<br/>10 fails / 15 min per account"]
+    RT["🔄 Refresh tokens<br/>BCrypt hash · rotation · 15 d"]
+    OWN["👤 Ownership check<br/>in every service"]
+    VAL["⛔ Boot validators<br/>refuse bad prod config"]
+  end
+
+  FE -->|"Authorization: Bearer"| SF
+  SF --> RL --> OWN
+  FE -->|"HttpOnly cookie (web)<br/>X-Refresh-Token (mobile)"| RT
+  FE <-->|"OAuth 2.0 / ID token"| GO["🔐 Google"]
+  LA -.-|"guards /auth/login"| SF
+  DS -.-|"guards /docs/admin"| OWN
+  VAL -.-|"at startup"| server
