@@ -1,22 +1,17 @@
 flowchart TD
-  REQ["📥 Incoming Request"]
-  REQ --> CA["🔍 Controller Aspect<br/>@Around + @AfterThrowing"]
+  REQ["📥 Request"] --> FILT["🛡️ Security + rate-limit filters<br/>(429s never reach the aspects)"]
+  FILT --> CA["🔍 ControllerLogging<br/>@RestController pointcut"]
+  CA --> CTRL["🎯 Controller method"]
+  CTRL --> SA["🔍 ServiceMethodsLogging<br/>@Service pointcut"]
+  SA --> SVC["⚙️ Service method"]
+  SVC --> DB["💾 Repository"]
 
-  subgraph "Controller Layer"
-    CA --> CTRL["🎯 RestController"]
-  end
+  CA -.->|"[REQUEST] duration (success only)"| INFO["📋 INFO"]
+  SA -.->|"[START] arg count · [END] · [PERFORMANCE]"| INFO
+  CA -.->|"[CLIENT_ERROR] expected, no trace"| WARN["📋 WARN"]
+  SA -.->|"[ERROR] + trace"| ERR["📋 ERROR"]
+  CA -.->|"[EXCEPTION] + trace"| ERR
 
-  CTRL --> SA["🔍 Service Aspect<br/>@Before + @Around + @AfterReturning"]
-
-  subgraph "Service Layer"
-    SA --> SVC["⚙️ Service"]
-  end
-
-  SVC --> REPO["💾 Repository"]
-
-  CA -.->|"[REQUEST] signature, args, duration"| LOG["📋 SLF4J Logs"]
-  CA -.->|"[EXCEPTION] error details"| LOG
-  SA -.->|"[START] method entry"| LOG
-  SA -.->|"[PERFORMANCE] execution time"| LOG
-  SA -.->|"[END] return value"| LOG
-  SA -.->|"[ERROR] exception details"| LOG
+  INFO -->|"breadcrumbs excluded"| GT["🛡️ GlitchTip"]
+  ERR -->|"becomes an event, deduplicated"| GT
+  WARN -.->|"below event threshold"| GT

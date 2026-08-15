@@ -1,30 +1,26 @@
-sequenceDiagram
-  participant C as Client
-  participant BE as Spring Boot
-  participant CM as CacheManager
-  participant CF as Caffeine Cache
-  participant DB as PostgreSQL
-
-  C->>BE: GET /category (Bearer JWT)
-  BE->>CM: @Cacheable lookup (key: userId)
-  CM->>CF: get(userId)
-  alt Cache Hit
-    CF-->>CM: Cached data
-    CM-->>BE: Return cached DTO list
-    BE-->>C: 200 OK (no DB query)
-  else Cache Miss
-    CF-->>CM: null
-    CM-->>BE: Proceed to method
-    BE->>DB: SELECT * FROM categories WHERE user_id = ?
-    DB-->>BE: Category rows
-    BE->>BE: Map to DTOs
-    BE->>CF: put(userId, dtoList)
-    BE-->>C: 200 OK
+flowchart LR
+  subgraph callers["Callers"]
+    FE["⚛️ Web / 📱 Mobile"]
+    AG["🤖 AI agent tools"]
   end
 
-  Note over C,DB: On any write operation:
-  C->>BE: POST /category (create)
-  BE->>DB: INSERT INTO categories
-  BE->>CM: UserCacheEvictService.evictAllUserCaches(userId)
-  CM->>CF: evict categories, habits, tasks, goals, routines, schedules, todayRoutine
-  BE-->>C: 200 OK
+  subgraph layer["Spring cache layer"]
+    SC["@Cacheable services"]
+    EC["UserCacheEvictService<br/>interactive · batch · shared"]
+  end
+
+  subgraph tiers["Caffeine tiers"]
+    T1["8 domain caches<br/>per-user keys · 30 min"]
+    T2["xpByLevel<br/>no expiry"]
+    T3["8 docs caches<br/>per-locale keys · 120 min"]
+  end
+
+  FE --> SC
+  AG --> SC
+  SC -->|"hit"| T1
+  SC --> T2
+  SC --> T3
+  SC -->|"miss"| DB[("🐘 PostgreSQL")]
+  EC -->|"write → drop user's entries"| T1
+  IMP["📦 Docs import"] -->|"clear all"| T3
+  T1 -->|"recordStats"| MON["📈 Prometheus → Grafana"]

@@ -1,316 +1,141 @@
 ---
 title: "Sistema de Cache"
-summary: "Como a camada de cache em memória com Caffeine funciona no backend do Beyou, cobrindo os níveis de cache, estratégia de invalidação e monitoramento."
+summary: "Como a camada Caffeine funciona no backend: três tiers de cache, a estratégia de evicção por usuário e sua única exceção global, e os caches que vivem fora do gerenciador do Spring."
 ---
 
-Este documento explica a arquitetura de cache do Beyou, desde como as leituras são cacheadas até como as escritas invalidam dados desatualizados. Cobre os níveis de cache, a estratégia de invalidação, a limpeza agendada de tarefas e o setup de monitoramento.
+Este documento explica a arquitetura de cache do Beyou: o que é cacheado e por quanto tempo, como escritas invalidam dados velhos, por que o agente de IA enxerga o mesmo cache que a API REST e quais caches em memória existem completamente fora do gerenciador do Spring.
 
-## Cache em Resumo
+## Cache em uma olhada
 
 ```mermaid
 flowchart LR
-  subgraph "Cliente"
-    FE["Frontend"]
+  subgraph clients["Chamadores"]
+    FE["Web / Mobile"]
+    AG["Ferramentas do agente de IA"]
   end
 
-  subgraph "Backend Spring Boot"
-    SC["Serviços @Cacheable"]
+  subgraph spring["Camada Spring Cache"]
+    SC["Services @Cacheable"]
     EC["UserCacheEvictService"]
     CM["CaffeineCacheManager"]
   end
 
-  subgraph "Níveis de Cache"
-    T1["Nível 1: Caches de Domínio\n30min TTL, 500 max"]
-    T2["Nível 2: Cache de Referência\nSem TTL, 100 max"]
-    T3["Fallback: Caches de Docs\n120min TTL, 30 max"]
+  subgraph tiers["Tiers"]
+    T1["Domínio: 8 caches<br/>30 min · máx 500"]
+    T2["Referência: xpByLevel<br/>sem expiração · máx 100"]
+    T3["Docs: 8 caches<br/>120 min · máx 30"]
   end
 
-  subgraph "Armazenamento"
-    DB["PostgreSQL"]
-  end
-
-  subgraph "Monitoramento"
-    PR["Prometheus"]
-    GR["Grafana"]
-  end
-
-  FE -->|leituras| SC
-  FE -->|escritas| EC
+  FE --> SC
+  AG --> SC
   SC --> CM
   EC --> CM
   CM --> T1
   CM --> T2
   CM --> T3
-  SC -->|cache miss| DB
-  CM -->|recordStats| PR
-  PR --> GR
+  SC -->|"miss"| DB[("PostgreSQL")]
+  CM -->|"recordStats"| PR["Prometheus → Grafana"]
 ```
 
-**Decisões de design principais:**
+**Decisões de design centrais:**
 
-- Cache em memória com Caffeine, sem infraestrutura externa (sem Redis)
-- Chaves por usuário para todos os caches de domínio, uma entrada por usuário por tipo de entidade
-- Invalidação ampla nas escritas, todos os caches de um usuário são limpos em qualquer mutação
-- Invalidação centralizada via `UserCacheEvictService`, fonte única de verdade
-- Configuração em dois níveis, TTL curto para dados de usuário, permanente para dados de referência estáticos
-- Métricas Prometheus via Micrometer `.recordStats()` para todos os caches
+- Caffeine em memória, sem infraestrutura externa. Em um único host, Redis acrescentaria um salto de rede para não economizar nada.
+- Os caches de domínio são chaveados por usuário: uma entrada por usuário por tipo de entidade.
+- Escritas evictam de forma ampla: qualquer mutação derruba todos os caches de domínio daquele usuário. Simples ganha de cirúrgico aqui, e o código diz isso de propósito.
+- TTLs e tamanhos vivem em código (CacheConfig), não em arquivos de configuração.
+- Tudo sob o gerenciador registra estatísticas para o Prometheus.
 
-## Nomes dos Caches e Configuração
+## Os três tiers
 
-### Nível 1: Caches de Domínio (por usuário, 30min TTL, 500 entradas max)
+### Caches de domínio (TTL 30 min, máx 500 entradas)
 
-| Nome do Cache | Método do Serviço | Chave | Retorna |
-|---------------|-------------------|-------|---------|
-| `categories` | `CategoryService.getAllCategories(userId)` | `userId` | `List<CategoryResponseDTO>` |
-| `habits` | `HabitService.getHabits(userId)` | `userId` | `List<HabitResponseDTO>` |
-| `tasks` | `TaskService.getAllTasks(userId)` | `userId` | `List<TaskResponseDTO>` |
-| `goals` | `GoalService.getAllGoals(userId)` | `userId` | `List<GoalResponseDTO>` |
-| `routines` | `DiaryRoutineService.getAllDiaryRoutines(userId)` | `userId` | `List<DiaryRoutineResponseDTO>` |
-| `routine` | `DiaryRoutineService.getDiaryRoutineById(id, userId)` | `userId + "_" + routineId` | `DiaryRoutineResponseDTO` |
-| `todayRoutine` | `DiaryRoutineService.getTodayRoutineScheduled(userId)` | `userId` | `DiaryRoutineResponseDTO` |
-| `schedules` | `ScheduleService.findAll(userId)` | `userId` | `List<ScheduleResponseDTO>` |
+| Cache | Método | Chave |
+|-------|--------|-------|
+| categories | CategoryService.getAllCategories | userId |
+| habits | HabitService.getHabits | userId |
+| tasks | TaskService.getAllTasks | userId |
+| goals | GoalService.getAllGoals | userId |
+| routines | DiaryRoutineService.getAllDiaryRoutines | userId |
+| routine | DiaryRoutineService.getDiaryRoutineById | userId + "_" + routineId |
+| todayRoutine | DiaryRoutineService.getTodayRoutineScheduled | userId, resultados nulos nunca são cacheados |
+| schedules | ScheduleService.findAll | userId |
 
-**Nota sobre `todayRoutine`:** Este método pode retornar `null` quando nenhuma rotina está agendada para hoje. A anotação `@Cacheable` usa `unless = "#result == null"` para que resultados nulos não sejam cacheados, eles sempre vão ao banco.
+Todos os métodos cacheados devolvem DTOs, nunca entidades JPA, então nada lazy ou detached sai de um cache. O cache `routine` é o diferente: sua chave composta o torna o único cache de domínio que o Spring não consegue evictar por usuário, o que molda todo o design de evicção abaixo.
 
-### Nível 2: Cache de Referência (permanente, 100 entradas max)
+### Cache de referência (sem expiração)
 
-| Nome do Cache | Método | Chave | Retorna |
-|---------------|--------|-------|---------|
-| `xpByLevel` | `XpByLevelRepository.findByLevel(level)` | `level` | `XpByLevel` |
+O `xpByLevel` cacheia a curva de levels, uma entrada por level, com a anotação direto na interface do repositório. A tabela por baixo é semeada por uma migração repetível do Flyway, então os valores cacheados só mudam em um restart depois de um reseed. Sem TTL é a configuração honesta para dados que só mudam por migração.
 
-Tabela de lookup estática que é carregada na inicialização (níveis 1-100). Nunca muda em runtime, então não tem TTL. Só é invalidada no restart da JVM.
+### Caches de docs (TTL 120 min, máx 30 entradas)
 
-### Fallback: Caches de Docs (120min TTL, 30 entradas max)
+Oito caches, dois por área de documentação (lista + detalhe), criados de forma preguiçosa no primeiro pedido e chaveados por locale normalizado (a lista do blog também chaveia por categoria e tag). A normalização de locale existe porque `?locale=EN`, `?locale=en` e nenhum locale precisam dividir uma entrada, e porque uma chave nula crua devolvia 400 em toda listagem de docs. Esses caches só são evictados por uma importação de docs, que os limpa por inteiro.
 
-| Nome do Cache | Serviço | Finalidade |
-|---------------|---------|-----------|
-| `apiTopics` / `apiTopic` | `ApiControllerService` | Documentação de API |
-| `architectureTopics` / `architectureTopic` | `ArchitectureTopicService` | Docs de arquitetura |
-| `blogTopics` / `blogTopic` | `BlogTopicService` | Posts do blog |
-| `projectsTopics` / `projectsTopic` | `ProjectTopicService` | Docs de projetos |
+## Como a evicção funciona
 
-Esses caches são chaveados por locale (e opcionalmente por chave do tópico). São invalidados quando a documentação é reimportada pelos endpoints `/docs/admin/import`.
+Uma ação do usuário pode tocar metade do domínio: marcar um hábito atualiza o hábito, a rotina, o usuário e cada categoria ligada. Perseguir entradas individuais seria frágil, então o design vai no amplo.
 
-## Como as Leituras Funcionam
+O `UserCacheEvictService` tem três portas de entrada:
 
-```mermaid
-sequenceDiagram
-  participant U as Usuário
-  participant BE as Spring Boot
-  participant C as Cache Caffeine
-  participant DB as PostgreSQL
+| Método | O que faz | Quem chama |
+|--------|-----------|------------|
+| evictAllUserCaches(userId) | Derruba a entrada do usuário nos 7 caches por usuário e então limpa o cache compartilhado `routine` | Toda escrita interativa |
+| evictUserScopedCaches(userId) | As mesmas 7 quedas, sem tocar o cache compartilhado | Jobs em lote, por usuário no loop |
+| clearSharedRoutineCache() | `cache.clear()` no `routine`, todos os usuários | Jobs em lote, uma vez ao final |
 
-  U->>BE: GET /category
-  BE->>C: Verificar cache "categories" (chave: userId)
-  alt Cache Hit
-    C-->>BE: Retornar dados do cache
-    BE-->>U: 200 OK (rápido, sem DB)
-  else Cache Miss
-    C-->>BE: Não encontrado
-    BE->>DB: SELECT categories WHERE user_id = ?
-    DB-->>BE: Lista de categorias
-    BE->>C: Armazenar no cache (chave: userId)
-    BE-->>U: 200 OK (mais lento, query no DB)
-  end
-```
+A separação existe por uma razão de escala que o código explica: os jobs de fechamento de dia e de snapshot percorrem muitos usuários, e chamar o método interativo nesse loop limparia o cache compartilhado de rotinas uma vez por usuário. Mil usuários significariam mil limpezas completas. O caminho de lote derruba entradas por usuário dentro do loop e limpa o compartilhado exatamente uma vez, e testes de integração fixam esse comportamento.
 
-Todos os métodos cacheados retornam DTOs (Java records), não entidades JPA. Isso evita problemas de entidade desanexada e exceções de lazy-load em objetos cacheados.
+O custo honesto do design: como `routine` usa chaves compostas, um usuário editando uma rotina descarta o detalhe de rotina cacheado de todos os usuários. Em um deployment de host único com TTL de 30 minutos isso é aceitável; também é a primeira coisa a revisitar se leituras de rotina esquentarem.
 
-## Como a Invalidação Funciona
+**Caminhos de escrita que evictam** (sempre dentro do método de service, depois da escrita): create/edit/delete de categoria, hábito, tarefa, meta e schedule; check, increase e decrease de meta; create, update, delete e adição/remoção de itens de rotina; check e skip ao vivo; e os check-ins de snapshot, que também mexem em XP. O agente de IA não precisa de lista própria, como a próxima seção explica.
 
-### O Problema
+As anotações de evicção são deliberadamente duplicadas entre os dois métodos por usuário em vez de delegadas, porque uma auto-invocação passaria por fora do proxy e silenciosamente não evictaria nada. O comentário na classe avisa que um cache adicionado a um bloco precisa entrar no outro.
 
-Uma única ação do usuário pode tocar em múltiplas entidades. Por exemplo, marcar um hábito numa rotina dispara cálculos de XP que atualizam o Usuário, a Rotina, o Hábito e todas as Categorias vinculadas. São potencialmente 5+ entidades mudando numa única transação.
+## Um cache, duas portas: REST e o agente de IA
 
-### A Solução: Invalidação Ampla Centralizada
+As ferramentas do agente injetam os mesmos services que os controllers usam, então leituras de ferramenta acertam as mesmas entradas `@Cacheable` e escritas de ferramenta rodam a mesma evicção. A consistência é por construção, não por disciplina. Três detalhes fazem isso funcionar:
 
-Em vez de invalidar cirurgicamente entradas individuais do cache, todos os caches de um usuário são limpos em qualquer operação de escrita via `UserCacheEvictService`:
+- Os métodos de leitura cacheados carregam `@Transactional(readOnly = true)` especificamente porque as ferramentas do agente rodam em uma thread reativa onde o Open-Session-in-View não vale.
+- O `getTodayRoutineScheduled` resolve o "hoje" pelo timezone do dono a partir dos dados carregados, não do contexto da requisição, então funciona fora de uma requisição.
+- A evicção de check/skip mora nos métodos externos de service por onde tanto o controller quanto as ferramentas passam, e um teste de integração exercita exatamente essa costura, então realocar a evicção quebra o build.
 
-```java
-@Service
-@RequiredArgsConstructor
-public class UserCacheEvictService {
+## Limpeza agendada de tarefas
 
-    private final CacheManager cacheManager;
-
-    @Caching(evict = {
-        @CacheEvict(cacheNames = "categories", key = "#userId"),
-        @CacheEvict(cacheNames = "habits", key = "#userId"),
-        @CacheEvict(cacheNames = "tasks", key = "#userId"),
-        @CacheEvict(cacheNames = "goals", key = "#userId"),
-        @CacheEvict(cacheNames = "routines", key = "#userId"),
-        @CacheEvict(cacheNames = "todayRoutine", key = "#userId"),
-        @CacheEvict(cacheNames = "schedules", key = "#userId")
-    })
-    public void evictAllUserCaches(UUID userId) {
-        Cache routineCache = cacheManager.getCache("routine");
-        if (routineCache != null) {
-            routineCache.clear();
-        }
-    }
-}
-```
-
-O cache `routine` usa uma chave composta (`userId_routineId`), então não pode ser invalidado só pelo userId via `@CacheEvict`. É limpo programaticamente via `CacheManager`.
-
-### Pontos de Invalidação
-
-Todo serviço que faz mutação chama `userCacheEvictService.evictAllUserCaches(userId)` como última instrução antes de retornar:
-
-| Serviço | Métodos de Escrita |
-|---------|-------------------|
-| `CategoryService` | `createCategory`, `editCategory`, `deleteCategory` |
-| `HabitService` | `createHabit`, `editHabit`, `deleteHabit` |
-| `TaskService` | `createTask`, `editTask`, `deleteTask` |
-| `GoalService` | `createGoal`, `editGoal`, `deleteGoal`, `checkGoal`, `increaseCurrentValue`, `decreaseCurrentValue` |
-| `DiaryRoutineService` | `createDiaryRoutine`, `updateDiaryRoutine`, `deleteDiaryRoutine`, `checkAndUncheckGroup`, `skipOrUnskipGroup` |
-| `ScheduleService` | `create`, `update`, `delete` |
-
-Serviços que não precisam de chamada própria de invalidação:
-
-- `XpCalculatorService`, quem o chama (GoalService, DiaryRoutineService) já faz a invalidação
-- `CheckItemService`, chamado pelo DiaryRoutineService que já trata a invalidação
-- `RefreshUiDtoBuilder`, somente leitura
-
-### Invalidação dos Caches de Docs
-
-Os caches de docs são invalidados via `@CacheEvict` no método `importFromGitHub()` de cada serviço de importação:
-
-| Serviço | Caches Invalidados |
-|---------|-------------------|
-| `ApiDocsImportService` | `apiTopics`, `apiTopic` |
-| `ArchitectureDocsImportService` | `architectureTopics`, `architectureTopic` |
-| `BlogDocsImportService` | `blogTopics`, `blogTopic` |
-| `ProjectDocsImportService` | `projectsTopics`, `projectsTopic` |
-
-## Consideração sobre Proxy AOP do Spring
-
-As anotações `@Cacheable` e `@CacheEvict` do Spring funcionam através de proxies AOP. Isso significa:
-
-- As anotações só funcionam em **métodos públicos** chamados de **fora da classe**
-- Chamadas internas (`this.alguMetodo()`) ignoram o proxy e as anotações de cache são ignoradas
-- Todas as anotações `@CacheEvict` neste projeto estão nos métodos públicos de entrada, não em helpers internos
-
-```mermaid
-flowchart LR
-  EXT["Chamador Externo"] -->|"passa pelo proxy"| PROXY["Proxy AOP do Spring"]
-  PROXY -->|"@CacheEvict dispara"| METHOD["Método do Serviço"]
-  METHOD -->|"chamada interna, ignora proxy"| HELPER["Método Auxiliar"]
-  HELPER -.->|"@CacheEvict ignorado"| X["Sem invalidação"]
-```
-
-## Limpeza Agendada de Tarefas
-
-`TaskService.getAllTasks()` anteriormente tinha um efeito colateral: deletava tarefas únicas marcadas pra remoção. Isso tornava impossível cachear porque a "leitura" também estava fazendo escritas.
-
-A lógica de limpeza foi movida para `TaskCleanupScheduler`:
-
-```java
-@Component
-@RequiredArgsConstructor
-public class TaskCleanupScheduler {
-
-    @Scheduled(cron = "0 0 0 * * *")
-    @Transactional
-    public void cleanupMarkedTasks() {
-        // Busca tarefas com markedToDelete < hoje
-        // Agrupa por userId
-        // Remove dos grupos de rotina + deleta do DB
-    }
-}
-```
-
-- Roda diariamente à meia-noite (horário do servidor)
-- `getAllTasks()` agora é uma leitura pura, seguro de cachear
-- `@EnableScheduling` está no entrypoint `BackendApplication`
-
-## CacheConfig
-
-```java
-@Configuration
-@EnableCaching
-public class CacheConfig {
-
-    @Bean
-    public CacheManager cacheManager() {
-        CaffeineCacheManager manager = new CaffeineCacheManager();
-
-        // Fallback global (caches de docs): 30 max, 120min TTL
-        manager.setCaffeine(Caffeine.newBuilder()
-            .maximumSize(30)
-            .expireAfterWrite(Duration.ofMinutes(120))
-            .recordStats());
-
-        // Nível 1: Caches de domínio, 500 max, 30min TTL
-        for (String cacheName : DOMAIN_CACHES) {
-            manager.registerCustomCache(cacheName,
-                Caffeine.newBuilder()
-                    .maximumSize(500)
-                    .expireAfterWrite(Duration.ofMinutes(30))
-                    .recordStats()
-                    .build());
-        }
-
-        // Nível 2: Cache de referência, 100 max, sem expiração
-        manager.registerCustomCache("xpByLevel",
-            Caffeine.newBuilder()
-                .maximumSize(100)
-                .recordStats()
-                .build());
-
-        return manager;
-    }
-}
-```
+O `getAllTasks` costumava apagar tarefas únicas expiradas como efeito colateral, o que o tornava impossível de cachear: a leitura também era escrita. Essa lógica foi para o `TaskCleanupScheduler`, que roda diariamente e apaga em transação própria. A leitura virou pura, e a anotação de cache virou segura. É uma história pequena com moral geral: cache obriga leituras a serem honestas sobre serem leituras.
 
 ## Monitoramento
 
-Todos os caches têm `.recordStats()` habilitado, o que expõe métricas ao Prometheus via Micrometer automaticamente.
+Todo cache sob o gerenciador registra estatísticas, e a autoconfiguração do Spring Boot as liga ao Micrometer, que o Prometheus coleta da porta de management. O Grafana as mostra na linha de Cache do dashboard de saúde do serviço: taxa de acerto por cache, acertos contra erros, tamanhos, evicções e escritas.
 
-### Métricas Prometheus
+Uma ressalva que os dashboards herdam: o Boot liga os caches que existem no startup. Os nove caches registrados se qualificam; os oito de docs são criados no primeiro pedido, então podem estar ausentes dos painéis até alguém sentir falta.
 
-| Métrica | Descrição |
-|---------|-----------|
-| `cache_gets_total{result="hit"}` | Cache hits por cache |
-| `cache_gets_total{result="miss"}` | Cache misses por cache |
-| `cache_puts_total` | Novas entradas armazenadas por cache |
-| `cache_evictions_total` | Entradas invalidadas por cache |
-| `cache_size` | Número atual de entradas por cache |
+## Os caches que o Spring não gerencia
 
-### Dashboard Grafana
+Vários caches em memória vivem fora do gerenciador, invisíveis ao dashboard de cache:
 
-O dashboard "Beyou, Cache" (UID `beyou-cache`) mostra:
+| Cache | Propósito | Config |
+|-------|-----------|--------|
+| Baldes de rate limit | Baldes bucket4j por faixa | Caffeine, máx 10.000, 30 min após acesso |
+| Contadores de tentativa de login | O lockout por conta | Caffeine, máx 50.000, expiração igual à janela de lockout, chaveado por e-mail em minúsculas |
+| Chaves públicas do Google | Verificação de ID token | Cacheadas internamente pela biblioteca do Google |
+| Cooldowns de provedores de LLM | A cadeia de fallback pula um provedor falhando por um tempo | Mapa simples: 300 s após um 429, 30 s após outros erros |
+| Contadores de streams ativos | Limita streams SSE simultâneos do agente por usuário | Mapa simples |
 
-- Taxa de acerto do cache (%) por cache ao longo do tempo
-- Cache hits vs misses (req/s)
-- Gauge de taxa total de acerto (limites vermelho/amarelo/verde)
-- Tamanho do cache por cache
-- Taxa de invalidação por cache
-- Taxa de puts por cache
+O cache de tentativas de login carrega um tradeoff documentado: é em memória de propósito para um deployment de host único, o que significa que um restart perdoa todos os contadores. O caminho de senha errada renova a janela, então um força-bruta persistente nunca envelhece para fora.
 
-## Impacto na Performance
+## Impacto medido
 
-### Endpoints de Docs
+Os números de quando a camada entrou, medidos com testes de carga nos mesmos endpoints antes e depois:
 
-| Métrica | Antes do Cache | Depois do Cache | Melhoria |
-|---------|---------------|-----------------|----------|
-| Latência p50 | 21.90 ms | 5.32 ms | 75.7% mais rápido |
-| Latência p95 | 84.10 ms | 33.02 ms | 60.7% mais rápido |
-| Throughput | 455 req/s | 974 req/s | 114% a mais |
+| Endpoints | p50 | p95 | Vazão |
+|-----------|-----|-----|-------|
+| Docs | 21,9 ms → 5,3 ms | 84,1 ms → 33,0 ms | 455 → 974 req/s |
+| Domínio | 30,9 ms → 16,0 ms | 108,1 ms → 65,7 ms | 257 → 401 req/s |
 
-### Endpoints de Domínio
+## O que pode melhorar
 
-| Métrica | Antes do Cache | Depois do Cache | Melhoria |
-|---------|---------------|-----------------|----------|
-| Latência p50 | 30.85 ms | 16.03 ms | 48.1% mais rápido |
-| Latência p95 | 108.05 ms | 65.65 ms | 39.2% mais rápido |
-| Throughput | 257 req/s | 401 req/s | 55.6% a mais |
-
-## O Que Pode Ser Melhorado
-
-| Área | Estado Atual | Recomendação | Prioridade |
-|------|-------------|--------------|------------|
-| Ajuste por cache | Todos os caches de domínio compartilham config 500/30min | Ajustar individualmente com base nos dados do Grafana | Baixa |
-| Cache de busca | Endpoint de busca não é cacheado | Cachear queries de busca comuns | Média |
-| Aquecimento do cache | Todos os caches frios após restart | Pré-aquecer XpByLevel na inicialização | Baixa |
-| Invalidação do cache routine | `clear()` invalida rotinas de todos os usuários | Rastrear IDs das rotinas do usuário para invalidação direcionada | Baixa |
+| Área | Estado atual | Nota |
+|------|--------------|------|
+| Evicção do cache routine | Limpeza global em qualquer escrita interativa de rotina | Rastrear os ids de rotina de um usuário permitiria evicção dirigida; só vale se leituras de rotina esquentarem |
+| Métricas dos caches de docs | Criados de forma preguiçosa, possivelmente sem bind | Registrá-los de forma antecipada completaria o dashboard |
+| Ajuste por cache | Todos os caches de domínio dividem 500 entradas / 30 min | Os dados do Grafana existem para ajustar individualmente; nada exigiu isso ainda |
+| Cache da busca | O endpoint de busca de docs não é cacheado | Tranquilo no tráfego atual, ganho barato depois |
