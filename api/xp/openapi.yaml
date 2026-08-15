@@ -1,0 +1,121 @@
+openapi: 3.0.1
+info:
+  title: XP history
+  version: v0
+servers:
+- url: http://localhost:8099
+  description: Generated server url
+paths:
+  /xp/history:
+    get:
+      tags:
+      - xp-history-controller
+      summary: XP per day, for every entity that has any
+      description: |
+        Everything else about XP in this API is a running total: `categories.xp` says
+        where a category stands and nothing about how it got there. This answers the
+        other question, at the only grain it is ever asked in — a day.
+
+        Its own route rather than one under `/category`, because the series are not a
+        category's. Four kinds of entity carry XP (USER, CATEGORY, HABIT, ROUTINE) and
+        one window answers for all of them, so a dashboard drawing the best area, the
+        worst area and the category cards makes one request instead of four.
+
+        Every series is DENSE: one entry per day of the window, in order, with zero for
+        the days nothing moved. The stored rows only cover days something happened, and
+        a chart drawn straight from those would put Monday next to Thursday and call it
+        a week.
+
+        Days are the account's own, resolved in its timezone — the same resolution used
+        when each row was written, so someone checking a habit at 23:00 in São Paulo
+        spends Tuesday rather than Wednesday.
+      operationId: xpHistory
+      parameters:
+      - name: days
+        in: query
+        required: false
+        description: |
+          Window size, today inclusive. Defaults to 7, clamped to 90. Bounded because
+          the response is assembled in memory at one entry per day per entity.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 90
+          default: 7
+      responses:
+        '200':
+          description: The window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XpHistoryResponseDTO'
+        '400':
+          description: |
+            `days` outside 1..90. Keyed like every other domain error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '429':
+          description: Rate limited (60 reads per minute per user)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+components:
+  schemas:
+    XpHistoryResponseDTO:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+          description: First day of the window, in the account's timezone.
+        to:
+          type: string
+          format: date
+          description: Last day, which is the account's today.
+        days:
+          type: array
+          description: |
+            The x axis, sent once rather than repeated inside every series. Each
+            `values` array lines up with it index for index.
+          items:
+            type: string
+            format: date
+        series:
+          type: array
+          description: One entry per entity with any history in the window.
+          items:
+            $ref: '#/components/schemas/XpOwnerSeries'
+    XpOwnerSeries:
+      type: object
+      properties:
+        ownerType:
+          type: string
+          enum:
+          - USER
+          - CATEGORY
+          - HABIT
+          - ROUTINE
+        ownerId:
+          type: string
+          format: uuid
+        values:
+          type: array
+          description: |
+            XP for each day of `days`, same order. Zero where nothing happened, and
+            NEGATIVE where XP was given back — undoing a check-in returns it, and the
+            day shrinks rather than remembering a high-water mark.
+          items:
+            type: number
+            format: double
+    ApiErrorResponse:
+      type: object
+      properties:
+        errorKey:
+          type: string
+          description: Stable key the clients translate. Never show the raw value to a user.
+        message:
+          type: string
