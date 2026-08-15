@@ -1,330 +1,113 @@
 ---
 title: "Sistema de Documentação"
-summary: "Como docs de arquitetura, design, API e projetos fluem do GitHub para o banco de dados e para a UI — incluindo o pipeline de importação admin e busca."
+summary: "Como estas próprias páginas viajam: markdown em um repositório Git, uma importação autenticada para o Postgres, uma API pública e um site estático pré-renderizado que se reconstrói a cada push de conteúdo."
 ---
 
-Este documento explica o pipeline completo de documentação no Beyou: como docs são escritos em um repo GitHub, importados para o banco por admins, servidos via API pública e renderizados na docs UI com diagramas Mermaid e markdown.
+Este documento explica o pipeline que publica a página que você está lendo: onde o conteúdo vive, como chega ao banco, como é servido e buscado, e como o site estático de docs se reconstrói quando o conteúdo muda.
 
-## O Pipeline
-
-A documentação no Beyou segue um pipeline unidirecional: escrever no GitHub, importar para o DB, servir para a UI.
+## O pipeline
 
 ```mermaid
 flowchart TD
-  subgraph "1. Escrever"
-    GH["📦 Repo GitHub<br/>Beyou-arch-design"]
-    GH --> YAML["topic.yaml<br/>metadados"]
-    GH --> EN["en.md<br/>conteúdo em inglês"]
-    GH --> PT["pt.md<br/>conteúdo em português"]
-    GH --> MMD["diagram.mmd<br/>diagrama Mermaid"]
+  subgraph write["1 · Escrever"]
+    GH["📦 Repositório beyou-arch-design<br/>markdown + YAML + mermaid"]
   end
 
-  subgraph "2. Importar (Apenas Admin)"
-    ADM["🔐 Admin dispara importação"]
-    ADM -->|"X-Docs-Import-Secret"| IMP["Serviço de Importação"]
-    IMP -->|"GitHub API v3"| GH
-    IMP -->|"Parse + Upsert"| DB[("🐘 PostgreSQL")]
+  subgraph automate["2 · Automatizar (no push para main)"]
+    WF["⚙️ GitHub Action<br/>login → importação × 4 → dispatch"]
   end
 
-  subgraph "3. Servir (Público)"
-    DB --> API["API REST<br/>/docs/*"]
+  subgraph store["3 · Importar e guardar"]
+    BE["🍃 Serviços de importação do backend"]
+    DB[("🐘 Tabelas docs_*")]
   end
 
-  subgraph "4. Renderizar"
-    API --> UI["⚛️ Docs UI"]
-    UI --> MD["📝 Markdown"]
-    UI --> DIA["📊 Diagramas Mermaid"]
-    UI --> SEARCH["🔍 Busca"]
+  subgraph serve["4 · Servir e renderizar"]
+    API["API pública /docs"]
+    UI["⚛️ SPA docs-ui"]
+    PRE["🖼️ Site estático pré-renderizado<br/>reconstruído como imagem nova"]
   end
+
+  GH --> WF
+  WF -->|"JWT Bearer + segredo de importação"| BE
+  BE -->|"API de conteúdo do GitHub"| GH
+  BE --> DB
+  DB --> API
+  API --> UI
+  WF -->|"repository_dispatch"| PRE
+  PRE -->|"GHCR → Watchtower"| LIVE["docs.beyouweb.com"]
 ```
 
-## Tipos de Doc
+Um merge de conteúdo na main é o deploy inteiro: o workflow importa cada área e, quando as quatro passam, dispara o build do docs-ui, que pré-renderiza cada rota contra a API fresca e publica uma imagem nova que o Watchtower pega. Mudança de conteúdo chega como container novo, nunca como restart.
 
-O sistema suporta quatro categorias de documentação, cada uma com seu próprio diretório no GitHub, endpoint de importação, tabelas no banco e API:
+## As quatro áreas
 
-| Tipo | Caminho GitHub | Endpoint de Importação | Endpoints da API | Conteúdo |
-|------|---------------|----------------------|------------------|----------|
-| **Architecture** | architecture/ | /docs/admin/import/architecture | /docs/architecture/topics | Design de sistema, diagramas, decisões técnicas |
-| **Blog** | blog/ | /docs/admin/import/blog | /docs/blog/topics | Posts técnicos de blog, diários de dev, deep dives |
-| **API** | api/ | /docs/admin/import/api | /docs/api/controllers | Specs OpenAPI, documentação de endpoints |
-| **Projects** | projects/ | /docs/admin/import/projects | /docs/projects/topics | Visões gerais por repo, tópicos relacionados |
+Toda área segue a mesma forma: um diretório por tópico, um descritor YAML e um arquivo markdown por idioma (`en.md`, `pt.md`; o idioma é o nome do arquivo).
 
-## Estrutura de Arquivos no GitHub
+| | architecture | blog | api | projects |
+|---|---|---|---|---|
+| Descritor | topic.yaml | topic.yaml | controller.yaml | topic.yaml |
+| Também obrigatório | diagram.mmd | nada mais | openapi.yaml | diagram.mmd |
+| Pelo menos um .md | sim | sim | sim | sim |
+| Valores de status | ACTIVE, DRAFT, ARCHIVED | ACTIVE, ARCHIVED | ACTIVE, DRAFT, ARCHIVED | ACTIVE, DRAFT, ARCHIVED, PLANNING |
 
-Cada tópico é um diretório dentro da pasta do seu tipo de doc. A convenção de arquivos é:
-
-```mermaid
-flowchart LR
-  subgraph "architecture/meu-topico/"
-    Y["topic.yaml<br/>(obrigatório)"]
-    D["diagram.mmd<br/>(obrigatório para arch)"]
-    E["en.md<br/>(obrigatório)"]
-    P["pt.md<br/>(opcional)"]
-  end
-```
-
-### topic.yaml
-
-Metadados do tópico:
-
-| Campo | Tipo | Obrigatório | Propósito |
-|-------|------|-------------|-----------|
-| key | string | Sim | Identificador único (corresponde ao nome do diretório) |
-| orderIndex | integer | Sim | Ordem de exibição na sidebar |
-| status | string | Sim | ACTIVE, DRAFT ou ARCHIVED |
-| tags | lista de string | Não | Tags filtráveis |
-| projectKey | string | Não | Link para um tópico de projeto |
+O descritor do blog é o rico: categoria (TECHNICAL ou PLANNING), tags, flag de destaque, publishedAt, autor, emoji de capa e uma cor de capa que precisa casar com um hex de seis dígitos ou é descartada em silêncio. O frontmatter do markdown é um parser plano feito à mão, não YAML completo: só `title` e `summary` são lidos, chaves desconhecidas são ignoradas e uma cerca de fechamento faltando falha a importação. Um arquivo sem frontmatter é legal; o título cai para a chave do tópico.
 
-### en.md / pt.md
-
-Conteúdo markdown com frontmatter YAML:
-
-| Campo | Localização | Obrigatório | Propósito |
-|-------|------------|-------------|-----------|
-| title | Frontmatter | Sim | Título de exibição |
-| summary | Frontmatter | Sim | Descrição em uma linha |
-| (corpo) | Após frontmatter | Sim | Conteúdo markdown completo |
-
-Diagramas Mermaid inline são suportados via blocos de código cercados.
+O armazenamento segue um padrão repetido: uma linha de tópico (identidade, ordem, status) mais uma linha de conteúdo por idioma (título, resumo, docMarkdown e, por área, o diagrama mermaid ou o texto cru do OpenAPI). Duas curiosidades que valem saber: o diagrama é copiado em cada linha de idioma, e a área de projects guarda seus campos relacionais (URL do repositório, chaves de tópicos ligados) na linha de conteúdo, não no tópico.
 
-### diagram.mmd
-
-Código Mermaid bruto para o diagrama principal do tópico. Renderizado separadamente do conteúdo markdown em um painel dedicado.
-
-### Variante para docs de API
-
-Docs de API usam uma estrutura ligeiramente diferente:
-
-| Arquivo | Propósito |
-|---------|-----------|
-| controller.yaml | Metadados (key, orderIndex, status) |
-| openapi.yaml | Especificação OpenAPI 3.0 |
-| en.md / pt.md | Markdown complementar opcional |
-
-## Pipeline de Importação Admin
-
-A importação é o núcleo do sistema — ela puxa docs do GitHub e sincroniza no banco de dados.
-
-### Segurança
-
-O endpoint de importação é protegido pelo DocsImportSecretFilter:
-
-```mermaid
-flowchart TD
-  REQ["📥 POST /docs/admin/import/architecture"]
-  REQ --> CHECK{"Header<br/>X-Docs-Import-Secret<br/>presente?"}
-  CHECK -->|Não| DENY["❌ 403 Forbidden"]
-  CHECK -->|Sim| MATCH{"Corresponde ao<br/>secret configurado?"}
-  MATCH -->|Não| DENY
-  MATCH -->|Sim| PASS["✅ Prossegue com importação"]
-```
-
-- O secret é configurado via variável de ambiente DOCS_IMPORT_SECRET
-- O filtro roda como OncePerRequestFilter, posicionado após o UsernamePasswordAuthenticationFilter do Spring Security
-- Também protege endpoints /actuator
-- Requisições preflight CORS (OPTIONS) passam sem verificação
-
-**Importante:** Endpoints de leitura regulares (/docs/architecture/topics, etc.) são públicos — sem autenticação necessária. Apenas os endpoints /docs/admin/* de importação requerem o secret.
-
-### Fluxo de importação
-
-```mermaid
-sequenceDiagram
-  participant ADM as Admin
-  participant BE as Serviço de Importação
-  participant GH as GitHub API
-  participant P as Parser
-  participant DB as Database
-
-  rect rgba(59, 130, 246, 0.25)
-  ADM->>BE: 🔐 POST /docs/admin/import/architecture
-  BE->>GH: GET /repos/owner/name/contents/architecture/?ref=main
-  GH-->>BE: Listagem do diretório (pastas de tópicos)
-  end
-
-  loop Cada diretório de tópico
-    BE->>GH: GET .../contents/architecture/meu-topico/
-    GH-->>BE: Listagem de arquivos
-    BE->>GH: GET topic.yaml (conteúdo Base64)
-    BE->>GH: GET diagram.mmd (conteúdo Base64)
-    BE->>GH: GET en.md (conteúdo Base64)
-    BE->>GH: GET pt.md (conteúdo Base64)
-    GH-->>BE: Conteúdos dos arquivos
-    BE->>P: Extrair metadados YAML + frontmatter do markdown
-    P-->>BE: Dados estruturados do tópico
-  end
-
-  rect rgba(168, 85, 247, 0.25)
-  BE->>DB: 🔄 Upsert tópicos (inserir novos, atualizar existentes)
-  BE->>DB: 📦 Arquivar tópicos que não estão mais no GitHub
-  BE-->>ADM: { importedTopics: N, archivedTopics: M }
-  end
-```
-
-### O que acontece durante a importação
-
-1. **Buscar diretório** — Chama a GitHub API v3 para listar o conteúdo da pasta do tipo de doc
-2. **Buscar cada tópico** — Para cada subdiretório, busca topic.yaml, diagram.mmd, en.md, pt.md
-3. **Parsear arquivos** — YAML é parseado para metadados, frontmatter do markdown é extraído para title/summary, corpo é armazenado como está
-4. **Decodificar Base64** — A GitHub API retorna conteúdo de arquivo como Base64, que é decodificado antes do parsing
-5. **Upsert** — Se a key do tópico já existe no banco, é atualizado. Se novo, é inserido.
-6. **Arquivar** — Tópicos que existem no banco mas não estão mais presentes no GitHub são marcados como ARCHIVED
-
-### Configuração
-
-Todas as configurações de importação estão no application.yaml, sobrescrevíveis via variáveis de ambiente:
-
-| Variável | Propósito | Padrão |
-|----------|-----------|--------|
-| DOCS_IMPORT_REPO_OWNER | Dono do repo GitHub | AndDev741 |
-| DOCS_IMPORT_REPO_NAME | Nome do repo GitHub | beyou-arch-design |
-| DOCS_IMPORT_BRANCH | Branch git para importar | main |
-| DOCS_IMPORT_SECRET | Secret para endpoint admin | (obrigatório) |
-| DOCS_IMPORT_GITHUB_TOKEN | Token da GitHub API (opcional) | (nenhum — usa rate limit não autenticado) |
-
-## Modelo do Banco de Dados
-
-Cada tipo de doc tem duas tabelas: uma para o tópico e uma para conteúdo específico por locale.
-
-```mermaid
-erDiagram
-  ARCHITECTURE_TOPIC ||--o{ ARCHITECTURE_CONTENT : "tem conteúdo por locale"
-  BLOG_TOPIC ||--o{ BLOG_CONTENT : "tem conteúdo por locale"
-  API_CONTROLLER_TOPIC ||--o{ API_CONTROLLER_CONTENT : "tem conteúdo por locale"
-  PROJECT_TOPIC ||--o{ PROJECT_CONTENT : "tem conteúdo por locale"
-```
-
-### Tabelas de architecture topic
-
-**docs_architecture_topic**
-
-| Coluna | Tipo | Notas |
-|--------|------|-------|
-| id | UUID | Chave primária |
-| key | String | Único, nome do diretório do tópico |
-| orderIndex | Integer | Ordem de exibição |
-| status | String | ACTIVE / DRAFT / ARCHIVED |
-| tags | String | Array JSON armazenado como texto |
-| projectKey | String | Link opcional para um tópico de projeto |
-| createdAt | Timestamp | Definido na criação |
-| updatedAt | Timestamp | Atualizado na importação |
-
-**docs_architecture_topic_content**
-
-| Coluna | Tipo | Notas |
-|--------|------|-------|
-| id | UUID | Chave primária |
-| locale | String | "en" ou "pt" |
-| title | String | Do frontmatter do markdown |
-| summary | String | Do frontmatter do markdown |
-| diagramMermaid | Text | Código Mermaid bruto do diagram.mmd |
-| docMarkdown | Text | Corpo completo do markdown (sem frontmatter) |
-| topic_id | UUID | Chave estrangeira para o tópico pai |
-
-Outros tipos de doc seguem o mesmo padrão. Docs de API adicionalmente armazenam a spec OpenAPI em um campo apiCatalog. Docs de projeto armazenam campos extras como repositoryUrl, blogTopicKey e architectureTopicKey.
-
-## API Pública
-
-Todos os endpoints de leitura são públicos (sem auth) e suportam locale via query parameter.
-
-### Architecture
-
-| Endpoint | Método | Resposta |
-|----------|--------|----------|
-| /docs/architecture/topics?locale=en | GET | Lista de tópicos (key, title, summary, status, tags, updatedAt) |
-| /docs/architecture/topics/{key}?locale=en | GET | Detalhe completo (title, summary, status, tags, diagramMermaid, docMarkdown, projectKey, updatedAt) |
-
-### Design, Projects, API
-
-Mesmo padrão — /docs/blog/topics, /docs/projects/topics, /docs/api/controllers — com campos específicos do tipo.
-
-### Busca
-
-| Endpoint | Método | Parâmetros | Resposta |
-|----------|--------|-----------|----------|
-| /docs/search | GET | q (obrigatório, mín 2 chars), locale, category (all/architecture/blog/api/project), limit, offset | Resultados paginados com score e destaques |
-
-Comportamento da busca:
-
-- Busca em título e resumo de todos os tópicos ativos
-- Score: 1.0 para match no título, 0.5 para match no resumo
-- Destaca texto correspondente com tags mark
-- Filtra por locale e categoria
-- Resultados ordenados por score decrescente
-
-## Renderização na Docs UI
-
-A docs UI busca dados da API pública e renderiza com componentes especializados.
-
-```mermaid
-flowchart TD
-  API["🍃 API Backend"]
-  API --> ARCH["Página Architecture"]
-  API --> DES["Página Blog"]
-  API --> PROJ["Página Projects"]
-  API --> APIP["Página API"]
-  API --> SRCH["Busca"]
-
-  ARCH --> SB["📋 Sidebar<br/>lista de tópicos + busca + tags"]
-  ARCH --> DET["📄 Painel de Detalhe"]
-  DET --> MB["📊 MermaidBlock<br/>(diagrama principal)"]
-  DET --> DM["📝 DesignMarkdown<br/>(conteúdo do doc)"]
-  DM --> IMD["📊 Mermaid Inline<br/>(no markdown)"]
-  ARCH --> TOC["📑 ToC Rail<br/>(borda direita)"]
-```
-
-### Stack de renderização
-
-| Componente | Propósito | Tecnologia |
-|-----------|---------|-----------|
-| **DesignMarkdown** | Renderiza markdown com suporte GFM | react-markdown + remark-gfm |
-| **MermaidBlock** | Renderiza diagrama principal com botão de maximizar | mermaid v11 + dialog |
-| **MermaidRenderer** | Renderização Mermaid core com awareness de tema | mermaid.initialize() com tema customizado |
-| **MermaidPreview** | Diagrama em tela cheia com pan/zoom | Dialog + controles customizados |
-
-### Funcionalidades de markdown
-
-O componente DesignMarkdown trata:
-
-- **Headings** — IDs auto-gerados (slugificados) para navegação do ToC
-- **Blocos Mermaid** — Blocos de código cercados com linguagem "mermaid" renderizam como diagramas interativos
-- **Tabelas** — Envolvidas em container com scroll horizontal para mobile
-- **Código inline** — Estilizado com background na cor primária
-- **Blocos de código** — Syntax-highlighted com scroll de overflow
-
-### Integração de tema
-
-Diagramas Mermaid se adaptam automaticamente ao tema atual da UI:
-
-- Cores de background, primária e texto extraídas do tema ativo
-- Detecção de modo dark/light via cálculo de luminância
-- Config Mermaid customizada reconstruída a cada mudança de tema
-- Fonte: Source Serif 4 (corresponde à tipografia da docs UI)
-
-## Funcionalidades da Página Architecture
-
-A página Architecture é o viewer de docs mais completo:
-
-| Funcionalidade | Como funciona |
-|---------------|-------------|
-| **Busca na sidebar** | Filtra tópicos por título, resumo e tags (client-side) |
-| **Filtro por tags** | Clique em tags para filtrar sidebar; suporta múltiplas tags ativas |
-| **Seleção de tópico** | Clique no tópico na sidebar, URL sincroniza via param ?topic= |
-| **Badges de status** | ACTIVE (verde), DRAFT (âmbar), ARCHIVED (cinza) |
-| **Tempo de leitura** | Estimado pela contagem de palavras do markdown |
-| **Datas relativas** | "Hoje", "Ontem", "Xd atrás" — bilíngue |
-| **Diagrama principal** | MermaidBlock com maximizar/tela cheia |
-| **Diagramas inline** | Blocos Mermaid dentro do markdown renderizam como diagramas |
-| **ToC rail** | Rail estilo Notion na borda direita com indicadores de linha; expande ao hover para mostrar texto dos headings |
-| **Stale-while-revalidate** | Conteúdo anterior permanece visível (escurecido) enquanto novo tópico carrega |
-
-## Possíveis Melhorias
-
-| Área | Estado Atual | Sugestão |
-|------|-------------|----------|
-| Automação da importação | Disparo manual via chamada API | Adicionar webhook do GitHub ou cron agendado para auto-importar no push |
-| Profundidade da busca | Apenas título + resumo | Adicionar busca full-text no conteúdo docMarkdown |
-| Histórico de versões | Apenas versão mais recente armazenada | Rastrear histórico de importação com diffs |
-| Preview de draft | Drafts visíveis na sidebar | Adicionar modo preview para tópicos DRAFT antes de publicar |
-| Suporte offline | Nenhum | Cachear respostas da API para leitura offline |
-| Edição pela UI | Somente leitura | Adicionar modo editor que commita de volta para o GitHub |
+## A importação
+
+O `POST /docs/admin/import/{area}` fica atrás de duas portas independentes: a requisição precisa de um JWT válido (qualquer usuário autenticado) e o header `X-Docs-Import-Secret` precisa casar com o segredo configurado em tempo constante. O comentário do workflow memoriza o diagnóstico: 401 significa que o token foi rejeitado, 403 que o segredo foi.
+
+O importador caminha pela API de conteúdo do GitHub: lista a raiz da área, lista cada diretório de tópico, busca cada arquivo, decodifica o base64. Dono, nome, branch e caminho do repositório vêm da configuração e podem ser sobrescritos por requisição. Depois, por tópico:
+
+- **Upsert**: chaves existentes são atualizadas no lugar, novas são inseridas. Um arquivo de idioma que sumiu do repositório apaga sua linha de conteúdo.
+- **Arquivamento**: depois da caminhada, qualquer tópico da tabela cuja chave não apareceu nesta rodada vira ARCHIVED. Nada é apagado de verdade, e recolocar o diretório restaura o status do descritor, então arquivar é reversível por construção.
+- A resposta reporta os dois números, que é de onde vêm as linhas "N imported, M archived" do workflow. O contador de importados conta cada diretório processado, não só os novos.
+
+Cada área importa em uma transação, com seus caches evictados ao final, então leitores nunca veem meia importação. As quatro áreas são quatro chamadas HTTP separadas, porém: uma falha no meio deixa as áreas anteriores commitadas e pula a reconstrução do site. E o modo de falha é rígido de propósito: um diretório de tópico malformado aborta a área inteira. Um exemplo real: um diretório de controller já chegou só com o openapi.yaml, e toda importação falhou com `Missing controller.yaml in api/xp` até os arquivos de metadados chegarem.
+
+Uma borda operacional afiada: sem um token do GitHub configurado, o importador roda no limite anônimo de 60 requisições por hora, e uma rodada completa das quatro áreas precisa de cerca de 175 chamadas. A falha aparece como um genérico "could not fetch". Na prática, o token não é opcional.
+
+## A automação
+
+O workflow `publish-docs` dispara em qualquer push na main que toque os quatro diretórios de conteúdo. Três passos, todos curl:
+
+1. **Login** com uma conta dedicada de importação, lendo o JWT do header de resposta `X-Access-Token`, mascarado nos logs.
+2. **Importação** de cada área em sequência com os dois headers de autenticação; um não-200 aborta.
+3. **Dispatch** de um evento `docs-content-updated` para o repositório do docs-ui (com um PAT, já que o token padrão do workflow não levanta eventos entre repositórios). O CI do docs-ui então pré-renderiza cada rota por idioma contra a API pública e publica a imagem nova.
+
+Execuções entram em fila em vez de serem canceladas sob concorrência, por uma razão sutil: o passo de arquivamento de uma execução velha terminando depois de uma nova poderia arquivar tópicos que a nova acabou de importar.
+
+## A API pública
+
+Todos os endpoints de leitura são públicos e cientes de idioma (`?locale=`, padrão inglês, caindo para inglês quando um idioma falta). Listas devolvem só tópicos ACTIVE ordenados por orderIndex (o blog ordena por data de publicação); detalhes buscam por chave.
+
+| Área | Lista | O detalhe adiciona |
+|------|-------|--------------------|
+| /docs/architecture/topics | chave, título, resumo, ordem, status, tags, projectKey | diagramMermaid, docMarkdown |
+| /docs/blog/topics | campos de capa, categoria, tags, destaque, autor, datas | docMarkdown |
+| /docs/api/controllers | chave, título, resumo, ordem | apiCatalog (o OpenAPI cru) |
+| /docs/projects/topics | chave, título, resumo, ordem, status, tags | docMarkdown, diagrama, repositoryUrl, chaves ligadas |
+
+As tags cruzam o fio como uma string JSON, não um array; os clientes fazem o parse. Uma nota de honestidade: só as consultas de lista filtram por status. Um tópico ARCHIVED ou DRAFT continua alcançável pela URL direta, então arquivar tira da lista, não do ar.
+
+## Busca
+
+O `GET /docs/search` é híbrido: uma consulta SQL por área afunila candidatos por casamento sem caixa em título e resumo, e então pontuação, destaque, ordenação e paginação acontecem em memória sobre o conjunto unido. Acerto no título pontua 1.0, no resumo 0.5. Os destaques voltam como fragmentos alternados de texto puro e marcado, que o cliente concatena. O corpo dos documentos nunca é buscado, só títulos e resumos.
+
+Leituras são cacheadas (dois caches Caffeine por área, TTL de 120 minutos, derrubados por inteiro a cada importação); a busca não é.
+
+## Renderização no site de docs
+
+O docs UI busca esses endpoints e renderiza markdown com suporte a GFM, blocos mermaid inline como diagramas vivos, o diagrama principal do tópico em um painel expansível e um trilho de sumário na borda direita. As cores do mermaid são reconstruídas do tema ativo a cada troca. Páginas de detalhe são endereçadas por caminho (`/architecture/{chave}` sob um prefixo de idioma), e a listagem de arquitetura abre seu primeiro tópico automaticamente. Para os crawlers, cada rota também existe como HTML estático pré-renderizado dentro da imagem do site, construído no build, que é o que mantém o conteúdo legível para buscadores e crawlers de IA que nunca rodam JavaScript.
+
+## Lacunas conhecidas e bordas afiadas
+
+| Área | Problema |
+|------|----------|
+| Cross-link de projects | O parser lê um campo `designTopicKey` enquanto todos os arquivos de conteúdo declaram `blogTopicKey`, então o link cruzado para o blog nunca chega à UI. Parser e conteúdo precisam concordar |
+| Locale da busca | O endpoint de busca pula a normalização de idioma que os endpoints de leitura usam, então um locale maiúsculo ou regional devolve nada |
+| Cliente do GitHub | O RestTemplate da importação não tem timeouts; uma resposta travada do GitHub segura a transação aberta |
+| Duplicação | Quatro serviços de importação quase idênticos com helpers copiados e três cópias do parser de frontmatter |
+| Cobertura de testes | Testes de importação existem só para a área de arquitetura; blog, api e projects estão sem testes |
