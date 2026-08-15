@@ -1,38 +1,45 @@
 ---
 title: "Architecture Overview"
-summary: "High-level view of Beyou's architecture — frontend, backend, database, and external integrations."
+summary: "How Beyou runs in production: four client surfaces, one Spring Boot API, PostgreSQL, an image pipeline out of GitHub, and the monitoring that watches all of it."
 ---
 
-This document describes the overall architecture of the Beyou application, covering the main layers, data flow, domain model, authentication, and gamification system.
+This is the map of the system as it runs in production: every client surface, the API behind them, the database, how new code reaches the server, and how we find out when something breaks. The diagram above shows the whole picture; the sections below walk through each piece.
 
-## System Architecture
-
-```mermaid
-flowchart LR
-  FE["⚛️ Frontend<br/>React · TypeScript · Vite"]
-  BE["🍃 Backend<br/>Spring Boot · Java 21"]
-  DB[("🐘 Database<br/>PostgreSQL 15")]
-  GO["🔐 Google OAuth"]
-  GH["📦 GitHub API"]
-  ML["✉️ SMTP Server"]
-
-  FE -->|"REST API (JWT)"| BE
-  BE -->|JPA / Hibernate| DB
-  BE <-->|OAuth 2.0| GO
-  BE <-->|Docs Import| GH
-  BE -->|Password Reset| ML
-```
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 18, TypeScript, Vite, Redux Toolkit + redux-persist, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3 |
-| **Backend** | Spring Boot 3.3, Java 21 (virtual threads), Spring Security, JWT (auth0 java-jwt), Undertow, Spring AOP, Lombok |
-| **Database** | PostgreSQL 15, Hibernate JPA, UUID primary keys, ddl-auto: update |
-| **DevOps** | Docker Compose, nginx (prod), hot-reload (dev) |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3 |
+| **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat and onboarding suggestions (LLM fallback chain) |
+| **Database** | PostgreSQL 15, Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
+| **Delivery** | GitHub Actions builds images to GHCR, Watchtower redeploys them; Docker Compose; nginx serves the web and docs builds |
+| **Monitoring** | Prometheus, Grafana, Loki + Alloy, GlitchTip (Sentry-compatible) |
 
-## Domain Model
+## Production topology
+
+The application side is four containers, all built by CI and published to GitHub Container Registry:
+
+- **beyou-backend**: the Spring Boot API on port 8099, everything under `/api/v1`.
+- **beyou-web**: the web app's static build, served by nginx. Public at **app.beyouweb.com**.
+- **beyou-docs**: this documentation site, prerendered to static HTML and served by nginx. Public at **docs.beyouweb.com**.
+- **watchtower**: polls GHCR every five minutes and restarts any container whose image changed. Merging to main is the deployment; CI does the rest.
+
+Every published port binds to 127.0.0.1. The public hostnames reach the containers through a TLS reverse proxy, so nothing is exposed directly. Two pieces live outside the Compose stack: the marketing site at **beyouweb.com** (static HTML on Cloudflare Pages) and the mobile app, which installs on the phone and talks to the same API as the web app.
+
+The content of this docs site has its own pipeline: markdown and OpenAPI specs live in the beyou-arch-design repository, the backend imports them into PostgreSQL, and a content change triggers a rebuild of the prerendered docs image.
+
+## Monitoring
+
+One Compose overlay carries the whole observability stack, and it is the same file in development and in production. Each component answers a different question:
+
+- **Prometheus** answers "how is it performing?". It scrapes the backend's actuator plus cAdvisor, node-exporter, and postgres-exporter, so JVM internals, per-container resources, the host, and the database are all on the same board.
+- **Loki + Alloy** answer "what happened?". Alloy tails the stdout of every beyou* container through the Docker API and pushes to Loki. The apps need no log configuration at all, and logs are kept for 30 days.
+- **GlitchTip** answers "what broke?". The backend, the web app, and the mobile app all deliver errors to it through Sentry SDKs. It is public at **mnt.beyouweb.com** because real browsers and real phones must be able to reach it. It also runs the uptime and heartbeat monitors, since it is the piece that can notify a human.
+
+Grafana sits on top of all three, with four dashboards provisioned automatically: fleet health, backend JVM internals, the AI agent, and logs. It lives at **obs.beyouweb.com**, behind its own login. Those two are the only public monitoring surfaces; the rest of the overlay (Prometheus, Loki, the exporters) stays on loopback and is only reachable through Grafana.
+
+## Domain model
 
 ```mermaid
 erDiagram
@@ -61,16 +68,19 @@ erDiagram
 
 ### Entity highlights
 
-- **User** — profile, preferences (theme, language, widgets), and embedded XP progression (level, xp, constance streak).
-- **Category** — groups habits, tasks, and goals via ManyToMany. Has its own XP/level.
-- **Habit** — trackable behavior with importance, difficulty, motivational phrase, and XP/level progression.
-- **Task** — similar to habit but can be one-time (oneTimeTask) with soft-delete via markedToDelete.
-- **Goal** — target-based with currentValue / targetValue, status (active/completed/failed), and term (short/long/life).
-- **Routine** — abstract base with DiaryRoutine concrete type. Contains sections with habit/task groups.
-- **Schedule** — days of the week (Monday–Sunday) linked to a routine.
-- **Checks** — daily check/skip records for habit and task groups inside routines, with XP generation tracking.
+- **User**: profile, preferences (theme, language, widgets), and embedded XP progression (level, xp, constance streak).
+- **Category**: groups habits, tasks, and goals via ManyToMany. Has its own XP/level.
+- **Habit**: trackable behavior with importance, difficulty, motivational phrase, and XP/level progression.
+- **Task**: like a habit, but can be one-time (oneTimeTask) with soft-delete via markedToDelete.
+- **Goal**: target-based with currentValue / targetValue, status (active/completed/failed), and term (short/long/life).
+- **Routine**: abstract base with DiaryRoutine as the concrete type. Contains sections with habit/task groups.
+- **Schedule**: days of the week linked to a routine.
+- **Checks**: daily check/skip records for habit and task groups inside routines, with XP generation tracking.
+- **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.
+- **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
+- **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
 
-## Authentication Flow
+## Authentication flow
 
 ```mermaid
 sequenceDiagram
@@ -97,7 +107,7 @@ sequenceDiagram
   end
 
   rect rgba(16, 185, 129, 0.25)
-  FE->>BE: 🔄 Token Refresh — request with expired JWT
+  FE->>BE: 🔄 Token Refresh: request with expired JWT
   BE-->>FE: 401 Unauthorized
   FE->>BE: POST /auth/refresh (cookie)
   BE-->>FE: New JWT + new Refresh Token
@@ -107,21 +117,26 @@ sequenceDiagram
 
 ### Token details
 
-- **Access token (JWT)** — 15 minutes, HMAC256, sent in the Authorization: Bearer header.
-- **Refresh token** — 15 days, opaque hashed token, HttpOnly cookie. Old token revoked on refresh.
-- **Password reset** — secure token via email, 30 min TTL, 5 min cooldown between requests. All refresh tokens revoked on reset.
+- **Access token (JWT)**: 15 minutes, HMAC256. Requests carry it as `Authorization: Bearer`; the backend delivers a fresh one in the `X-Access-Token` response header.
+- **Refresh token**: 15 days, opaque hashed token in an HttpOnly cookie. The old token is revoked on every refresh.
+- **Email verification**: new accounts confirm their address by email before the first login.
+- **Password reset**: secure token by email, 15 minute TTL, 5 minute cooldown between requests. All refresh tokens are revoked on reset.
+- **Account deletion**: confirmed with a short-lived code (15 minute TTL) before anything is removed.
 
-## API Layer
+## API layer
 
-14 REST controllers organized by domain:
+24 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
-| **Auth** | AuthenticationController | /auth/* |
-| **Core entities** | CategoryController, HabitController, TaskController, GoalController | /category, /habit, /task, /goal |
-| **Routines** | RoutineController, ScheduleController | /routine, /schedule |
-| **User** | UserController | /user |
-| **Docs** | ArchitectureDocsController, DesignDocsController, ApiDocsController, ProjectDocsController, SearchDocsController, DocsImportController | /docs/* |
+| **Auth** | Authentication, AuthVerification | /auth/* |
+| **Core entities** | Category, Habit, Task, Goal | /category, /habit, /task, /goal |
+| **Routines** | Routine, Schedule, Snapshot | /routine, /schedule, /routine/snapshot |
+| **History** | CheckHistory, XpHistory | /check-history, /xp |
+| **User** | User, UserPhoto, UserExport | /user, /user/photo |
+| **AI** | AiAgent, Onboarding | /ai/agent, /onboarding |
+| **Feedback** | Feedback, FeedbackAdmin | /feedback, /feedback/admin |
+| **Docs** | Architecture, Blog, Api, Project, Search, Import | /docs/* |
 
 ### Request/response pattern
 
@@ -139,18 +154,18 @@ flowchart LR
   CTRL --> RES["📤 Response"]
 ```
 
-- Request DTOs validated with Jakarta Bean Validation (@NotBlank, @Size, @Email).
-- Responses mapped through dedicated Mapper classes (entity → response DTO).
-- Global exception handler translates errors into standardized ApiErrorResponse with error keys for frontend i18n.
+- Request DTOs are validated with Jakarta Bean Validation (@NotBlank, @Size, @Email).
+- Responses go through dedicated Mapper classes (entity → response DTO).
+- A global exception handler turns errors into a standardized ApiErrorResponse with error keys the frontends translate through i18n.
 
-## State Management (Frontend)
+## State management (frontend)
 
 ```mermaid
 flowchart TD
   AX["Axios + Interceptor"]
-  ST["Redux Store<br/>16 slices"]
-  PS["redux-persist<br/>localStorage"]
-  UI["React Components"]
+  ST["Redux Store<br/>shared packages/state"]
+  PS["redux-persist<br/>localStorage (web)"]
+  UI["React / React Native<br/>components"]
 
   UI -->|"dispatch actions"| ST
   ST -->|"selectors"| UI
@@ -160,18 +175,9 @@ flowchart TD
   AX -->|"auto 401 → refresh"| AX
 ```
 
-### Key slices
+The Redux slices live in a shared workspace package (`packages/state`, 17 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist, deliberately excluding the profile and snapshot slices so no PII lands in localStorage. The mobile app adds an offline layer (`packages/offline`) for reads and queued writes.
 
-| Slice | Purpose |
-|-------|---------|
-| perfil | User profile, XP, level, theme, language, constance |
-| habits, tasks, goals, routines, categories | Entity lists |
-| editHabit, editTask, editGoal, editRoutine, editCategory | Edit mode state |
-| todayRoutine | Today's scheduled routine for dashboard |
-| viewFilters | Sort/filter preferences per page |
-| register, errorHandler | Auth and error state |
-
-## Gamification System
+## Gamification system
 
 ```mermaid
 flowchart LR
@@ -188,25 +194,3 @@ flowchart LR
 - Level progression follows a seeded XP-per-level table (XpByLevelSeeder).
 - Constance (streak) tracks consecutive completed days on the User entity.
 - Goals award a fixed xpReward on completion.
-
-## Infrastructure
-
-```mermaid
-flowchart TB
-  subgraph Docker Compose
-    FE["⚛️ Frontend<br/>:3000"]
-    BE["🍃 Backend<br/>:8099"]
-    DB[("🐘 PostgreSQL<br/>:5490")]
-    NG["🌐 nginx<br/>(prod only)"]
-  end
-
-  NG --> FE
-  NG --> BE
-  FE --> BE
-  BE --> DB
-```
-
-- **Dev mode** — up-dev.sh: hot-reload for frontend and backend, direct port access.
-- **Prod mode** — up-prod.sh: nginx reverse proxy routing /api → backend, / → frontend.
-- **Reset** — reset-db.sh: wipes PostgreSQL data volume.
-- Environment configured via .env file with secrets for JWT, Google OAuth, SMTP, CORS, and docs import.

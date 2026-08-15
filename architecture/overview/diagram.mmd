@@ -1,13 +1,42 @@
 flowchart LR
-  FE["⚛️ Frontend<br/>React · TypeScript · Vite"]
-  BE["🍃 Backend<br/>Spring Boot · Java 21"]
-  DB[("🐘 Database<br/>PostgreSQL 15")]
-  GO["🔐 Google OAuth"]
-  GH["📦 GitHub API"]
-  ML["✉️ SMTP Server"]
+  subgraph clients["Clients"]
+    WEB["⚛️ Web app<br/>app.beyouweb.com"]
+    MOB["📱 Mobile app<br/>React Native · Expo"]
+    DOCS["📚 Docs site<br/>docs.beyouweb.com"]
+    SITE["🌐 Marketing site<br/>beyouweb.com"]
+  end
 
-  FE -->|"REST API (JWT)"| BE
-  BE -->|JPA / Hibernate| DB
-  BE <-->|OAuth 2.0| GO
-  BE <-->|Docs Import| GH
-  BE -->|Password Reset| ML
+  subgraph server["Application stack · Docker Compose"]
+    BE["🍃 Backend<br/>Spring Boot 4.1 · Java 25"]
+    DB[("🐘 PostgreSQL 15")]
+    WT["🔄 Watchtower"]
+  end
+
+  subgraph mon["Monitoring overlay"]
+    PR["📈 Prometheus"]
+    LK["📜 Loki + Alloy"]
+    GT["🛡️ GlitchTip<br/>mnt.beyouweb.com"]
+    GF["📊 Grafana<br/>obs.beyouweb.com"]
+  end
+
+  GO["🔐 Google OAuth"]
+  GH["📦 GitHub<br/>CI · GHCR · docs"]
+  ML["✉️ SMTP"]
+
+  SITE -.->|"links to"| WEB
+  WEB -->|"REST /api/v1 · JWT"| BE
+  MOB -->|"REST /api/v1 · JWT"| BE
+  DOCS -->|"public docs API"| BE
+  BE -->|"Flyway · JPA"| DB
+  BE <-->|"OAuth 2.0"| GO
+  GH -->|"docs import"| BE
+  GH -->|"published images"| WT
+  BE -->|"e-mail"| ML
+  PR -->|"scrape /actuator + exporters"| BE
+  server -->|"stdout via Alloy"| LK
+  WEB -->|"errors · DSN"| GT
+  MOB -->|"errors · DSN"| GT
+  BE -->|"errors · DSN"| GT
+  PR --> GF
+  LK --> GF
+  GT --> GF
