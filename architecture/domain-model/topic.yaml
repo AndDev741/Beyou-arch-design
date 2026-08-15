@@ -7,4 +7,6 @@ tags:
   - jpa
   - postgres
   - gamification
-projectKey: null
+  - snapshots
+  - history
+projectKey: beyou-backend

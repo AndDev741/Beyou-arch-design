@@ -4,13 +4,15 @@ erDiagram
   USER ||--o{ TASK : owns
   USER ||--o{ GOAL : owns
   USER ||--o{ ROUTINE : owns
+  USER ||--o{ ROUTINE_SNAPSHOT : owns
 
-  CATEGORY }o--o{ HABIT : categorizes
-  CATEGORY }o--o{ TASK : categorizes
-  CATEGORY }o--o{ GOAL : categorizes
+  CATEGORY }o--o{ HABIT : tags
+  CATEGORY }o--o{ TASK : tags
+  CATEGORY }o--o{ GOAL : tags
 
   ROUTINE ||--o{ ROUTINE_SECTION : contains
   ROUTINE ||--o| SCHEDULE : "scheduled by"
+  ROUTINE ||--o{ ROUTINE_SNAPSHOT : "frozen daily into"
 
   ROUTINE_SECTION ||--o{ HABIT_GROUP : groups
   ROUTINE_SECTION ||--o{ TASK_GROUP : groups
@@ -20,3 +22,8 @@ erDiagram
 
   HABIT_GROUP ||--o{ HABIT_GROUP_CHECK : tracks
   TASK_GROUP ||--o{ TASK_GROUP_CHECK : tracks
+
+  ROUTINE_SNAPSHOT ||--o{ SNAPSHOT_CHECK : contains
+
+  USER ||--o{ ENTITY_CHECK_DAY : "one outcome per day"
+  USER ||--o{ ENTITY_XP_DAY : "one xp delta per day"
