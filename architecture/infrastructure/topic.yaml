@@ -1,0 +1,12 @@
+key: infrastructure
+orderIndex: 2
+status: ACTIVE
+tags:
+  - infrastructure
+  - self-hosted
+  - homelab
+  - cloudflare
+  - tailscale
+  - debian
+  - docker
+projectKey: beyou-dev-env
