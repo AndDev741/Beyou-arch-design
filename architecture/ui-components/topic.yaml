@@ -6,4 +6,5 @@ tags:
   - frontend
   - ui
   - components
-projectKey: null
+  - monorepo
+projectKey: beyou-frontend

@@ -1,20 +1,16 @@
 flowchart TD
-  APP["⚛️ App.tsx<br/>Router + ThemeProvider"]
-  APP --> AUTH["🔐 Auth Pages<br/>Login · Register · Reset"]
-  APP --> PROT["🛡️ Protected Pages"]
+  APP["⚛️ App.tsx<br/>ThemeProvider · Router · ErrorBoundary"]
+  APP --> BOOT["useSilentRefresh<br/>'checking' gate on boot"]
+  APP --> PUB["Public routes<br/>login · register · reset · verify"]
+  APP --> PROT["ProtectedRoute · layout route"]
 
-  PROT --> HDR["📌 Header"]
-  PROT --> DASH["📊 Dashboard"]
-  PROT --> FEAT["📋 Feature Pages<br/>Habits · Tasks · Goals<br/>Categories · Routines"]
-  PROT --> CFG["⚙️ Configuration"]
+  PROT --> SHELL["Shell (mounted once)<br/>Sidebar · BottomNav · AgentWidget"]
+  SHELL --> PAGES["8 lazy pages<br/>dashboard → feedback"]
+  PROT --> ADM["AdminRoute (lazy)<br/>/admin/feedback"]
 
-  FEAT --> SORT["🔽 SortFilterBar"]
-  FEAT --> CREATE["➕ Create Form"]
-  FEAT --> RENDER["📦 Render Grid"]
-  FEAT --> EDIT["✏️ Edit Form"]
+  PAGES --> QUARTET["Entity quartet<br/>createX/editX → XForm → xBox → renderXs"]
+  PAGES --> WIDG["Widget fabric<br/>8 shared ids · carousel on phones"]
+  PAGES --> TUT["Tutorial phase machine<br/>intro → ai-onboarding → tours → done"]
 
-  DASH --> PROFILE["👤 Profile Card"]
-  DASH --> SHORTCUTS["🔗 Shortcuts"]
-  DASH --> ROUTINE["📋 Day Routine"]
-  DASH --> GOALS["🎯 Goals View"]
-  DASH --> WIDGETS["📈 Widgets"]
+  QUARTET --> UIP["ui/ primitives<br/>Card · Ring · XpBar · Modal ..."]
+  WIDG --> UIP
