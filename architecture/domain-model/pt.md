@@ -1,13 +1,15 @@
 ---
 title: "Modelo de Domínio"
-summary: "Guia completo das entidades do Beyou, relacionamentos, estratégias de herança e como o modelo de dados suporta a experiência do produto."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, feedback e chats de IA construídas ao redor."
 ---
 
-Este documento cobre todas as entidades do domínio Beyou, explicando tanto o que ela faz para o usuário quanto como é estruturada no banco de dados. O objetivo é dar aos colaboradores um modelo mental claro da camada de dados antes de ler ou escrever código.
+Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
 
-## Visão Geral
+Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações em `db/migration/` criam e evoluem cada tabela, e o Hibernate roda com `ddl-auto: validate` em todos os ambientes, então um mapeamento de entidade que discorde das migrações falha no startup em vez de reescrever o schema em silêncio.
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, organiza em categorias e executa através de rotinas diárias. Cada ação gera XP que evolui o nível do usuário, do hábito, da categoria e da rotina — criando um loop de gamificação que recompensa a consistência.
+## O quadro geral
+
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam quatro famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -18,358 +20,351 @@ flowchart TD
   U --> GOL["🎯 Metas"]
   U --> RTN["📋 Rotinas"]
 
-  CAT -.-|"tags"| HAB
-  CAT -.-|"tags"| TSK
-  CAT -.-|"tags"| GOL
+  CAT -.-|"marca"| HAB
+  CAT -.-|"marca"| TSK
+  CAT -.-|"marca"| GOL
 
   RTN --> SEC["📑 Seções"]
-  SEC --> HG["Grupos de Hábitos"]
-  SEC --> TG["Grupos de Tarefas"]
+  SEC --> HG["Grupos de hábito"]
+  SEC --> TG["Grupos de tarefa"]
   HG -.-|"referencia"| HAB
   TG -.-|"referencia"| TSK
 
   HG --> CHK["✅ Checks"]
   TG --> CHK
   CHK -->|"gera"| XP["🎮 XP"]
+  CHK -->|"escreve"| HIST["📅 Histórico diário<br/>linhas de check + xp"]
+  RTN -->|"congelada por dia em"| SNAP["🧊 Snapshots"]
 ```
 
 ## User
 
-**Papel no produto** — A entidade central. Todo dado no Beyou pertence a um usuário. O usuário tem um perfil (nome, foto, frase motivacional), preferências (tema, idioma, widgets do dashboard) e um estado de gamificação (XP, nível, constância).
+**Papel no produto**: a entidade central. Cada dado do Beyou pertence a um usuário. O usuário tem perfil (nome, foto, frase motivacional), preferências (tema, idioma, timezone, widgets do dashboard), estado de gamificação (XP, level, streaks) e dois pequenos campos de texto que o agente de IA usa como memória.
 
 **Campos principais**
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Mín 2 caracteres |
-| email | String | Único, validado |
-| password | String | Mín 6 caracteres, hash |
-| isGoogleAccount | boolean | True para usuários OAuth |
+| id | UUID | Gerado automaticamente |
+| name | String | |
+| email | String | Único |
+| password | String | Hash BCrypt |
+| isGoogleAccount | boolean | True para contas OAuth |
+| emailVerified | boolean | Contas novas confirmam por e-mail antes do primeiro login |
+| verificationToken / verificationTokenExpiry | String / LocalDateTime | O estado de verificação vive como colunas aqui, sem entidade própria |
 | perfilPhrase / perfilPhraseAuthor | String | Citação motivacional opcional |
-| perfilPhoto | String | URL da foto de perfil |
-| themeInUse | String | Preferência de tema atual |
-| languageInUse | String | en ou pt |
-| widgetsIdInUse | Lista de String | IDs dos widgets ativos no dashboard |
-| isTutorialCompleted | boolean | Flag de onboarding |
+| perfilPhoto | String (512) | Caminho do arquivo da foto; os bytes vivem em disco, fora do banco |
+| themeInUse / languageInUse | String | Preferências |
+| timezone | String | Obrigatório, padrão UTC. Guia os snapshots e o histórico diário |
+| widgetsIdInUse | Lista de String | IDs dos widgets ativos do dashboard |
+| isTutorialCompleted | boolean | Flag do onboarding |
+| userContext | String (2000) | A memória global do agente de IA sobre este usuário |
+| xpDecayStrategy | Enum XpDecayStrategy | GRADUAL, FLAT ou TIME_WINDOW; como check-ins atrasados perdem XP |
 | maxConstance | Integer | Maior streak já alcançado |
 | completedDays | Set de LocalDate | Dias com atividade de rotina completada |
-| userRole | UserRole enum | Sempre USER |
-| constanceConfiguration | ConstanceConfiguration enum | ANY ou COMPLETE |
+| userRole | Enum UserRole | USER ou ADMIN (admin só por update manual no banco) |
+| constanceConfiguration | Enum ConstanceConfiguration | ANY ou COMPLETE |
 
-**Embutido:** XpProgress (xp, level, actualLevelXp, nextLevelXp)
+**Embutidos**: XpProgress e CheckProgress (ambos descritos abaixo).
 
-**Relacionamentos**
+**Relacionamentos**: o usuário possui seis coleções, todas OneToMany com cascade ALL e orphan removal: categorias, hábitos, tarefas, metas, rotinas e snapshots de rotina. A exclusão de conta funciona inteiramente por esse cascade; a coleção de tarefas foi adicionada justamente para fechar uma brecha nele.
 
-- Possui Categories, Habits, Tasks, Goals, Routines (OneToMany, cascade all, orphan removal)
-
-**Lógica de negócio**
-
-- getCurrentConstance(referenceDate) calcula a constância atual percorrendo completedDays de trás para frente a partir da data mais recente. Isso alimenta o contador de streak no dashboard.
-- Implementa Spring Security UserDetails para autenticação.
+**Lógica de negócio**: implementa o UserDetails do Spring Security. O cálculo de streak, que antes vivia aqui como uma caminhada sobre completedDays, agora pertence ao UserStreakService no pacote checkday, em cima das linhas de histórico diário.
 
 ## Category
 
-**Papel no produto** — Categorias permitem que os usuários organizem seus hábitos, tarefas e metas por tema (ex: "Saúde", "Carreira", "Pessoal"). Categorias também ganham XP, então o usuário pode ver em qual área da vida está investindo mais esforço.
+**Papel no produto**: categorias organizam hábitos, tarefas e metas por área da vida ("Saúde", "Carreira"). Categorias também ganham XP, então o usuário vê onde investe mais esforço.
 
-**Campos principais**
+**Campos principais**: name, description, iconId, timestamps.
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Mín 2, máx 256 caracteres |
-| description | String | Máx 256, opcional |
-| iconId | String | Identificador do ícone |
-
-**Embutido:** XpProgress
+**Embutido**: apenas XpProgress. Deliberadamente sem CheckProgress: uma categoria ganha XP, mas nunca é marcada.
 
 **Relacionamentos**
 
-- Pertence a um User (ManyToOne)
-- Vinculada a Habits, Tasks, Goals (ManyToMany, lado inverso via join tables habit_category, task_category, goal_category)
-
-**Lógica de negócio**
-
-- Métodos gainXp / loseXp delegam para o XpProgress com uma função provider que consulta a tabela XpByLevel.
+- Pertence a um User (ManyToOne).
+- Marcada em Habits, Tasks e Goals como lado inverso de três joins ManyToMany (habit_category, task_category, goal_category).
 
 ## Habit
 
-**Papel no produto** — Um hábito é um comportamento que o usuário quer rastrear e melhorar ao longo do tempo. Cada hábito tem sua própria progressão de nível e XP, incentivando o usuário a manter a consistência. Hábitos recebem classificações de importância e dificuldade que influenciam as recompensas de XP.
+**Papel no produto**: um comportamento que o usuário quer construir. Cada hábito tem seu próprio level e progressão de XP, mais um registro de streak, então continuar aparecendo segue valendo a pena.
 
 **Campos principais**
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Mín 2, máx 256 caracteres |
-| description | String | Máx 256, opcional |
-| iconId | String | Identificador do ícone |
-| importance | Integer | Escala 1–4 |
-| dificulty | Integer | Escala 1–4 |
-| motivationalPhrase | String | Máx 256, opcional |
-| constance | int | Contador de streak atual, inicia em 0 |
+| name / description / iconId | String | |
+| importance | Integer | 1 a 4 |
+| dificulty | Integer | 1 a 4. Sim, com erro de grafia: é o nome real do campo, da coluna e do formato de rede |
+| motivationalPhrase | String | Opcional |
 
-**Embutido:** XpProgress
+**Embutidos**: XpProgress e CheckProgress. O antigo contador avulso `constance` se foi; o CheckProgress o substituiu.
 
 **Relacionamentos**
 
-- Pertence a um User (ManyToOne)
-- Categorizado por Categories (ManyToMany, lado proprietário, join table habit_category)
-- Referenciado por HabitGroups dentro de rotinas (OneToMany, cascade all, sem orphan removal)
+- Pertence a um User (ManyToOne).
+- Marcado por Categories (ManyToMany, lado dono, join table habit_category).
+- Referenciado por HabitGroups dentro de rotinas (OneToMany, cascade ALL, sem orphan removal).
 
 ## Task
 
-**Papel no produto** — Tarefas são ações concretas que o usuário precisa fazer. Diferente dos hábitos, tarefas podem ser únicas (ex: "Comprar mantimentos") ou recorrentes. Tarefas únicas suportam soft delete via data markedToDelete, dando ao sistema um período de graça antes da remoção permanente.
+**Papel no produto**: uma ação concreta. Diferente dos hábitos, tarefas podem ser únicas ("Comprar mantimentos"). Tarefas únicas recebem uma data de soft-delete ao serem marcadas, dando ao sistema um período de carência antes de um scheduler removê-las.
 
 **Campos principais**
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Opcional |
-| description | String | Opcional |
-| iconId | String | Opcional |
-| importance | Integer | Opcional, escala 1–4 |
-| dificulty | Integer | Opcional, escala 1–4 |
+| name / description / iconId | String | |
+| importance / dificulty | Integer | 1 a 4, mesma grafia do Habit |
 | oneTimeTask | boolean | True para tarefas não recorrentes |
-| markedToDelete | LocalDate | Timestamp de soft delete |
+| markedToDelete | LocalDate | Definido ao completar tarefas únicas; o TaskCleanupScheduler as recolhe |
 
-**Relacionamentos**
+**Embutido**: apenas CheckProgress. Uma tarefa não carrega XP próprio; marcá-la alimenta o usuário, a rotina e as categorias.
 
-- Pertence a um User (ManyToOne)
-- Categorizada por Categories (ManyToMany, lado proprietário, join table task_category)
-
-**Nota** — Tarefas não têm sua própria progressão de XP. Elas ganham XP indiretamente quando marcadas como concluídas dentro de uma rotina.
+**Relacionamentos**: pertence a um User (ManyToOne); marcada por Categories (ManyToMany, lado dono, join table task_category).
 
 ## Goal
 
-**Papel no produto** — Metas são objetivos baseados em alvos mensuráveis (ex: "Correr 100 km", "Ler 12 livros"). Usuários acompanham o progresso via currentValue / targetValue e ganham uma recompensa de XP calculada ao completar.
+**Papel no produto**: um objetivo mensurável ("Correr 100 km"). O progresso é currentValue contra targetValue, e a conclusão paga uma recompensa de XP calculada.
 
 **Campos principais**
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Obrigatório |
-| iconId | String | Obrigatório |
-| description | String | Opcional |
-| targetValue | Double | O alvo numérico |
-| unit | String | Unidade de medida (km, livros, etc.) |
-| currentValue | Double | Progresso atual |
+| name / iconId / description | String | |
+| targetValue / currentValue | Double | A parte mensurável |
+| unit | String | km, livros, etc. |
 | complete | Boolean | Flag de conclusão |
-| motivation | String | Texto motivacional opcional |
-| startDate | LocalDate | Quando a meta começa |
-| endDate | LocalDate | Prazo final |
-| xpReward | double | XP calculado na conclusão |
-| completeDate | LocalDate | Quando foi completada |
-| status | GoalStatus enum | NOT_STARTED, IN_PROGRESS, COMPLETED |
-| term | GoalTerm enum | SHORT_TERM, MEDIUM_TERM, LONG_TERM |
+| motivation | String | Opcional |
+| startDate / endDate | LocalDate | Janela e prazo |
+| xpReward | double | Calculado na conclusão |
+| completeDate | LocalDate | |
+| status | Enum GoalStatus | NOT_STARTED, IN_PROGRESS, COMPLETED (guardados como string) |
+| term | Enum GoalTerm | SHORT_TERM, MEDIUM_TERM, LONG_TERM |
 
-**Relacionamentos**
+**Relacionamentos**: pertence a um User (ManyToOne); marcada por Categories (ManyToMany, lado dono, join table goal_category).
 
-- Pertence a um User (ManyToOne)
-- Categorizada por Categories (ManyToMany, lado proprietário, join table goal_category)
+**Invariante que vale conhecer**: construir uma meta com status COMPLETED a rebaixa silenciosamente para IN_PROGRESS. Só o endpoint explícito de conclusão paga XP, então ninguém consegue postar uma meta pré-completada para colher recompensa.
 
-**Cálculo de XP** — GoalXpCalculator computa a recompensa com base em quatro fatores:
+**Cálculo de XP**: o GoalXpCalculator multiplica quatro fatores.
 
 ```mermaid
 flowchart LR
-  TV["🎯 Valor Alvo"] --> BASE["XP Base<br/>50 / 100 / 200 / 300"]
+  TV["🎯 Valor alvo"] --> BASE["XP base<br/>50 / 100 / 200 / 300"]
   TV --> DIFF["Dificuldade<br/>1.0x – 2.0x"]
-  DL["📅 Dias Restantes"] --> URG["Urgência<br/>1.0x – 1.5x"]
-  CD["✅ Completou no Prazo?"] --> CON["Consistência<br/>1.0x – 1.3x"]
-  BASE --> TOTAL["XP Total"]
+  DL["📅 Dias na janela"] --> URG["Urgência<br/>1.0x – 1.5x"]
+  CD["✅ Concluída antes do prazo?"] --> CON["Consistência<br/>1.0x – 1.3x"]
+  BASE --> TOTAL["Recompensa total de XP"]
   DIFF --> TOTAL
   URG --> TOTAL
   CON --> TOTAL
 ```
 
-- XP base escala com o valor alvo (50 para metas pequenas, 300 para grandes)
-- Multiplicador de dificuldade recompensa metas mais difíceis (até 2.0x para alvos acima de 200)
-- Multiplicador de urgência recompensa prazos curtos (1.5x para metas com prazo de até 7 dias)
-- Multiplicador de consistência recompensa completar antes do prazo (1.3x)
+- O XP base escala com o valor alvo: 50 abaixo de 10, 100 abaixo de 50, 200 abaixo de 200, 300 acima.
+- A dificuldade recompensa alvos maiores, até 2.0x a partir de 200.
+- A urgência recompensa janelas curtas: 1.5x para 7 dias ou menos, 1.2x até 30.
+- Terminar antes do prazo multiplica por 1.3x.
+
+## Os dois componentes compartilhados
+
+Dois embutíveis carregam o estado de gamificação, e quais entidades embutem qual é uma decisão de design por si só.
+
+### XpProgress
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| xp | double | XP total acumulado |
+| level | int | Level atual |
+| actualLevelXp / nextLevelXp | double | Fronteiras do level atual |
+
+Embutido por **User, Category, Habit e Routine**: as quatro coisas que sobem de level. `addXp` e `removeXp` caminham pela curva de levels nas duas direções através de uma função de consulta, com teto no último level.
+
+### CheckProgress
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| check_current_streak / check_best_streak | int | Streaks |
+| check_total_check_ins | int | Contagem de toda a vida |
+| check_first_check_in_date / check_last_check_in_date | LocalDate | Limites, anuláveis |
+
+Embutido por **User, Habit, Task e Routine**: as quatro coisas que são marcadas. Category fica de fora de propósito, e Task aparece aqui mesmo sem ter XP.
 
 ## Routine
 
-**Papel no produto** — Rotinas são a ferramenta principal de execução diária. O usuário define uma rotina com seções (ex: "Manhã", "Trabalho", "Noite"), cada uma contendo grupos de hábitos e tarefas. Todo dia, o usuário abre sua rotina e marca itens como feitos, gerando XP em todas as entidades relacionadas.
+**Papel no produto**: a ferramenta de execução diária. Uma rotina tem seções ("Manhã", "Trabalho", "Noite"), cada uma com grupos de hábitos e tarefas. Marcar itens gera XP em cada entidade relacionada.
 
-**Herança** — Routine é uma classe base abstrata usando herança single-table do JPA. Atualmente o único tipo concreto é DiaryRoutine (rotina diária com seções).
+**Herança**: Routine é uma base abstrata com herança single-table e discriminador `dtype`. DiaryRoutine é o único tipo concreto hoje.
 
 ```mermaid
 flowchart TD
   R["📋 Routine<br/>(abstrata, single-table)"]
   R --> DR["📋 DiaryRoutine"]
   DR --> RS1["📑 Seção: Manhã"]
-  DR --> RS2["📑 Seção: Trabalho"]
-  DR --> RS3["📑 Seção: Noite"]
-  RS1 --> HG1["💪 Grupo de Hábito"]
-  RS1 --> TG1["📝 Grupo de Tarefa"]
+  DR --> RS2["📑 Seção: Noite"]
+  RS1 --> HG1["💪 Grupo de hábito"]
+  RS1 --> TG1["📝 Grupo de tarefa"]
   HG1 --> HC["✅ HabitGroupCheck"]
   TG1 --> TC["✅ TaskGroupCheck"]
 ```
 
 ### Routine (base abstrata)
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Obrigatório |
-| iconId | String | Opcional |
-
-**Embutido:** XpProgress
+Campos: name, iconId. Embute XpProgress e CheckProgress.
 
 **Relacionamentos**
 
-- Pertence a um User (ManyToOne)
-- Vinculada a um Schedule (OneToOne, opcional)
+- Pertence a um User (ManyToOne).
+- Possui um Schedule (OneToOne, anulável, cascade REMOVE, lado dono). Deliberadamente sem orphan removal: desagendar zera a referência e apaga a linha do schedule explicitamente.
 
 ### DiaryRoutine
 
-Estende Routine. Adiciona:
-
-- routineSections (OneToMany, cascade all, ordenado por orderIndex ASC)
+Estende Routine, adicionando routineSections (OneToMany, cascade ALL, orphan removal, ordenadas por orderIndex).
 
 ### RoutineSection
 
-**Papel no produto** — Seções dividem uma rotina em blocos de tempo. Cada seção pode ter horário de início/fim e ser marcada como favorita.
+Campos: name, iconId, startTime, endTime, orderIndex, favorite.
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| name | String | Obrigatório |
-| iconId | String | Opcional |
-| startTime | LocalTime | Opcional |
-| endTime | LocalTime | Opcional |
-| orderIndex | int | Posição dentro da rotina |
-| favorite | Boolean | Opcional |
-
-**Relacionamentos**
-
-- Pertence a uma Routine (ManyToOne)
-- Contém TaskGroups e HabitGroups (OneToMany, cascade all, orphan removal)
+**Relacionamentos**: pertence a uma Routine (ManyToOne); contém HabitGroups e TaskGroups (OneToMany, cascade ALL, orphan removal). Uma peculiaridade para conhecer: essas coleções são unidirecionais e mapeadas por join tables (routine_sections_habit_groups, routine_sections_task_groups), enquanto o ItemGroup também carrega sua própria coluna routine_section_id. O vínculo seção-grupo está, na prática, mapeado duas vezes.
 
 ## Schedule
 
-**Papel no produto** — Um schedule define quais dias da semana uma rotina está ativa. Isso determina se a rotina aparece no dashboard do usuário em um determinado dia.
+**Papel no produto**: em quais dias da semana uma rotina está ativa, o que decide se ela aparece no dashboard de um dado dia.
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| days | Set de WeekDay | Armazenado na join table schedule_days |
+A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabela de coleção schedule_days. A chave estrangeira vive do lado da rotina. Uma pegadinha: os identificadores do enum são palavras capitalizadas (Monday, Tuesday, ...), sem SCREAMING_CASE, e são guardados como string, então todo consumidor precisa casar com essa grafia.
 
-**Enum WeekDay** — Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+## Grupos de itens e checks
 
-## Item Groups e Checks
+**Papel no produto**: colocar um hábito ou tarefa dentro de uma seção de rotina cria um "grupo", a instância rastreável que é marcada ou pulada a cada dia. Cada check é um registro histórico com data, hora e o XP que gerou.
 
-**Papel no produto** — Quando um hábito ou tarefa é colocado dentro de uma seção da rotina, ele se torna um "grupo" — uma instância rastreável que pode ser marcada como feita ou pulada a cada dia. Cada check gera um registro histórico com data, hora e XP ganho.
+**ItemGroup** (abstrata, herança joined): startTime, endTime e o ManyToOne de volta à seção. Tipos concretos HabitGroup (referencia um Habit) e TaskGroup (referencia uma Task), cada um dono das suas coleções de checks (cascade ALL, sem orphan removal, então o histórico sobrevive).
 
-### ItemGroup (base abstrata)
+**BaseCheck** (abstrata, herança joined): checkDate, checkTime, checked, skipped, xpGenerated. Tipos concretos HabitGroupCheck e TaskGroupCheck, cada um pertencente ao seu grupo.
 
-Usa estratégia de herança joined do JPA.
+## Histórico diário: EntityCheckDay e EntityXpDay
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| startTime | LocalTime | Opcional |
-| endTime | LocalTime | Opcional |
+**Papel no produto**: os widgets de histórico e progresso do dashboard precisam de respostas por dia ("o que aconteceu com este hábito na terça?", "quanto XP esta categoria ganhou nesta semana?"). Varrer as tabelas cruas de checks para isso é caro e frágil, então duas tabelas dedicadas de histórico guardam uma linha por entidade por dia.
 
-**Tipos concretos:**
+**EntityCheckDay** (tabela entity_check_day): um desfecho por entidade por dia, único em (owner_type, owner_id, day).
 
-- **HabitGroup** — referencia um Habit (ManyToOne), rastreia via HabitGroupChecks (OneToMany, cascade all)
-- **TaskGroup** — referencia uma Task (ManyToOne), rastreia via TaskGroupChecks (OneToMany, cascade all)
+- Desfechos: DONE, SKIPPED, MISSED, NOT_SCHEDULED, NOT_IN_ROUTINE. Só DONE avança um streak.
+- Tipos de dono: HABIT, TASK, ROUTINE, USER.
+- A referência ao dono é um UUID solto, sem chave estrangeira, de propósito: o histórico precisa sobreviver à rotina ou hábito pelo qual foi registrado. A referência ao usuário é uma FK de verdade com cascade delete, então a exclusão de conta ainda o varre.
 
-### BaseCheck (base abstrata)
+**EntityXpDay** (tabela entity_xp_day): o delta líquido de XP por entidade por dia, mesmo padrão de unicidade.
 
-Usa estratégia de herança joined do JPA.
+- O valor tem sinal: desmarcar um item produz um delta negativo. Somar as linhas de um dono reproduz o total do seu XpProgress.
+- Tipos de dono: USER, CATEGORY, HABIT, ROUTINE. Exatamente os quatro portadores de XpProgress, e deliberadamente diferente do conjunto do check-day (este tem CATEGORY e não tem TASK).
+- Essas linhas alimentam o endpoint /xp/history, que devolve séries densas: uma entrada por dia da janela, zeros incluídos, para os gráficos nunca pularem dias.
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | UUID | Auto-gerado |
-| checkDate | LocalDate | Quando o check aconteceu |
-| checkTime | LocalTime | Hora do check |
-| checked | boolean | Foi completado? |
-| skipped | Boolean | Foi pulado? |
-| xpGenerated | double | XP ganho neste check |
+## Snapshots de rotina
 
-**Tipos concretos:**
+**Papel no produto**: rotinas mudam. Seções são renomeadas, hábitos são removidos, rotinas inteiras são apagadas. Sem snapshots, a visão de ontem do seu dia se reescreveria em silêncio. Então, a cada dia agendado, cada rotina é congelada em uma cópia imutável, e os dias passados renderizam exatamente como eram.
 
-- **HabitGroupCheck** — pertence a um HabitGroup
-- **TaskGroupCheck** — pertence a um TaskGroup
+**RoutineSnapshot** (tabela routine_snapshot): único por (rotina, dia).
 
-## Sistema de Progressão de XP
+- Referencia a rotina e, desnormalizado, o usuário, para o dia inteiro carregar em uma consulta.
+- Copia routineName e routineIconId, e guarda structureJson: a árvore completa de seções e itens em JSON, mantida ao pé da letra para renderização.
+- Possui seus SnapshotChecks (cascade ALL, orphan removal).
 
-**Papel no produto** — Toda entidade que pode ganhar XP (User, Category, Habit, Routine) compartilha o mesmo componente embutido XpProgress. Isso cria uma experiência de evolução consistente em todo o app.
+**SnapshotCheck** (tabela snapshot_check): uma linha por grupo de hábito ou tarefa da rotina congelada.
 
-### XpProgress (embutível)
+- Cópias desnormalizadas do nome, ícone, dificuldade e importância do item, mais o nome da seção.
+- originalItemId e originalGroupId são UUIDs soltos, sem chaves estrangeiras, o mesmo padrão das tabelas de histórico: o snapshot precisa sobreviver a edições e exclusões daquilo que aponta.
+- Estado mutável: checked, skipped, checkTime, xpGenerated. O tipo do item é HABIT ou TASK.
 
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| xp | double | XP total acumulado |
-| level | int | Nível atual |
-| actualLevelXp | double | Limiar de XP para o nível atual |
-| nextLevelXp | double | Limiar de XP para o próximo nível |
+**Check-ins atrasados e decaimento de XP**: marcar um dia passado por um snapshot ainda paga XP, mas decaído conforme a XpDecayStrategy escolhida pelo usuário:
 
-**Lógica de level-up** — Quando xp atinge nextLevelXp, o nível incrementa e os limites recalculam a partir da tabela XpByLevel. O inverso acontece quando XP é removido.
+| Estratégia | Comportamento |
+|------------|---------------|
+| GRADUAL | 0.8x com um dia de atraso, depois 0.6x, 0.4x e 0.2x de quatro dias em diante |
+| FLAT | 0.5x não importa o atraso |
+| TIME_WINDOW | XP cheio até dois dias de atraso, nada depois |
 
-### Tabela XpByLevel
+O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada conta, então uma rotina é congelada na meia-noite daquele usuário, não na do servidor.
 
-Semeada na inicialização da aplicação pelo XpByLevelSeeder. Define 101 níveis (0–100) com dificuldade progressiva:
+## Feedback
 
-```mermaid
-flowchart LR
-  L1["Níveis 0–10<br/>multiplicador 0.5x"] --> L2["Níveis 11–30<br/>multiplicador 0.2x"]
-  L2 --> L3["Níveis 31–100<br/>multiplicador 0.3x"]
+**Papel no produto**: usuários reportam bugs e pedem funcionalidades dentro do app; um admin lê, responde e acompanha o status.
+
+- **Feedback** (tabela feedback): pertence a um User, guarda o texto mais um FeedbackContext embutido (tela, versão do app, plataforma, idioma, tema) capturado no envio. A categoria é BUG, FEATURE_REQUEST ou OTHER; o status é OPEN, TAKING_CARE ou CLOSED e só o admin o vê ou altera.
+- **FeedbackReply**: uma resposta na thread. A referência ao autor é anulável de propósito, para a resposta sobreviver à exclusão da conta do autor.
+- **FeedbackAttachment**: uma linha-índice de screenshot (largura, altura, tamanho). Os bytes do JPEG vivem em disco, no diretório de uploads, fora do banco.
+
+## Chats do agente de IA
+
+**Papel no produto**: o chat do agente, que cria rotinas e responde perguntas, mantém as conversas no domínio, com duas camadas de memória.
+
+- **Chat** (tabela chats): pertence a um User, tem título e userContextInChat, uma memória de 1000 caracteres do escopo do chat que o modelo reescreve conforme a conversa evolui. A entidade do usuário carrega o equivalente global de 2000 caracteres (userContext).
+- **AgentMessage** (tabela agent_message): deliberadamente sem relacionamento JPA com o Chat, só uma coluna chatId com o cascade por conta de uma FK do banco. Cada mensagem guarda o papel, um array JSON de segmentos de conteúdo e um sequenceId, único por chat, que torna a ordenação explícita em vez de dependente de timestamp.
+- O Spring AI gerencia sua própria tabela spring_ai_chat_memory para a janela de curto prazo do modelo; ela não tem entidade JPA.
+
+## Entidades de auth e conta
+
+Três pequenas entidades guardadoras de hash sustentam os fluxos de segurança, todas ManyToOne para User:
+
+| Entidade | Tabela | O que guarda |
+|----------|--------|--------------|
+| RefreshToken | refresh_tokens | Hash do refresh token de 15 dias, expiração, revokedAt |
+| PasswordResetToken | password_reset_tokens | Hash do token de reset, expiração, usedAt |
+| AccountDeletionCode | account_deletion_codes | Hash BCrypt de um código de seis dígitos, expiração, usedAt e um contador de tentativas que mata o código depois de alguns erros |
+
+A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria.
+
+## Sistema de progressão de XP
+
+### A curva de levels
+
+XpByLevel (tabela xp_by_level) é uma tabela de referência pura: uma linha por level, com o limiar de XP para alcançá-lo. É semeada por uma migração repetível do Flyway com uma curva quadrática:
+
+```
+limiar(level) = round(50 × level²)
 ```
 
-Fórmula por nível: xp += (level + 1) * 100 * multiplicador
+Os levels vão de 0 a 100. Os primeiros vêm rápido (o level 2 custa 200 XP), os últimos exigem esforço sustentado (o level 100 fica em 500.000). As consultas são cacheadas por level, e o XpProgress caminha por essa curva nas duas direções quando XP entra ou sai.
 
-Níveis iniciais são rápidos para encorajar novos usuários. Níveis médios desaceleram. Níveis altos exigem esforço sustentado.
-
-### Fluxo de XP ao marcar item na rotina
+### Fluxo de XP em um check de rotina
 
 ```mermaid
 sequenceDiagram
   participant U as Usuário
-  participant R as Routine Service
+  participant R as Serviço de Rotina
   participant X as XpProgress
+  participant H as Tabelas de histórico
 
   U->>R: Marca hábito na rotina
-  R->>X: habit.xpProgress.addXp(valor)
-  R->>X: category.gainXp(valor)
-  R->>X: routine.xpProgress.addXp(valor)
-  R->>X: user.xpProgress.addXp(valor)
+  R->>X: habit.addXp / category.gainXp / routine.addXp / user.addXp
   R->>R: Registra HabitGroupCheck com xpGenerated
-  R->>R: Adiciona hoje em user.completedDays
+  R->>H: Escreve deltas em EntityXpDay (user, category, habit, routine)
+  R->>H: Escreve desfecho em EntityCheckDay (DONE)
   R-->>U: XP atualizado em todas as entidades
 ```
 
-## Estratégias de Herança
+## Estratégias de herança
 
-O domínio usa duas estratégias de herança JPA:
-
-| Estratégia | Usado por | Como funciona |
+| Estratégia | Usada por | Como funciona |
 |------------|-----------|---------------|
-| **Single Table** | Routine → DiaryRoutine | Uma tabela para todos os tipos de rotina, com coluna discriminadora. Consultas rápidas, mas colunas anuláveis para campos específicos de tipo. |
-| **Joined** | ItemGroup → HabitGroup / TaskGroup, BaseCheck → HabitGroupCheck / TaskGroupCheck | Tabela base + tabelas filhas unidas por chave estrangeira. Schema mais limpo, um pouco mais de joins. |
+| **Single table** | Routine → DiaryRoutine | Uma tabela com discriminador dtype. Consultas rápidas; colunas embutidas NOT NULL só toleráveis porque há uma única subclasse. |
+| **Joined** | ItemGroup → HabitGroup / TaskGroup, BaseCheck → HabitGroupCheck / TaskGroupCheck | Tabela base mais tabelas filhas unidas por chave estrangeira. Schema mais limpo, um join a mais por consulta. |
 
-## Regras de Cascade e Deleção
+## Regras de cascade e exclusão
 
-Entender cascatas é crítico para evitar dados órfãos ou deleções acidentais.
+Entender os cascades importa acima de tudo na exclusão de conta, que depende deles de ponta a ponta.
 
-| Pai | Filhos | Cascade | Orphan Removal |
+| Pai | Filhos | Cascade | Orphan removal |
 |-----|--------|---------|----------------|
-| User | Categories, Habits, Routines, Goals | ALL | Sim — deletar um usuário remove tudo |
-| DiaryRoutine | RoutineSections | ALL | Não |
-| RoutineSection | HabitGroups, TaskGroups | ALL | Sim — remover uma seção limpa seus grupos |
-| Habit | HabitGroups | ALL | Não — deletar um hábito não o remove das rotinas automaticamente |
-| HabitGroup | HabitGroupChecks | ALL | Não — histórico de checks é preservado |
-| TaskGroup | TaskGroupChecks | ALL | Não — histórico de checks é preservado |
+| User | Categories, Habits, Tasks, Goals, Routines, RoutineSnapshots | ALL | Sim. Apagar um usuário remove tudo |
+| User (nível de banco) | Linhas de EntityCheckDay, EntityXpDay | ON DELETE CASCADE | Por conta da FK do banco |
+| DiaryRoutine | RoutineSections | ALL | Sim |
+| RoutineSection | HabitGroups, TaskGroups | ALL | Sim |
+| Routine | Schedule | REMOVE | Não. Desagendar é explícito |
+| Habit | HabitGroups | ALL | Não. Apagar um hábito não reescreve rotinas em silêncio |
+| HabitGroup / TaskGroup | Checks | ALL | Não. O histórico de checks é preservado |
+| RoutineSnapshot | SnapshotChecks | ALL | Sim |
 
-## Resumo das Tabelas do Banco
+## Resumo das tabelas do banco
 
 ```mermaid
 flowchart LR
-  subgraph "Tabelas Principais"
+  subgraph core["Núcleo"]
     users
     categories
     habits
@@ -377,31 +372,51 @@ flowchart LR
     goals
   end
 
-  subgraph "Tabelas de Junção"
+  subgraph joins["Join tables"]
     habit_category
     task_category
     goal_category
     schedule_days
   end
 
-  subgraph "Tabelas de Rotina"
-    routine
+  subgraph routine["Rotina"]
+    routines
     routine_sections
     schedules
+    item_groups
+    habit_groups
+    task_groups
+    base_checks
+    habit_group_checks
+    task_group_checks
   end
 
-  subgraph "Tabelas de Rastreamento"
-    item_group
-    habit_group
-    task_group
-    base_check
-    habit_group_check
-    task_group_check
+  subgraph history["Histórico & snapshots"]
+    entity_check_day
+    entity_xp_day
+    routine_snapshot
+    snapshot_check
   end
 
-  subgraph "Tabelas do Sistema"
-    xpByLevel
+  subgraph support["Feedback & IA"]
+    feedback
+    feedback_reply
+    feedback_attachment
+    chats
+    agent_message
+    spring_ai_chat_memory
+  end
+
+  subgraph auth["Auth"]
+    refresh_tokens
+    password_reset_tokens
+    account_deletion_codes
+  end
+
+  subgraph system["Referência & docs"]
+    xp_by_level
+    docs_tables["docs_* (8 tabelas)"]
   end
 ```
 
-Todas as chaves primárias são UUIDs. Timestamps (createdAt, updatedAt) são definidos via callbacks de ciclo de vida JPA (@PrePersist, @PreUpdate).
+Todas as chaves primárias são UUIDs, exceto a de xp_by_level, cuja chave é o próprio level. Os timestamps são definidos por callbacks de ciclo de vida do JPA. As tabelas docs_* seguem um padrão repetido: uma raiz de tópico com chave única mais uma linha de conteúdo por idioma, importadas do repositório beyou-arch-design.
