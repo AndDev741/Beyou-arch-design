@@ -1,16 +1,25 @@
-flowchart LR
-  subgraph "Theme System"
-    TS["🎨 ThemeSelector<br/>9 themes"]
-    TS --> CTX["ThemeContext<br/>CSS variables"]
-    TS --> RDX["Redux<br/>perfil.themeInUse"]
-    TS --> API["Backend API<br/>persist preference"]
-    CTX --> CSS["🖌️ :root CSS vars<br/>--background, --primary..."]
+flowchart TD
+  subgraph lang["Language"]
+    DET["🌐 Browser detector<br/>en · pt, fallback en"]
+    I18N["i18next<br/>packages/i18n JSONs"]
+    DET --> I18N
   end
 
-  subgraph "Language System"
-    LS["🌐 LanguageSelector<br/>EN · PT"]
-    LS --> I18N["i18next<br/>changeLanguage()"]
-    LS --> RDX2["Redux<br/>perfil.languageInUse"]
-    LS --> API2["Backend API<br/>persist preference"]
-    I18N --> TRANS["📝 translation.json<br/>500+ keys"]
+  subgraph theme["Theme"]
+    PREF["Preference string<br/>mode:pack · e.g. dark:cyber"]
+    TOK["packages/theme tokens<br/>2 bases × 5 accent packs"]
+    LEG["Legacy map<br/>9 old themes → new pairs"]
+    PREF --> TOK
+    LEG --> PREF
   end
+
+  ACC["👤 Account (backend)<br/>languageInUse · themeInUse"]
+  LOC["💾 localStorage<br/>beyou-theme · detector cache"]
+
+  ACC -->|"wins when set"| I18N
+  ACC -->|"wins when set"| PREF
+  LOC -->|"fallback below account"| PREF
+
+  TOK --> WEB["⚛️ Web: CSS vars on :root<br/>data-theme + color-scheme"]
+  TOK --> MOB["📱 Mobile: NativeWind vars"]
+  OS["🖥️ prefers-color-scheme"] -->|"system mode, live"| TOK
