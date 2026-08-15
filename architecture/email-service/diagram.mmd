@@ -1,19 +1,20 @@
-sequenceDiagram
-  participant U as User
-  participant FE as Frontend
-  participant BE as PasswordResetService
-  participant ES as EmailService
-  participant TX as Transaction Manager
-  participant SMTP as SMTP Server
+flowchart TD
+  subgraph triggers["Five mails, three decoupling paths"]
+    REG["📝 Registration<br/>@Async listener"]
+    PR["🔑 Password reset<br/>afterCommit, request thread"]
+    DEL["🗑️ Deletion code<br/>afterCommit, request thread"]
+    FB["💬 Feedback ack + reply<br/>@Async AFTER_COMMIT event"]
+  end
 
-  U->>FE: Forgot password
-  FE->>BE: POST /auth/forgot-password
-  BE->>BE: Validate user + cooldown
-  BE->>BE: Create token (BCrypt hash)
-  BE->>TX: Register afterCommit callback
-  TX->>TX: Commit transaction
-  TX->>ES: Send email (after commit)
-  ES->>ES: Build bilingual HTML template
-  ES->>SMTP: Send MIME message
-  SMTP-->>ES: Delivered
-  BE-->>FE: 200 OK
+  REG --> ES["✉️ EmailService<br/>10 inline HTML templates (en · pt)"]
+  PR --> ES
+  DEL --> ES
+  FB --> ES
+  ES --> SMTP["📤 SMTP · StartTLS"]
+  SMTP --> INBOX["📬 User inbox"]
+
+  SMTP -.->|"failure"| FAIL["❌ Per-flow handling"]
+  FAIL -.->|"reset: delete token"| DB[("🐘 DB")]
+  FAIL -.->|"deletion: discard code (REQUIRES_NEW)"| DB
+  FAIL -.->|"feedback: log and move on"| LOG["📋 ERROR log → GlitchTip"]
+  FAIL -.->|"verification: uncaught, account stranded"| LOG

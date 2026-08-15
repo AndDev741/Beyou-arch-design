@@ -1,212 +1,104 @@
 ---
-title: "Serviço de Email"
-summary: "Como o envio de emails funciona no Beyou — configuração SMTP, templates HTML, entrega transaction-safe e suporte bilíngue."
+title: "Serviço de E-mail"
+summary: "Cinco e-mails transacionais, uma classe de serviço: como cada mensagem se desacopla da transação do banco, o que acontece quando o SMTP falha e os templates bilíngues inline."
 ---
 
-Este documento cobre a infraestrutura de email do Beyou: o que dispara emails, como são construídos, como são enviados de forma segura e como são os templates.
+Este documento cobre o subsistema de e-mail: quais mensagens existem, como cada uma é mantida segura em relação à transação, como falhas são tratadas por fluxo e como os templates são construídos e localizados.
 
-## Escopo Atual
+## O que é enviado
 
-Email é atualmente usado para **um único propósito**: reset de senha. Não há emails de confirmação de registro, emails de notificação ou emails de marketing. Todo o sistema de email vive em uma única classe de serviço.
+O sistema envia exatamente cinco e-mails, todos de uma única classe de serviço no pacote de notificação:
+
+| # | E-mail | Gatilho | Contém |
+|---|--------|---------|--------|
+| 1 | Verificação de cadastro | Conta nova criada | Botão com link para a página de verificação, aviso de expiração em 24 horas |
+| 2 | Redefinição de senha | Pedido de esqueci-a-senha | Botão com link para a página de reset, TTL em minutos |
+| 3 | Código de exclusão de conta | Exclusão solicitada | Seis dígitos, deliberadamente sem link e sem botão: uma exclusão não pode estar a um clique de uma caixa de entrada |
+| 4 | Confirmação de feedback | Usuário envia feedback | Eco da categoria e do texto enviado |
+| 5 | Resposta de feedback | Admin responde | A resposta mais o original citado de volta |
+
+Igualmente deliberado é o que nunca é enviado: uma mudança de status de feedback não avisa ninguém (não existe listener, então nenhum endpoint futuro pode enviar e-mail por acidente), cadastros via Google não recebem nada (o Google já verificou o endereço) e nada anuncia a conclusão do reset de senha nem a exclusão efetiva da conta.
 
 ```mermaid
 flowchart LR
-  subgraph "Gatilhos de Email"
-    PR["🔑 Reset de Senha"]
-    F1["🚫 Registro<br/>(ainda não)"]
-    F2["🚫 Notificações<br/>(ainda não)"]
-  end
-
-  PR --> ES["✉️ EmailService"]
-  ES --> SMTP["📤 Servidor SMTP"]
-  SMTP --> USER["📬 Caixa do Usuário"]
-
-  style F1 opacity:0.3
-  style F2 opacity:0.3
+  REG["📝 Cadastro"] --> ES["✉️ EmailService"]
+  PR["🔑 Reset de senha"] --> ES
+  DEL["🗑️ Código de exclusão"] --> ES
+  FB["💬 Feedback: confirmação + resposta"] --> ES
+  ES --> SMTP["📤 SMTP (StartTLS)"] --> INBOX["📬 Caixa de entrada"]
 ```
 
-## Arquitetura
+## Três jeitos de desacoplar da transação
 
-O sistema de email é mínimo e intencional — um serviço, sem fila externa, sem engine de template.
+Todo e-mail precisa esperar o commit da sua transação; um link de reset apontando para um token que sofreu rollback seria pior que nenhum e-mail. O código chega a esse objetivo de três formas diferentes, e as diferenças importam:
 
-| Componente | O que é |
-|-----------|---------|
-| **EmailService** | Única classe @Service no pacote notification. Um método público. |
-| **PasswordResetService** | O único chamador. Agenda a entrega do email após o commit da transação no banco. |
-| **JavaMailSender** | Sender de email do Spring, configurado via propriedades SMTP no application.yaml. |
-| **Templates HTML** | Text blocks Java inline dentro do EmailService. Bilíngues (en/pt). |
+| Fluxo | Mecanismo | Thread |
+|-------|-----------|--------|
+| Confirmação e resposta de feedback | Listener @Async em evento transacional AFTER_COMMIT | Segundo plano |
+| Reset de senha, código de exclusão | Sincronização afterCommit registrada à mão | A thread da requisição: a resposta HTTP espera o SMTP |
+| Verificação de cadastro | Listener @Async comum, sem fase transacional | Segundo plano |
 
-```mermaid
-flowchart TD
-  CTRL["🎯 AuthenticationController<br/>POST /auth/forgot-password"]
-  CTRL --> PRS["🔒 PasswordResetService<br/>requestPasswordReset()"]
-  PRS --> TOKEN["💾 Criar PasswordResetToken<br/>(BCrypt hash no DB)"]
-  PRS --> SCHED["⏱️ Agendar email<br/>(callback afterCommit)"]
-  SCHED --> ES["✉️ EmailService<br/>sendPasswordResetEmail()"]
-  ES --> BUILD["🎨 Construir corpo HTML<br/>(language-aware)"]
-  BUILD --> SEND["📤 JavaMailSender<br/>enviar mensagem MIME"]
-```
+O caminho do cadastro merece etiqueta de aviso própria: ele só é correto porque o `registerUser` não carrega `@Transactional`, então o save já commitou quando o evento é publicado. Adicionar `@Transactional` àquele método reintroduziria em silêncio a corrida de enviar-antes-do-commit que os outros fluxos evitam.
 
-## Fluxo de Entrega de Email
+Nenhum executor é configurado; o `@Async` usa o padrão de virtual threads. Sem limite, sem fila, sem retry em lugar nenhum.
 
-A decisão de design mais importante é a **entrega transaction-safe**: o email só é enviado após o token de reset ser commitado no banco de dados. Isso previne um cenário onde o usuário recebe um link de reset mas o token ainda não existe.
+## Quando o SMTP falha
 
-```mermaid
-sequenceDiagram
-  participant PRS as PasswordResetService
-  participant DB as Database
-  participant TX as TransactionSynchronization
-  participant ES as EmailService
-  participant SMTP as Servidor SMTP
+Cada fluxo responde à falha de um jeito, e as diferenças são o design:
 
-  rect rgba(59, 130, 246, 0.25)
-  PRS->>DB: 🔑 Salvar PasswordResetToken (hash)
-  PRS->>TX: Registrar callback afterCommit
-  Note right of TX: Email ainda NÃO é enviado
-  TX->>DB: COMMIT da transação
-  end
+- **Reset de senha**: o erro é registrado e a linha do token é apagada, para o cooldown de 5 minutos não deixar um usuário preso esperando um link que nunca saiu do prédio.
+- **Código de exclusão**: mesma ideia, borda mais afiada. A linha do código é descartada por um helper REQUIRES_NEW, porque o descarte roda depois do commit, onde uma chamada comum de repositório entraria em uma transação morta. Ninguém recebeu o código, então ninguém deveria cumprir o cooldown.
+- **E-mails de feedback**: registrados e engolidos. O envio ou a resposta sobrevivem; o recibo é melhor esforço.
+- **Verificação de cadastro**: nada captura a falha. A exceção morre no log padrão do handler assíncrono, a linha do usuário e seu token ficam, e aqui está a lacuna real: o login recusa contas não verificadas com EMAIL_NOT_VERIFIED, e não existe endpoint de reenvio. Um e-mail de verificação perdido encalha a conta.
 
-  rect rgba(16, 185, 129, 0.25)
-  TX->>ES: ✉️ afterCommit — agora envia email
-  ES->>ES: Construir HTML (en ou pt)
-  ES->>SMTP: Enviar mensagem MIME
-  SMTP-->>ES: Entregue
-  end
+Não há retry, outbox nem rastreio de entrega em lugar nenhum. O que torna as falhas engolidas visíveis é o pipeline de logs: toda falha registra em ERROR, e linhas ERROR viram eventos no GlitchTip. O rastreador de erros é o sino do retry.
 
-  rect rgba(239, 68, 68, 0.25)
-  Note right of ES: Se o envio falhar:
-  ES->>DB: 🗑️ Deletar o token de reset (limpeza)
-  ES->>ES: Registrar erro, não propagar
-  end
-```
+Um efeito colateral operacional: o indicador de saúde de mail do Spring fica ligado, então um servidor SMTP morto derruba o `/actuator/health` para DOWN.
 
-### Por que afterCommit?
+## Configuração de SMTP
 
-| Cenário | Sem afterCommit | Com afterCommit |
-|---------|----------------|-----------------|
-| Email enviado, DB commita | Funciona | Funciona |
-| Email enviado, DB faz rollback | Usuário recebe link para token que não existe | Nunca acontece — email espera o commit |
-| Email falha | Token existe mas usuário nunca recebeu o link | Token é limpo do DB |
+| Variável | Propósito |
+|----------|-----------|
+| MAIL_HOST / MAIL_PORT | Servidor SMTP, StartTLS habilitado, auth ligado |
+| MAIL_USERNAME / MAIL_PASSWORD | Credenciais |
+| MAIL_FROM | Endereço remetente, padrão MAIL_USERNAME |
 
-Se não houver transação ativa (caso extremo), o email é enviado imediatamente como fallback.
+E-mail não é opcional. Os quatro valores centrais vêm sem defaults, e a resolução do remetente falha na criação do bean quando as variáveis estão ausentes, então o app não sobe sem um ambiente de mail. Valores vazios sobem e falham a cada envio. O único modo sem SMTP sancionado é o perfil e2e, que contorna o e-mail em vez de desligá-lo: o cadastro auto-verifica e pula o evento, e o código de exclusão volta no corpo da resposta. As duas saídas de emergência são bloqueadas em produção pelo validador de boot.
 
-## Configuração SMTP
+## Templates e idiomas
 
-Todas as configurações SMTP são externalizadas via variáveis de ambiente:
+Sem engine de template e sem arquivos de template: cada corpo é um text block Java inline, só HTML, formatado com String.formatted. Com dois idiomas por mensagem, isso dá dez templates hardcoded dividindo o cabeçalho BeYou, o azul da marca e o rodapé com o ano.
 
-| Variável | Propósito | Exemplo |
-|----------|-----------|---------|
-| MAIL_HOST | Hostname do servidor SMTP | smtp.gmail.com |
-| MAIL_PORT | Porta SMTP | 587 |
-| MAIL_USERNAME | Username de autenticação SMTP | beyou@example.com |
-| MAIL_PASSWORD | Senha de autenticação SMTP | app-specific-password |
-| MAIL_FROM | Endereço do remetente (padrão: MAIL_USERNAME) | noreply@beyou.app |
+A escolha de idioma é uma decisão de dois ramos por mensagem: qualquer coisa começando com "pt" recebe português, todo o resto (incluindo nulo) recebe inglês. A parte interessante é de onde cada fluxo lê o idioma:
 
-**Configurações de segurança:**
+- A confirmação de feedback prefere o idioma capturado no contexto de UI do envio ao invés da preferência do perfil, porque o recibo chega na hora e o campo do perfil fica nulo até o usuário abrir as configurações. Ler o perfil primeiro mandava um recibo em inglês para toda conta nova.
+- A resposta de feedback prefere a preferência atual do perfil, porque uma resposta pode chegar dias depois, quando o contexto capturado já envelheceu.
 
-- Autenticação SMTP habilitada (auth: true)
-- StartTLS habilitado (conexão encriptada)
-- Padrão para provedores SMTP de produção (Gmail, SendGrid, AWS SES, etc.)
+Texto escrito por usuário ou admin passa por escape de HTML antes da interpolação, então um corpo de feedback não consegue injetar markup no próprio recibo.
 
-## Templates HTML de Email
+## Cooldowns e rate limits
 
-Os templates são text blocks Java inline dentro do EmailService — sem engine de template externo (Thymeleaf, FreeMarker, etc.). Isso mantém o sistema simples com zero dependências adicionais.
+Duas camadas independentes controlam os endpoints que produzem e-mail:
 
-### Estrutura do template
+| Fluxo | Cooldown no service | Balde de rate limit |
+|-------|---------------------|---------------------|
+| Reset de senha | 5 min entre pedidos por conta; cada token novo invalida o anterior | 5 / 15 min por IP (faixa auth) |
+| Código de exclusão | 60 segundos, em segundos de propósito: o usuário espera na tela e o reenvio precisa funcionar na mesma sentada | 10 / hora por usuário |
+| Cadastro | Nenhum | 5 / 15 min por IP (faixa auth) |
+| Feedback | Nenhum | 10 / hora por usuário |
 
-Ambos os idiomas seguem o mesmo layout:
+Uma minúcia de configuração registrada por honestidade: o default do yaml para o TTL do reset é 15 minutos, enquanto o template de env ainda entrega 30. O yaml vence, a menos que o operador copie o valor do template.
 
-```mermaid
-flowchart TD
-  subgraph "Template do Email"
-    H["✨ Header BeYou<br/>logo + tagline"]
-    H --> T["📝 Título<br/>Esqueceu sua senha?"]
-    T --> B["💬 Texto do corpo<br/>mensagem motivacional sobre XP"]
-    B --> CTA["🔘 Botão CTA<br/>Redefinir minha senha"]
-    CTA --> EXP["⏳ Aviso de expiração<br/>Link expira em X minutos"]
-    EXP --> FALL["🔗 Link de fallback<br/>URL em texto simples"]
-    FALL --> F["📋 Footer<br/>copyright + tagline"]
-  end
-```
+## Cobertura de testes
 
-### Suporte bilíngue
+Nenhum teste fala SMTP. Os fluxos de feedback mockam o próprio JavaMailSender e verificam as mensagens capturadas (destinatários, assunto, corpo e o caso que sustenta tudo: um envio de feedback sobrevive a um send que lança exceção). O fluxo de exclusão mocka o EmailService e fixa o formato de seis dígitos, o armazenamento só do hash e o descarte em caso de falha. A lacuna: o fluxo de reset de senha não tem teste dedicado, então a limpeza do token em falha de envio depende só de revisão de código.
 
-O idioma é determinado pela preferência languageInUse do usuário armazenada no banco:
+## O que pode melhorar
 
-| Idioma do usuário | Template usado | Assunto |
-|-------------------|---------------|---------|
-| pt, pt-BR, pt-PT | Português | Redefina sua senha BeYou |
-| en, null, qualquer outro | Inglês | Reset your BeYou password |
-
-**Lógica de detecção de idioma:**
-
-- null ou vazio → Inglês (padrão)
-- Começa com "pt" → Português
-- Qualquer outro → Inglês
-
-### Parâmetros do template
-
-Cada template recebe três valores dinâmicos:
-
-| Parâmetro | Valor | Usado em |
-|-----------|-------|---------|
-| Link de reset | URL completa com token | href do botão CTA, link de fallback |
-| TTL em minutos | Da config (padrão 30) | Aviso de expiração |
-| Ano atual | Calculado automaticamente | Copyright do footer |
-
-### Design
-
-Os templates usam CSS inline email-safe com:
-
-- Azul primário (#0082E1) para botão CTA e acentos
-- Card branco em fundo cinza claro
-- Bordas arredondadas e sombras (suportados em clientes de email modernos)
-- Max-width responsivo (520px)
-- Emoji no assunto e headers para personalidade
-
-## Tratamento de Erros
-
-```mermaid
-flowchart TD
-  SEND["📤 Enviar email"]
-  SEND --> OK{"Sucesso?"}
-  OK -->|Sim| DONE["✅ Email entregue<br/>Token permanece no DB"]
-  OK -->|Não| ERR["❌ Exceção capturada"]
-  ERR --> LOG["📋 Registrar erro com ID do usuário"]
-  ERR --> CLEAN["🗑️ Deletar token de reset do DB"]
-  ERR --> SILENT["🤫 Nenhum erro mostrado ao usuário"]
-```
-
-**Comportamento principal:**
-
-- Falhas de email são capturadas e registradas no nível do PasswordResetService
-- O token de reset falho é limpo do banco de dados
-- O usuário não vê erro — o endpoint sempre retorna 200 OK (para prevenir enumeração de usuários)
-- O usuário pode simplesmente solicitar outro email de reset
-
-## O que o EmailService NÃO Faz
-
-Entender os limites ajuda contribuidores a saber onde adicionar nova funcionalidade de email:
-
-| Funcionalidade | Status | Notas |
-|---------------|--------|-------|
-| Email de reset de senha | Implementado | Único caso de uso atual |
-| Confirmação de registro | Não implementado | Usuários podem logar imediatamente após registro |
-| Verificação de email | Não implementado | Nenhum fluxo de verificação de email existe |
-| Emails de notificação | Não implementado | Sem lembretes de hábitos, alertas de metas, etc. |
-| Fila assíncrona | Não usado | Emails enviados na thread da aplicação (diferidos, mas síncronos) |
-| Engine de template | Não usado | Text blocks HTML inline, sem Thymeleaf/FreeMarker |
-| Retry em falha | Não implementado | Tentativa única, limpeza em caso de falha |
-| Logging/tracking de email | Não implementado | Sem tracking de entrega ou abertura |
-
-## Possíveis Melhorias
-
-| Área | Estado Atual | Sugestão |
-|------|-------------|----------|
-| Gerenciamento de templates | Text blocks Java inline | Extrair para arquivos HTML ou engine de template para edição mais fácil |
-| Envio assíncrono | Síncrono no afterCommit | Usar @Async ou fila de mensagens para entrega não-bloqueante |
-| Lógica de retry | Tentativa única | Adicionar retry com backoff exponencial para falhas SMTP transitórias |
-| Email de boas-vindas | Nenhum | Enviar email de boas-vindas no registro com dicas de onboarding |
-| Sistema de notificação | Nenhum | Adicionar lembretes de hábitos, alertas de prazo de metas, alertas de streak |
-| Preview de email | Nenhum | Adicionar endpoint dev para visualizar templates sem enviar |
-| Tracking de entrega | Nenhum | Considerar integração com API de provedor de email (SendGrid, SES) para status de entrega |
+| Área | Estado atual | Nota |
+|------|--------------|------|
+| Reenvio de verificação | Sem endpoint | O único modo de falha que encalha uma conta; o candidato número um |
+| Retry | Tentativa única em tudo | Uma tabela de outbox ou retry no provedor removeria o padrão do GlitchTip-como-sino |
+| Thread de envio de reset/exclusão | A requisição espera o SMTP | Migrar para o padrão de listener assíncrono dos fluxos de feedback cortaria a latência |
+| Templates | Dez blocos HTML inline | Extrair o chrome compartilhado reduziria a duplicação; engine de template segue exagero |
+| Testes do fluxo de reset | Nenhum | O único fluxo de e-mail sem cobertura direta |
