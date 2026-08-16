@@ -41,6 +41,8 @@ Beyou runs on free-tier LLMs, and free tiers fail: rate limits, quota resets, pr
 | 4 | NVIDIA | meta/llama-3.3-70b-instruct |
 | 5 | DeepSeek | deepseek-v4-flash |
 
+The table shows the shipped defaults, and the lineup is configuration, not code: production currently runs four links, because NVIDIA proved too slow in real use and left the chain through an environment variable.
+
 The chain's rules, each there for a reason:
 
 - **Failover only fires while a provider has emitted nothing.** Once the first chunk streams, an error propagates instead of retrying, because half an answer from one model glued to half from another is worse than an honest error. Tools never re-run on failover.
