@@ -1,33 +1,8 @@
----
-title: Beyou Backend Architecture
----
-
-flowchart TD
-    Client[Web/ Mobile Client]
-    LB[Load Balancer<br/>NGINX]
-    App[Spring Boot Application]
-    DB[(PostgreSQL)]
-    Cache[(Redis Cache)]
-    Queue[RabbitMQ]
-    Mail[Email Service]
-
-    Client --> LB
-    LB --> App
-    App --> DB
-    App --> Cache
-    App --> Queue
-    Queue --> Mail
-
-    subgraph "Spring Boot Modules"
-        Auth[Authentication Module]
-        Goals[Goals Module]
-        Habits[Habits Module]
-        Docs[Documentation Module]
-        Notif[Notification Module]
-    end
-
-    App --> Auth
-    App --> Goals
-    App --> Habits
-    App --> Docs
-    App --> Notif
+flowchart LR
+  API["🍃 Spring Boot API<br/>Java 25 · /api/v1"]
+  API --> DOM["Domain services<br/>ownership checks · XP engine"]
+  DOM --> DB[("🐘 PostgreSQL 15<br/>Flyway-owned schema")]
+  API --> SEC["🛡️ Security<br/>JWT · rate limits · lockout"]
+  API --> AI["🤖 AI agent<br/>5-provider LLM chain"]
+  API --> DOCS["📚 Docs import + API"]
+  CI["⚙️ GitHub Actions"] -->|"image → GHCR"| WT["🔄 Watchtower deploys"]

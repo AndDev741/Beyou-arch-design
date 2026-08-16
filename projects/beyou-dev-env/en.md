@@ -1,44 +1,22 @@
 ---
-title: "Beyou Dev Environment"
-summary: "Development environment setup for the Beyou project, including Docker Compose configurations, database seeding, and local development tooling."
+title: "Beyou Dev Env"
+summary: "The Compose layer that assembles the other repositories into something you can run: dev with hot reload, production from published images, e2e isolation, and the monitoring overlay."
 ---
-# Beyou Dev Environment
+# Beyou Dev Env
 
-This repository provides a complete local development environment for the Beyou project, enabling developers to run the entire stack (backend, frontend, database) with a single command.
+This repository contains no application code. It is the orchestration layer: a base Compose file with Postgres and the shared network, plus four overlays that stack on top of it.
 
-## Overview
+## The overlays
 
-The dev environment is built around Docker Compose and includes:
+- **dev** builds the backend and frontend from sibling checkouts with bind-mounted source and hot reload; build artifacts live in named volumes so host and container tooling never fight.
+- **prod** pulls the published GHCR images, serves the web build through nginx, and lets Watchtower redeploy on every new image. All ports bind to loopback; the Cloudflare Tunnel in front does the exposing.
+- **e2e** boots an isolated stack under its own project name and database, which the backend's safety check enforces.
+- **monitoring** carries Prometheus, Grafana, Loki with Alloy, and GlitchTip: the same file in development and production, so what you debug locally is what runs deployed.
 
-- **PostgreSQL** database with pre‑configured schemas
-- **Backend** Spring Boot application with hot‑reload support
-- **Frontend** React application served by Vite
-- **Docs UI** running alongside the backend
-- **Optional services** like MailHog for email testing
+## The scripts
 
-## Features
+`up-dev.sh` and `up-prod.sh` (both accepting `--monitoring`), `down.sh`, the loud-failure `reset-db.sh`, and `bootstrap-glitchtip.sh`, which creates and reconciles the error tracker's organization, projects, twelve uptime monitors, the snapshot heartbeat, and the alert rules from code.
 
-- One‑line startup: `docker‑compose up`
-- Database seeding with realistic test data
-- Environment‑variable management via `.env` files
-- Integrated health checks and logging
-- Support for multiple profiles (development, testing, CI)
+## Deep dives
 
-## Usage
-
-Clone the repository and run:
-
-```bash
-docker‑compose up -d
-```
-
-Access the services at:
-
-- Backend API: `http://localhost:8080`
-- Frontend: `http://localhost:5173`
-- Docs UI: `http://localhost:3000`
-- MailHog: `http://localhost:8025`
-
-## Customization
-
-The environment can be tailored by editing the `docker‑compose.yml` file and adjusting environment variables in the `.env` file. Additional services (e.g., Redis, Elasticsearch) can be added as needed.
+The infrastructure and monitoring architecture topics document this repository end to end, from the laptop it all runs on to the alert that fires when the snapshot scheduler goes quiet.

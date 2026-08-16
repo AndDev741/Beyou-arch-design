@@ -1,44 +1,15 @@
 ---
 title: "Beyou Docs UI"
-summary: "Interface de utilizador de documentação para o projeto Beyou, fornecendo uma interface amigável para navegar na documentação de API, arquitetura e design."
+summary: "O site que você está lendo: um visualizador React para os docs importados, com navegador de endpoints OpenAPI, Mermaid ciente de tema, busca e páginas pré-renderizadas para SEO."
 ---
 # Beyou Docs UI
 
-Esta é a interface de utilizador de documentação para o projeto Beyou, fornecendo uma interface amigável para navegar na documentação de API, arquitetura e design.
+O próprio site de documentação. Uma SPA React e Vite que lê a API pública de docs do backend e renderiza quatro coleções: tópicos de arquitetura com diagramas Mermaid cientes de tema e um trilho de sumário, o blog de engenharia, a referência de API com um navegador de endpoints OpenAPI por controller e o catálogo de projetos, mais a busca entre coleções com destaques.
 
-## Visão geral
+## A metade de SEO
 
-Construída com React, TypeScript e Tailwind CSS, a UI de docs renderiza conteúdo markdown e especificações OpenAPI obtidas do backend. Suporta documentação multilingue (inglês e português) e oferece uma interface limpa e pesquisável.
+Conteúdo renderizado no cliente é invisível para a maioria dos crawlers, então um script de pré-renderização busca cada tópico nos dois idiomas na mesma API pública e escreve um arquivo HTML real por rota, com títulos, canonicals, pares de hreflang, dados estruturados e o próprio texto do artigo. A SPA sobe por cima e assume. Mudanças de conteúdo reconstroem a imagem inteira: o workflow do repositório de conteúdo dispara o CI deste repositório após cada importação, e o Watchtower implanta o resultado.
 
-## Funcionalidades
+## Detalhes que valem saber
 
-- Renderização em tempo real da documentação da API usando OpenAPI 3.0
-- Diagramas interativos de arquitetura e design
-- Suporte multilingue (en/pt)
-- Pesquisa de texto completo em toda a documentação
-- Design responsivo para dispositivos móveis e desktop
-- Integração com o sistema de importação de documentação do backend Beyou
-
-## Arquitetura
-
-A UI está estruturada como uma Single Page Application (SPA) com:
-
-- `src/pages` – páginas de alto nível (Projetos, API, Arquitetura, Design)
-- `src/components` – componentes reutilizáveis (cartões, modais, barras de pesquisa)
-- `src/lib` – utilitários para análise de OpenAPI e markdown
-- `src/hooks` – hooks personalizados para obtenção de dados e gestão de estado
-
-## Desenvolvimento
-
-Para iniciar o servidor de desenvolvimento:
-
-```bash
-npm install
-npm run dev
-```
-
-A aplicação ficará disponível em `http://localhost:3000`.
-
-## Implementação
-
-A UI de docs é implementada na **Vercel** e atualizada automaticamente quando são enviadas alterações para o branch `main`.
+Páginas de detalhe são endereçadas por caminho sob um prefixo de idioma, e as listagens de arquitetura e API abrem sua primeira entrada automaticamente. O sistema de tema de duas bases e cinco acentos casa com o do app, com um script de pré-pintura evitando o flash do tema errado.

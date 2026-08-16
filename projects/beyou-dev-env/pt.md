@@ -1,44 +1,22 @@
 ---
-title: "Beyou Dev Environment"
-summary: "Configuração do ambiente de desenvolvimento para o projeto Beyou, incluindo configurações Docker Compose, seeds de base de dados e ferramentas de desenvolvimento local."
+title: "Beyou Dev Env"
+summary: "A camada Compose que monta os outros repositórios em algo executável: dev com hot reload, produção com imagens publicadas, isolamento de e2e e o overlay de monitoramento."
 ---
-# Beyou Dev Environment
+# Beyou Dev Env
 
-Este repositório fornece um ambiente de desenvolvimento local completo para o projeto Beyou, permitindo que os programadores executem toda a stack (backend, frontend, base de dados) com um único comando.
+Este repositório não contém código de aplicação. É a camada de orquestração: um arquivo Compose base com Postgres e a rede compartilhada, mais quatro overlays que se empilham por cima.
 
-## Visão geral
+## Os overlays
 
-O ambiente de desenvolvimento é construído em torno do Docker Compose e inclui:
+- **dev** constrói o backend e o frontend dos checkouts irmãos com código montado e hot reload; artefatos de build vivem em volumes nomeados, então as ferramentas do host e do container nunca brigam.
+- **prod** puxa as imagens publicadas no GHCR, serve o build web pelo nginx e deixa o Watchtower reimplantar a cada imagem nova. Todas as portas escutam em loopback; o Cloudflare Tunnel na frente faz a exposição.
+- **e2e** sobe uma stack isolada com nome de projeto e banco próprios, o que a checagem de segurança do backend impõe.
+- **monitoring** carrega Prometheus, Grafana, Loki com Alloy e GlitchTip: o mesmo arquivo em desenvolvimento e produção, então o que você depura localmente é o que roda implantado.
 
-- **PostgreSQL** base de dados com esquemas pré‑configurados
-- **Backend** aplicação Spring Boot com suporte a hot‑reload
-- **Frontend** aplicação React servida pelo Vite
-- **UI de Docs** a correr em conjunto com o backend
-- **Serviços opcionais** como MailHog para testes de email
+## Os scripts
 
-## Funcionalidades
+`up-dev.sh` e `up-prod.sh` (ambos aceitando `--monitoring`), `down.sh`, o `reset-db.sh` que falha alto, e o `bootstrap-glitchtip.sh`, que cria e reconcilia por código a organização do rastreador de erros, os projetos, doze monitores de uptime, o heartbeat de snapshots e as regras de alerta.
 
-- Arranque com uma linha: `docker‑compose up`
-- Seeds de base de dados com dados de teste realistas
-- Gestão de variáveis de ambiente através de ficheiros `.env`
-- Verificações de saúde e logging integrados
-- Suporte para múltiplos perfis (desenvolvimento, teste, CI)
+## Mergulhos profundos
 
-## Utilização
-
-Clone o repositório e execute:
-
-```bash
-docker‑compose up -d
-```
-
-Aceda aos serviços em:
-
-- Backend API: `http://localhost:8080`
-- Frontend: `http://localhost:5173`
-- UI de Docs: `http://localhost:3000`
-- MailHog: `http://localhost:8025`
-
-## Personalização
-
-O ambiente pode ser adaptado editando o ficheiro `docker‑compose.yml` e ajustando as variáveis de ambiente no ficheiro `.env`. Serviços adicionais (por exemplo, Redis, Elasticsearch) podem ser adicionados conforme necessário.
+Os tópicos de arquitetura de infraestrutura e monitoramento documentam este repositório de ponta a ponta, do laptop onde tudo roda ao alerta que dispara quando o scheduler de snapshots fica quieto.

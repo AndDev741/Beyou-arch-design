@@ -1,50 +1,11 @@
----
-title: Beyou Arch & Design Repository Structure
----
-flowchart TD
-    Repo[GitHub Repo<br/>beyou-arch-design]
-    
-    subgraph "Root Folders"
-        API[api/]
-        Architecture[architecture/]
-        Design[design/]
-        Projects[projects/]
-    end
-
-    subgraph "API Documentation"
-        APIControllers[controller.yaml, openapi.yaml, en.md, pt.md]
-    end
-
-    subgraph "Architecture Topics"
-        ArchTopics[topic.yaml, en.md, pt.md, diagram.mmd]
-    end
-
-    subgraph "Design Topics"
-        DesignTopics[topic.yaml, en.md, pt.md]
-    end
-
-    subgraph "Project Documentation"
-        ProjectFolders[per‑project folders<br/>topic.yaml, en.md, pt.md, diagram.mmd]
-    end
-
-    Repo --> API
-    Repo --> Architecture
-    Repo --> Design
-    Repo --> Projects
-
-    API --> APIControllers
-    Architecture --> ArchTopics
-    Design --> DesignTopics
-    Projects --> ProjectFolders
-
-    Import[Import Service]
-    APIControllers --> Import
-    ArchTopics --> Import
-    DesignTopics --> Import
-    ProjectFolders --> Import
-
-    DB[(Database)]
-    Import --> DB
-
-    UI[Beyou Docs UI]
-    DB --> UI
+flowchart LR
+  ARCH["architecture/<br/>16 topics · en + pt + mermaid"]
+  BLOG["blog/<br/>engineering posts"]
+  APIS["api/<br/>24 controller specs (OpenAPI)"]
+  PROJ["projects/<br/>this catalog"]
+  WF["⚙️ publish-docs workflow"]
+  ARCH --> WF
+  BLOG --> WF
+  APIS --> WF
+  PROJ --> WF
+  WF -->|"import × 4 + dispatch"| BE["🍃 Backend → docs site rebuild"]

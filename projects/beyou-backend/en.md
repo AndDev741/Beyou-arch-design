@@ -1,30 +1,22 @@
 ---
 title: "Beyou Backend"
-summary: "Spring Boot backend for the Beyou application, providing REST APIs for goals, habits, tasks, and user management."
+summary: "The Spring Boot API behind everything: domain services with per-user ownership checks, the XP engine, the AI agent, and the docs pipeline."
 ---
 # Beyou Backend
-Spring Boot backend for the Beyou application, providing REST APIs for goals, habits, tasks, and user management.
 
-## Overview
-This backend is built with Java 17, Spring Boot 3, PostgreSQL, and Docker. It follows a clean architecture with separate layers for controllers, services, and repositories.
+The single API serving the web app, the native mobile app, and this documentation site. Spring Boot 4.1 on Java 25 with virtual threads, PostgreSQL 15 behind a Flyway-owned schema, and 24 REST controllers under `/api/v1`.
 
-## History
-- **2024‑Q4**: Initial project setup with basic user authentication and goal tracking.
-- **2025‑Q1**: Added habit tracking, routine scheduling, and category management.
-- **2025‑Q2**: Implemented documentation import system for API, architecture, and design docs.
-- **2025‑Q3**: Added Xp calculation, refresh tokens, and email notifications.
+## What lives here
 
-## Current Status
-The backend is in active development with regular updates. It serves as the core of the Beyou productivity ecosystem.
+- **The domain**: categories, habits, tasks, goals, and routines, with the gamification engine on top: the check-in XP formula, the quadratic level curve, derived streaks, daily routine snapshots with XP decay, and the signed per-day XP ledger.
+- **Security**: stateless JWT auth with rotating refresh tokens, e-mail verification, two-factor account deletion, ten rate-limit tiers plus a login lockout, and boot-time validators that refuse a misconfigured production.
+- **The AI agent**: a chat with 33 tools over the same domain services, streamed by SSE, running on a five-provider free-tier LLM fallback chain, plus the stateless onboarding suggestion endpoint.
+- **The docs system**: imports this documentation from GitHub into Postgres and serves the public read and search API the docs site runs on.
 
-## Architecture Highlights
-- JWT‑based authentication with refresh tokens
-- Role‑based authorization (USER, ADMIN)
-- Database migrations with Flyway
-- Integration tests with Testcontainers
-- Centralized error handling and logging
+## How it ships
 
-## Deployment
-- Docker container deployed to a private VPS
-- CI/CD via GitHub Actions
-- Environment‑specific configuration profiles
+Merging to main is the deployment: CI runs the tests, builds the image, publishes it to GHCR, and Watchtower on the production host pulls and restarts. Caffeine caches sit in front of the hot reads, and Micrometer metrics feed the Grafana dashboards, with errors reporting to the self-hosted GlitchTip.
+
+## Deep dives
+
+The architecture topics cover this repo in detail: the domain model, security, gamification, the AI agent, caching, AOP logging, the email service, and the docs system all have their own pages.
