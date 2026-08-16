@@ -41,6 +41,8 @@ O Beyou roda em LLMs de camada gratuita, e camadas gratuitas falham: rate limits
 | 4 | NVIDIA | meta/llama-3.3-70b-instruct |
 | 5 | DeepSeek | deepseek-v4-flash |
 
+A tabela mostra os padrões de fábrica, e a escalação é configuração, não código: a produção roda quatro elos hoje, porque a NVIDIA se mostrou lenta demais no uso real e saiu da cadeia por uma variável de ambiente.
+
 As regras da cadeia, cada uma com sua razão:
 
 - **O failover só dispara enquanto um provedor não emitiu nada.** Depois do primeiro chunk, um erro propaga em vez de tentar de novo, porque metade de uma resposta de um modelo colada à metade de outro é pior que um erro honesto. Ferramentas nunca rodam de novo no failover.

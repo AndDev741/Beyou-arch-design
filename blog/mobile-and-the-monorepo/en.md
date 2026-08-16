@@ -25,8 +25,8 @@ The plan converted the repo into an npm workspace with Turborepo on top:
 
 ```mermaid
 flowchart TD
-  subgraph pkgs["packages/* · shared source, no build step"]
-    ST["state · api · theme<br/>i18n · validation · types · icons"]
+  subgraph pkgs["packages/*"]
+    ST["shared source · no build step<br/>state · api · theme<br/>i18n · validation · types · icons"]
   end
   pkgs --> WEB["⚛️ apps/web<br/>React 18 · Vite"]
   pkgs --> MOB["📱 apps/mobile<br/>React 19 · Expo"]
