@@ -1,20 +1,27 @@
 flowchart TD
-  subgraph triggers["Five mails, three decoupling paths"]
+  subgraph mails["The five mails"]
     REG["📝 Registration<br/>@Async listener"]
-    PR["🔑 Password reset<br/>afterCommit, request thread"]
-    DEL["🗑️ Deletion code<br/>afterCommit, request thread"]
+    PR["🔑 Password reset<br/>afterCommit · request thread"]
+    DEL["🗑️ Deletion code<br/>afterCommit · request thread"]
     FB["💬 Feedback ack + reply<br/>@Async AFTER_COMMIT event"]
   end
 
-  REG --> ES["✉️ EmailService<br/>10 inline HTML templates (en · pt)"]
+  ES["✉️ EmailService<br/>10 inline HTML templates (en · pt)"]
+  REG --> ES
   PR --> ES
   DEL --> ES
   FB --> ES
-  ES --> SMTP["📤 SMTP · StartTLS"]
-  SMTP --> INBOX["📬 User inbox"]
 
-  SMTP -.->|"failure"| FAIL["❌ Per-flow handling"]
-  FAIL -.->|"reset: delete token"| DB[("🐘 DB")]
-  FAIL -.->|"deletion: discard code (REQUIRES_NEW)"| DB
-  FAIL -.->|"feedback: log and move on"| LOG["📋 ERROR log → GlitchTip"]
-  FAIL -.->|"verification: uncaught, account stranded"| LOG
+  ES --> SMTP["📤 SMTP · StartTLS"]
+  SMTP -->|"ok"| INBOX["📬 User inbox"]
+  SMTP -->|"failure"| FAIL["❌ Per-flow handling"]
+
+  FAIL --> F1["reset:<br/>delete the token"]
+  FAIL --> F2["deletion:<br/>discard code (REQUIRES_NEW)"]
+  FAIL --> F3["feedback:<br/>log and move on"]
+  FAIL --> F4["verification: uncaught,<br/>account stranded"]
+
+  F1 --> DB[("🐘 DB")]
+  F2 --> DB
+  F3 --> LOG["📋 ERROR log → GlitchTip"]
+  F4 --> LOG
