@@ -3,7 +3,7 @@ title: "Gamificação"
 summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento e o livro-razão diário assinado que torna cada número auditável."
 ---
 
-Tudo na gamificação do Beyou serve a um comportamento: aparecer todo dia. Este documento explica a mecânica exata, fórmula por fórmula, incluindo de onde os números vêm, o que deliberadamente não existe e as três inconsistências reais encontradas ao verificar o código para esta página.
+Tudo na gamificação do Beyou serve a um comportamento: aparecer todo dia. Este documento explica a mecânica exata, fórmula por fórmula, incluindo de onde os números vêm e o que deliberadamente não existe.
 
 ## A fórmula do check-in
 
@@ -83,14 +83,3 @@ Os frontends detectam momentos por comparação, não por flag do backend: a res
 ## O que deliberadamente não existe
 
 Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os quatro caminhos de XP (check de hábito, check de tarefa, check de snapshot, conclusão de meta) e suas quatro reversões são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
-
-## Achados honestos
-
-Escrever esta página contra o código expôs inconsistências reais, listadas aqui até serem corrigidas:
-
-| Achado | Consequência |
-|--------|--------------|
-| As sementes de experiência antecedem a curva atual: INTERMEDIARY começa no level 5 com 750 de XP contra um piso de 1.250, ADVANCED no 8 com 1.800 contra 3.200 | Ambos começam abaixo do piso do próprio level, então o primeiro desmarque os derruba (5 → 3, 8 → 6) |
-| Descompletar uma meta recomputa a recompensa em vez de ler a guardada, e o fator de pontualidade depende de quando a recomputação roda | Complete antes do prazo, descomplete depois, e cerca de um quarto do pagamento fica para trás permanentemente |
-| O razão de XP registra check-ins atrasados na data de hoje, enquanto a tabela de desfechos os registra na data do snapshot | As duas histórias discordam em qualquer check atrasado, e desmarcar um dia antigo pode renderizar uma barra negativa em hoje |
-| Retroagir um skip sobre um dia fechado como MISSED o reescreve para SKIPPED | Um streak quebrado semanas atrás pode ser reparado retroativamente sem fazer nada; os próprios comentários do código nomeiam o buraco |

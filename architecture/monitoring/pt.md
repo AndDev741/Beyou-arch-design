@@ -69,12 +69,3 @@ O GlitchTip é a única superfície de monitoramento exposta publicamente (pelo 
 **Web**: a telemetria fica dormente sem DSN e agressiva com privacidade com um. URLs perdem a query string em três lugares (a requisição, o referrer e os breadcrumbs de navegação), porque duas telas carregam tokens vivos de uso único nas suas e uma navegação dura faz da URL com token o referrer da página seguinte. Breadcrumbs de UI são reescritos até a estrutura nua do DOM por uma allowlist, porque o controle de check-in é rotulado com o nome do próprio hábito do usuário e o anexaria a cada evento. Quebras de renderização e falhas de API tratadas têm caminhos de captura dedicados, já que error boundaries e um cliente de API que nunca lança derrotam a captura automática.
 
 **Mobile**: presente, ligado do mesmo jeito dormente-sem-DSN, tracing fixado em desligado. Seu template de env carrega o aviso honesto de que a entrega nunca foi verificada de ponta a ponta, o que exige um erro deliberado de um build de release em um aparelho físico.
-
-## Achados honestos
-
-| Achado | Consequência |
-|--------|--------------|
-| O Prometheus não tem volume de dados nem flag de retenção | O histórico de métricas vive na camada gravável do container; o jeito documentado de aplicar uma mudança de configuração é reiniciar o container, o que descarta toda a história. Todos os outros serviços com estado do overlay têm volume nomeado |
-| Três variáveis de ambiente estão documentadas mas faltam no template de env | MONITORING_BIND, GLITCHTIP_BIND e SENTRY_DSN funcionam quando definidas, e quem trabalha só pelo template nunca descobre que existem |
-| O DSN vivo do backend tem hífens | Inofensivo para o SDK Java, e prova de que o valor antecede o corte de hífens do bootstrap; vale normalizar antes que seja copiado para uma superfície JavaScript, onde falharia em silêncio |
-| Entrega de erros do mobile não verificada | O único caminho de telemetria nunca provado em hardware real |

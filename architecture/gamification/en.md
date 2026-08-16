@@ -3,7 +3,7 @@ title: "Gamification"
 summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, and the signed daily ledger that makes every number auditable."
 ---
 
-Everything in Beyou's gamification serves one behavior: showing up daily. This document explains the exact mechanics, formula by formula, including where the numbers come from, what deliberately does not exist, and the three real inconsistencies found while verifying the code for this page.
+Everything in Beyou's gamification serves one behavior: showing up daily. This document explains the exact mechanics, formula by formula, including where the numbers come from and what deliberately does not exist.
 
 ## The check-in formula
 
@@ -83,14 +83,3 @@ The frontends detect moments by comparison, not by backend flags: a check respon
 ## What deliberately does not exist
 
 No daily completion bonus, no routine-completion payout, no weekly recap XP. The four XP paths (habit check, task check, snapshot check, goal completion) and their four reversals are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
-
-## Honest findings
-
-Writing this page against the code surfaced real inconsistencies, listed here until fixed:
-
-| Finding | Consequence |
-|---------|-------------|
-| The experience head-start seeds predate the current level curve: INTERMEDIARY starts at level 5 with 750 XP against a 1,250 threshold, ADVANCED at level 8 with 1,800 against 3,200 | Both start below their own level's floor, so the first uncheck collapses them (5 → 3, 8 → 6) |
-| Un-completing a goal recomputes the reward instead of reading back the stored one, and the on-time factor depends on when the recomputation runs | Complete before the deadline, un-complete after it, and about a quarter of the payout stays behind permanently |
-| The XP ledger writes late check-ins under today's date while the outcome table writes them under the snapshot's date | The two histories disagree for any late check, and unchecking an old day can render a negative bar on today |
-| Back-dating a skip over a day that closed as MISSED rewrites it to SKIPPED | A streak broken weeks ago can be retroactively repaired without doing anything; the code's own comments name this hole |
