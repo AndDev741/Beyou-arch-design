@@ -1,0 +1,27 @@
+flowchart TD
+  subgraph app["Application stack"]
+    BE["🍃 Backend<br/>actuator :9091"]
+    WEB["⚛️ Web · 📱 Mobile<br/>Sentry SDKs"]
+    CONT["🐳 All beyou* containers<br/>stdout"]
+  end
+
+  subgraph overlay["Monitoring overlay · same file dev & prod"]
+    PR["📈 Prometheus<br/>10 jobs · 15s"]
+    AL["🐝 Alloy<br/>Docker discovery"]
+    LK["📜 Loki<br/>30d retention"]
+    GT["🛡️ GlitchTip<br/>4 projects · 12 monitors"]
+    GF["📊 Grafana<br/>4 provisioned dashboards"]
+    EX["cAdvisor · node-exporter<br/>postgres-exporter"]
+  end
+
+  PR -->|"scrape"| BE
+  PR --> EX
+  PR -->|"up = liveness"| LK
+  PR -->|"up = liveness"| AL
+  CONT -->|"logs via Docker API"| AL --> LK
+  WEB -->|"errors · DSN<br/>mnt.beyouweb.com"| GT
+  BE -->|"errors · logback"| GT
+  GT -->|"probes health · heartbeat"| BE
+  PR --> GF
+  LK --> GF
+  GT -->|"e-mail alerts"| MAIL["📬 A human"]

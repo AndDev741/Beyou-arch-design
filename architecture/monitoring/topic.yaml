@@ -1,0 +1,11 @@
+key: monitoring
+orderIndex: 3
+status: ACTIVE
+tags:
+  - monitoring
+  - observability
+  - grafana
+  - prometheus
+  - loki
+  - glitchtip
+projectKey: beyou-dev-env
