@@ -1,16 +1,16 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Blog docs
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /docs/blog/topics:
     get:
       tags:
       - blog-docs-controller
-      operationId: getTopics
+      operationId: getTopics_1
       parameters:
       - name: locale
         in: query
@@ -40,7 +40,7 @@ paths:
     get:
       tags:
       - blog-docs-controller
-      operationId: getTopic
+      operationId: getTopic_1
       parameters:
       - name: key
         in: path
@@ -61,33 +61,6 @@ paths:
                 $ref: '#/components/schemas/BlogTopicDetailDTO'
 components:
   schemas:
-    BlogTopicListItemDTO:
-      type: object
-      properties:
-        key:
-          type: string
-        title:
-          type: string
-        summary:
-          type: string
-        category:
-          type: string
-        tags:
-          type: string
-        featured:
-          type: boolean
-        publishedAt:
-          type: string
-          format: date
-        coverColor:
-          type: string
-        coverEmoji:
-          type: string
-        author:
-          type: string
-        updatedAt:
-          type: string
-          format: date
     BlogTopicDetailDTO:
       type: object
       properties:
@@ -105,7 +78,7 @@ components:
           type: boolean
         publishedAt:
           type: string
-          format: date
+          format: date-time
         coverColor:
           type: string
         coverEmoji:
@@ -114,4 +87,31 @@ components:
           type: string
         updatedAt:
           type: string
-          format: date
+          format: date-time
+    BlogTopicListItemDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        category:
+          type: string
+        tags:
+          type: string
+        featured:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date-time
+        coverColor:
+          type: string
+        coverEmoji:
+          type: string
+        author:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time

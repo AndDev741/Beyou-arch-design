@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Project docs
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /docs/projects/topics:
@@ -51,25 +51,6 @@ paths:
                 $ref: '#/components/schemas/ProjectTopicDetailDTO'
 components:
   schemas:
-    ProjectTopicListItemDTO:
-      type: object
-      properties:
-        key:
-          type: string
-        title:
-          type: string
-        summary:
-          type: string
-        orderIndex:
-          type: integer
-          format: int32
-        updatedAt:
-          type: string
-          format: date
-        status:
-          type: string
-        tags:
-          type: string
     ProjectTopicDetailDTO:
       type: object
       properties:
@@ -91,4 +72,23 @@ components:
           type: string
         updatedAt:
           type: string
-          format: date
+          format: date-time
+    ProjectTopicListItemDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        orderIndex:
+          type: integer
+          format: int32
+        updatedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        tags:
+          type: string

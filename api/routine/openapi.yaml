@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Routines
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /routine/{id}:
@@ -144,25 +144,37 @@ paths:
                 $ref: '#/components/schemas/DiaryRoutineResponseDTO'
 components:
   schemas:
-    Schedule:
+    BaseCheck:
       type: object
       properties:
         id:
           type: string
           format: uuid
-        days:
-          uniqueItems: true
-          type: array
-          items:
-            type: string
-            enum:
-            - Monday
-            - Tuesday
-            - Wednesday
-            - Thursday
-            - Friday
-            - Saturday
-            - Sunday
+        checkDate:
+          type: string
+          format: date
+        checkTime:
+          type: string
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        xpGenerated:
+          type: number
+          format: double
+    CheckGroupRequestDTO:
+      type: object
+      properties:
+        routineId:
+          type: string
+          format: uuid
+        taskGroupDTO:
+          $ref: '#/components/schemas/TaskGroupRequestDTO'
+        habitGroupDTO:
+          $ref: '#/components/schemas/HabitGroupRequestDTO'
+        date:
+          type: string
+          format: date
     DiaryRoutineRequestDTO:
       type: object
       properties:
@@ -174,6 +186,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RoutineSectionRequestDTO'
+    DiaryRoutineResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        routineSections:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutineSectionResponseDTO'
+        schedule:
+          $ref: '#/components/schemas/ScheduleResponseDTO'
+        xp:
+          type: number
+          format: double
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
     HabitGroupCheck:
       type: object
       properties:
@@ -184,7 +224,7 @@ components:
           type: string
           format: date
         checkTime:
-          $ref: '#/components/schemas/LocalTime'
+          type: string
         checked:
           type: boolean
         skipped:
@@ -202,115 +242,21 @@ components:
           type: string
           format: uuid
         startTime:
-          $ref: '#/components/schemas/LocalTime'
+          type: string
         endTime:
-          $ref: '#/components/schemas/LocalTime'
+          type: string
         habitGroupCheck:
           type: array
           items:
             $ref: '#/components/schemas/HabitGroupCheck'
-    LocalTime:
+    HabitGroupRequestDTO:
       type: object
       properties:
-        hour:
-          type: integer
-          format: int32
-        minute:
-          type: integer
-          format: int32
-        second:
-          type: integer
-          format: int32
-        nano:
-          type: integer
-          format: int32
-    RoutineSectionRequestDTO:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        iconId:
-          type: string
-        startTime:
-          $ref: '#/components/schemas/LocalTime'
-        endTime:
-          $ref: '#/components/schemas/LocalTime'
-        taskGroup:
-          type: array
-          items:
-            $ref: '#/components/schemas/TaskGroupDTO'
-        habitGroup:
-          type: array
-          items:
-            $ref: '#/components/schemas/HabitGroupDTO'
-        favorite:
-          type: boolean
-    TaskGroupCheck:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        checkDate:
-          type: string
-          format: date
-        checkTime:
-          $ref: '#/components/schemas/LocalTime'
-        checked:
-          type: boolean
-        skipped:
-          type: boolean
-        xpGenerated:
-          type: number
-          format: double
-    TaskGroupDTO:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        taskId:
+        habitGroupId:
           type: string
           format: uuid
         startTime:
-          $ref: '#/components/schemas/LocalTime'
-        endTime:
-          $ref: '#/components/schemas/LocalTime'
-        taskGroupCheck:
-          type: array
-          items:
-            $ref: '#/components/schemas/TaskGroupCheck'
-    DiaryRoutineResponseDTO:
-      type: object
-      properties:
-        id:
           type: string
-          format: uuid
-        name:
-          type: string
-        iconId:
-          type: string
-        routineSections:
-          type: array
-          items:
-            $ref: '#/components/schemas/RoutineSectionResponseDTO'
-        schedule:
-          $ref: '#/components/schemas/Schedule'
-        xp:
-          type: number
-          format: double
-        actualLevelXp:
-          type: number
-          format: double
-        nextLevelXp:
-          type: number
-          format: double
-        level:
-          type: integer
-          format: int32
     HabitGroupResponseDTO:
       type: object
       properties:
@@ -328,65 +274,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/HabitGroupCheck'
-    RoutineSectionResponseDTO:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        iconId:
-          type: string
-        startTime:
-          type: string
-        endTime:
-          type: string
-        taskGroup:
-          type: array
-          items:
-            $ref: '#/components/schemas/TaskGroupResponseDTO'
-        habitGroup:
-          type: array
-          items:
-            $ref: '#/components/schemas/HabitGroupResponseDTO'
-        favorite:
-          type: boolean
-    TaskGroupResponseDTO:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        taskId:
-          type: string
-          format: uuid
-        startTime:
-          type: string
-        endTime:
-          type: string
-        taskGroupChecks:
-          type: array
-          items:
-            $ref: '#/components/schemas/TaskGroupCheck'
-    BaseCheck:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        checkDate:
-          type: string
-          format: date
-        checkTime:
-          $ref: '#/components/schemas/LocalTime'
-        checked:
-          type: boolean
-        skipped:
-          type: boolean
-        xpGenerated:
-          type: number
-          format: double
     RefreshItemCheckedDTO:
       type: object
       properties:
@@ -413,6 +300,15 @@ components:
         nextLevelXp:
           type: number
           format: double
+        currentStreak:
+          type: integer
+          format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        totalCheckIns:
+          type: integer
+          format: int32
     RefreshUiDTO:
       type: object
       properties:
@@ -449,14 +345,73 @@ components:
         nextLevelXp:
           type: number
           format: double
-    HabitGroupRequestDTO:
+    RoutineSectionRequestDTO:
       type: object
       properties:
-        habitGroupId:
+        id:
           type: string
           format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
         startTime:
-          $ref: '#/components/schemas/LocalTime'
+          type: string
+        endTime:
+          type: string
+        taskGroup:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskGroupDTO'
+        habitGroup:
+          type: array
+          items:
+            $ref: '#/components/schemas/HabitGroupDTO'
+        favorite:
+          type: boolean
+    RoutineSectionResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        taskGroup:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskGroupResponseDTO'
+        habitGroup:
+          type: array
+          items:
+            $ref: '#/components/schemas/HabitGroupResponseDTO'
+        favorite:
+          type: boolean
+    ScheduleResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        days:
+          type: array
+          items:
+            type: string
+            enum:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+          uniqueItems: true
     SkipGroupRequestDTO:
       type: object
       properties:
@@ -472,6 +427,41 @@ components:
           format: date
         skip:
           type: boolean
+    TaskGroupCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        checkDate:
+          type: string
+          format: date
+        checkTime:
+          type: string
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        xpGenerated:
+          type: number
+          format: double
+    TaskGroupDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        startTime:
+          type: string
+        endTime:
+          type: string
+        taskGroupCheck:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskGroupCheck'
     TaskGroupRequestDTO:
       type: object
       properties:
@@ -479,17 +469,21 @@ components:
           type: string
           format: uuid
         startTime:
-          $ref: '#/components/schemas/LocalTime'
-    CheckGroupRequestDTO:
+          type: string
+    TaskGroupResponseDTO:
       type: object
       properties:
-        routineId:
+        id:
           type: string
           format: uuid
-        taskGroupDTO:
-          $ref: '#/components/schemas/TaskGroupRequestDTO'
-        habitGroupDTO:
-          $ref: '#/components/schemas/HabitGroupRequestDTO'
-        date:
+        taskId:
           type: string
-          format: date
+          format: uuid
+        startTime:
+          type: string
+        endTime:
+          type: string
+        taskGroupChecks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskGroupCheck'

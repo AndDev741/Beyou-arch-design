@@ -1,0 +1,284 @@
+openapi: 3.1.0
+info:
+  title: Routine snapshots
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /routine/snapshot/skip:
+    post:
+      tags:
+      - snapshot-controller
+      operationId: skipSnapshotItem
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotCheckRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RefreshUiDTO'
+  /routine/snapshot/check:
+    post:
+      tags:
+      - snapshot-controller
+      operationId: checkSnapshotItem
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotCheckRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RefreshUiDTO'
+  /routine/{routineId}/snapshots:
+    get:
+      tags:
+      - snapshot-controller
+      operationId: getSnapshotDatesForMonth
+      parameters:
+      - name: routineId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: month
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SnapshotMonthResponseDTO'
+  /routine/{routineId}/snapshot:
+    get:
+      tags:
+      - snapshot-controller
+      operationId: getSnapshot
+      parameters:
+      - name: routineId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SnapshotResponseDTO'
+  /routine/snapshot:
+    get:
+      tags:
+      - snapshot-controller
+      operationId: getSnapshotsForDay
+      parameters:
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SnapshotResponseDTO'
+components:
+  schemas:
+    BaseCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        checkDate:
+          type: string
+          format: date
+        checkTime:
+          type: string
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        xpGenerated:
+          type: number
+          format: double
+    RefreshItemCheckedDTO:
+      type: object
+      properties:
+        groupItemId:
+          type: string
+          format: uuid
+        check:
+          $ref: '#/components/schemas/BaseCheck'
+    RefreshObjectDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        currentStreak:
+          type: integer
+          format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        totalCheckIns:
+          type: integer
+          format: int32
+    RefreshUiDTO:
+      type: object
+      properties:
+        refreshUser:
+          $ref: '#/components/schemas/RefreshUserDTO'
+        refreshCategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshHabit:
+          $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshItemChecked:
+          $ref: '#/components/schemas/RefreshItemCheckedDTO'
+    RefreshUserDTO:
+      type: object
+      properties:
+        currentConstance:
+          type: integer
+          format: int32
+        alreadyIncreaseConstanceToday:
+          type: boolean
+        maxConstance:
+          type: integer
+          format: int32
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+    SnapshotCheckRequestDTO:
+      type: object
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        snapshotCheckId:
+          type: string
+          format: uuid
+      required:
+      - snapshotCheckId
+      - snapshotId
+    SnapshotCheckResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemType:
+          type: string
+          enum:
+          - HABIT
+          - TASK
+        itemName:
+          type: string
+        itemIconId:
+          type: string
+        sectionName:
+          type: string
+        originalGroupId:
+          type: string
+          format: uuid
+        difficulty:
+          type: integer
+          format: int32
+        importance:
+          type: integer
+          format: int32
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        checkTime:
+          type: string
+        xpGenerated:
+          type: number
+          format: double
+    SnapshotMonthResponseDTO:
+      type: object
+      properties:
+        dates:
+          type: array
+          items:
+            type: string
+            format: date
+    SnapshotResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        routineId:
+          type: string
+          format: uuid
+        snapshotDate:
+          type: string
+          format: date
+        routineName:
+          type: string
+        routineIconId:
+          type: string
+        completed:
+          type: boolean
+        structure:
+          type: string
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/SnapshotCheckResponseDTO'

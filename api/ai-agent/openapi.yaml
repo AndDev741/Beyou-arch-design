@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: AI Agent
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /ai/agent/chats/{chatId}:
+    put:
+      tags:
+      - ai-agent-controller
+      operationId: renameChat
+      parameters:
+      - name: chatId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameChatRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ChatResponseDTO'
+    post:
+      tags:
+      - ai-agent-controller
+      operationId: processMessage
+      parameters:
+      - name: chatId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiAgentRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    delete:
+      tags:
+      - ai-agent-controller
+      operationId: deleteChat
+      parameters:
+      - name: chatId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /ai/agent/chats:
+    get:
+      tags:
+      - ai-agent-controller
+      operationId: getChats
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatResponseDTO'
+    post:
+      tags:
+      - ai-agent-controller
+      operationId: createChat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChatRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ChatResponseDTO'
+    delete:
+      tags:
+      - ai-agent-controller
+      operationId: deleteAllChats
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /ai/agent/chats/{chatId}/stream:
+    post:
+      tags:
+      - ai-agent-controller
+      operationId: streamMessage
+      parameters:
+      - name: chatId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiAgentRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/SseEmitter'
+  /ai/agent/chats/{chatId}/messages:
+    get:
+      tags:
+      - ai-agent-controller
+      operationId: getMessages
+      parameters:
+      - name: chatId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentMessageDTO'
+components:
+  schemas:
+    AgentMessageDTO:
+      type: object
+      properties:
+        role:
+          type: string
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentSegment'
+    AgentSegment:
+      type: object
+      properties:
+        type:
+          type: string
+        text:
+          type: string
+        tool:
+          type: string
+        error:
+          type: string
+        domains:
+          type: array
+          items:
+            type: string
+    AiAgentRequest:
+      type: object
+      properties:
+        userInput:
+          type: string
+          maxLength: 4000
+          minLength: 0
+        currentPage:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - userInput
+    ChatResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateChatRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+    RenameChatRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+      required:
+      - title
+    SseEmitter:
+      type: object
+      properties:
+        timeout:
+          type: integer
+          format: int64

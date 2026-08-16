@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Authentication
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /auth/reset-password:
@@ -24,8 +24,7 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
   /auth/register:
     post:
       tags:
@@ -57,7 +56,7 @@ paths:
           content:
             '*/*':
               schema:
-                type: string
+                type: object
   /auth/logout:
     post:
       tags:
@@ -88,8 +87,26 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
+  /auth/google/mobile:
+    post:
+      tags:
+      - authentication-controller
+      operationId: googleMobileAuth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleMobileLoginDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties: {}
   /auth/forgot-password:
     post:
       tags:
@@ -108,8 +125,7 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
   /auth/verify:
     get:
       tags:
@@ -122,36 +138,6 @@ paths:
             '*/*':
               schema:
                 type: string
-  /auth/verify-email:
-    get:
-      tags:
-      - auth-verification-controller
-      summary: Verify user email address
-      description: Validates the email verification token sent during registration. Sets emailVerified=true on success.
-      operationId: verifyEmail
-      parameters:
-      - name: token
-        in: query
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: Email verified successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: string
-                    example: Email verified successfully
-        '400':
-          description: Invalid or expired verification token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
   /auth/reset-password/validate:
     get:
       tags:
@@ -170,8 +156,7 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
   /auth/google:
     get:
       tags:
@@ -190,69 +175,68 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
 components:
   schemas:
-    ResetPasswordRequestDTO:
+    ForgotPasswordRequestDTO:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 256
+          minLength: 0
       required:
-      - password
-      - token
+      - email
+    GoogleMobileLoginDTO:
+      type: object
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+      required:
+      - idToken
+    ResetPasswordRequestDTO:
       type: object
       properties:
         token:
           type: string
+          minLength: 1
         password:
           type: string
+          minLength: 1
+      required:
+      - password
+      - token
+    UserLoginDTO:
+      type: object
+      properties:
+        email:
+          type: string
+          maxLength: 256
+          minLength: 0
+        password:
+          type: string
+          maxLength: 300
+          minLength: 0
+      required:
+      - email
+      - password
     UserRegisterDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          maxLength: 256
+          minLength: 0
+        password:
+          type: string
+          minLength: 1
       required:
       - email
       - name
       - password
-      type: object
-      properties:
-        name:
-          maxLength: 256
-          minLength: 2
-          type: string
-        email:
-          maxLength: 256
-          minLength: 0
-          type: string
-        password:
-          maxLength: 256
-          minLength: 12
-          type: string
-          description: Must contain at least 2 character classes (lowercase, uppercase, digits, special)
-    ApiErrorResponse:
-      type: object
-      properties:
-        errorKey:
-          type: string
-        message:
-          type: string
-        details:
-          type: object
-    UserLoginDTO:
-      required:
-      - email
-      - password
-      type: object
-      properties:
-        email:
-          maxLength: 256
-          minLength: 0
-          type: string
-        password:
-          maxLength: 300
-          minLength: 0
-          type: string
-    ForgotPasswordRequestDTO:
-      required:
-      - email
-      type: object
-      properties:
-        email:
-          maxLength: 256
-          minLength: 0
-          type: string

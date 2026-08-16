@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Habits
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /habit:
@@ -81,10 +81,80 @@ paths:
                   type: string
 components:
   schemas:
-    EditHabitDTO:
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 256
+          minLength: 2
+        description:
+          type: string
+          maxLength: 256
+          minLength: 0
+        iconId:
+          type: string
+        xpProgress:
+          $ref: '#/components/schemas/XpProgress'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
       required:
-      - importance
+      - name
+    CreateHabitDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 256
+          minLength: 2
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+        motivationalPhrase:
+          type: string
+          maxLength: 500
+          minLength: 0
+        iconId:
+          type: string
+          minLength: 1
+        importance:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        dificulty:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+        experience:
+          type: string
+          enum:
+          - BEGINNER
+          - INTERMEDIARY
+          - ADVANCED
+      required:
+      - categoriesId
       - dificulty
+      - experience
+      - iconId
+      - importance
+      - name
+    EditHabitDTO:
       type: object
       properties:
         habitId:
@@ -101,83 +171,23 @@ components:
         importance:
           type: integer
           format: int32
-          minimum: 1
           maximum: 5
+          minimum: 1
         dificulty:
           type: integer
           format: int32
-          minimum: 1
           maximum: 5
+          minimum: 1
         categoriesId:
           type: array
           items:
             type: string
             format: uuid
-    CreateHabitDTO:
+          minItems: 1
       required:
-      - importance
+      - categoriesId
       - dificulty
-      - experience
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        motivationalPhrase:
-          type: string
-        iconId:
-          type: string
-        importance:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 5
-        dificulty:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 5
-        categoriesId:
-          type: array
-          items:
-            type: string
-            format: uuid
-        experience:
-          $ref: '#/components/schemas/ExperienceLevel'
-    ExperienceLevel:
-      type: string
-      description: Starting experience tier. Server resolves to actual xp/level values.
-      enum:
-      - BEGINNER
-      - INTERMEDIARY
-      - ADVANCED
-    Category:
-      required:
-      - name
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          maxLength: 256
-          minLength: 2
-          type: string
-        description:
-          maxLength: 256
-          minLength: 0
-          type: string
-        iconId:
-          type: string
-        xpProgress:
-          $ref: '#/components/schemas/XpProgress'
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
+      - importance
     HabitResponseDTO:
       type: object
       properties:
@@ -214,9 +224,20 @@ components:
         level:
           type: integer
           format: int32
-        constance:
+        currentStreak:
           type: integer
           format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        totalCheckIns:
+          type: integer
+          format: int32
+        firstCheckInDate:
+          type: string
+          format: date
+        streakDormant:
+          type: boolean
         createdAt:
           type: string
           format: date

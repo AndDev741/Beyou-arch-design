@@ -1,196 +1,23 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: User
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
-  /user/export:
+  /user:
     get:
       tags:
-      - user-export-controller
-      summary: Export all user data (GDPR)
-      description: |
-        Returns the authenticated user's data in JSON. Profile (including XP, level and
-        streak counters), categories, habits, goals, tasks, routines with their sections
-        and schedules, feedback, and a bounded window of check-in history.
-
-        A `notIncluded` object names what is deliberately absent and why: per-day routine
-        snapshots, agent conversations, and credentials. This endpoint is offered beside
-        account deletion, so the payload is meant to be readable as a complete record
-        rather than checked field by field against the app.
-      operationId: exportUserData
-      responses:
-        '200':
-          description: User data export
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  exportedAt:
-                    type: string
-                    format: date-time
-                  profile:
-                    type: object
-                    properties:
-                      name:
-                        type: string
-                      email:
-                        type: string
-                      photo:
-                        type: string
-                      createdAt:
-                        type: string
-                        format: date
-                      isGoogleAccount:
-                        type: boolean
-                      timezone:
-                        type: string
-                      language:
-                        type: string
-                      theme:
-                        type: string
-                      progress:
-                        $ref: '#/components/schemas/XpProgress'
-                      streak:
-                        $ref: '#/components/schemas/StreakProgress'
-                  categories:
-                    type: array
-                    items:
-                      type: object
-                  habits:
-                    type: array
-                    items:
-                      type: object
-                  goals:
-                    type: array
-                    items:
-                      type: object
-                  tasks:
-                    type: array
-                    items:
-                      type: object
-                  routines:
-                    type: array
-                    items:
-                      type: object
-                  feedback:
-                    type: array
-                    items:
-                      type: object
-                  checkHistory:
-                    type: object
-                    description: Bounded window of per-day outcomes. Carries `from`, `to` and `maxRangeDays` so a reader can see what it covers.
-                  notIncluded:
-                    type: object
-                    description: What this file leaves out, keyed by name, each with the reason.
-        '429':
-          description: Rate limited
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-  /user/deletion/code:
-    post:
-      tags:
       - user-controller
-      summary: Request an account deletion code
-      description: |
-        Emails a six-digit code to the authenticated user's address and returns
-        immediately. The code is stored hashed, expires after 15 minutes, and requesting
-        a new one invalidates the previous one. A second request inside the cooldown
-        (60s) is refused with `DELETION_CODE_TOO_MANY_REQUESTS` — clients should still
-        let the user type the code already in their inbox rather than dead-ending.
-
-        A valid session alone is not enough to delete an account: this is the second
-        party. Nothing here is destructive.
-      operationId: requestAccountDeletionCode
+      operationId: getProfile
       responses:
         '200':
-          description: Code requested
+          description: OK
           content:
-            application/json:
+            '*/*':
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  code:
-                    type: string
-                    description: |
-                      Present ONLY under the e2e profile, where there is no inbox to
-                      read (`e2e.expose-deletion-code`). The prod profile refuses to
-                      boot with it enabled.
-        '400':
-          description: |
-            Refused, keyed by `errorKey`: `DELETION_CODE_TOO_MANY_REQUESTS` when the
-            cooldown has not elapsed.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '429':
-          description: Rate limited (10 requests per hour across both deletion routes)
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-  /user/deletion/confirm:
-    post:
-      tags:
-      - user-controller
-      summary: Delete the account
-      description: |
-        Irreversible and immediate: there is no grace period and no undo. Spends the
-        code, deletes the account with everything it owns (categories, habits, tasks,
-        goals, routines, snapshots, chats, feedback, uploaded photo), and revokes the
-        refresh token cookie on the way out.
-
-        A wrong code costs one of five attempts; the fifth exhausts the code and only a
-        new one can be requested. The code is spent on success, so this call cannot be
-        replayed. Clients should treat a non-`DELETION_CODE_*` failure as possibly
-        completed — the account may be gone even though the response never arrived —
-        and clear local state rather than returning the user to the code entry step.
-      operationId: confirmAccountDeletion
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ConfirmAccountDeletionDTO'
-        required: true
-      responses:
-        '200':
-          description: Account deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: string
-        '400':
-          description: |
-            Refused, keyed by `errorKey`: `DELETION_CODE_INVALID` (wrong or already
-            spent), `DELETION_CODE_EXPIRED` (older than 15 minutes),
-            `DELETION_CODE_TOO_MANY_ATTEMPTS` (five wrong tries), or
-            `ACCOUNT_DELETE_FAILED` (the deletion itself could not complete — nothing
-            was deleted).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '429':
-          description: Rate limited (10 requests per hour across both deletion routes)
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-  /user:
+                $ref: '#/components/schemas/UserResponseDTO'
     put:
       tags:
       - user-controller
@@ -208,79 +35,71 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/UserResponseDTO'
+  /user/deletion/confirm:
+    post:
+      tags:
+      - user-controller
+      operationId: deleteAccount
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmAccountDeletionDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /user/deletion/code:
+    post:
+      tags:
+      - user-controller
+      operationId: requestDeletionCode
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties: {}
 components:
   schemas:
     ConfirmAccountDeletionDTO:
       type: object
-      required:
-      - code
       properties:
         code:
           type: string
-          pattern: '^\d{6}$'
-          description: The six digits from the email. Trimmed before comparison.
-    ApiErrorResponse:
-      type: object
-      properties:
-        errorKey:
-          type: string
-          description: Stable key the clients translate. Never show the raw value to a user.
-        message:
-          type: string
-    XpProgress:
-      type: object
-      properties:
-        xp:
-          type: number
-          format: double
-        level:
-          type: integer
-          format: int32
-        actualLevelXp:
-          type: number
-          format: double
-        nextLevelXp:
-          type: number
-          format: double
-    StreakProgress:
-      type: object
-      properties:
-        currentStreak:
-          type: integer
-          format: int32
-        bestStreak:
-          type: integer
-          format: int32
-        totalCheckIns:
-          type: integer
-          format: int32
-        firstCheckInDate:
-          type: string
-          format: date
-        lastCheckInDate:
-          type: string
-          format: date
+          minLength: 1
+          pattern: \d{6}
+      required:
+      - code
     UserEditDTO:
       type: object
       properties:
         name:
+          type: string
           maxLength: 256
           minLength: 0
           pattern: .*\S.*\S.*
-          type: string
         photo:
+          type: string
           maxLength: 2048
           minLength: 0
-          pattern: (?i)^(?:$|https?://.+)
-          type: string
+          pattern: (?i)^(?:$|https?://.+|/api/v1/user/photo/.+)
         phrase:
+          type: string
           maxLength: 256
           minLength: 0
-          type: string
         phrase_author:
+          type: string
           maxLength: 256
           minLength: 0
-          type: string
         widgetsId:
           type: array
           items:
@@ -296,6 +115,14 @@ components:
           type: string
         isTutorialCompleted:
           type: boolean
+        timezone:
+          type: string
+        xpDecayStrategy:
+          type: string
+          enum:
+          - GRADUAL
+          - FLAT
+          - TIME_WINDOW
     UserResponseDTO:
       type: object
       properties:
@@ -310,6 +137,8 @@ components:
         constance:
           type: integer
           format: int32
+        constanceDormant:
+          type: boolean
         photo:
           type: string
         isGoogleAccount:
@@ -346,3 +175,11 @@ components:
           type: boolean
         languageInUse:
           type: string
+        timezone:
+          type: string
+        xpDecayStrategy:
+          type: string
+          enum:
+          - GRADUAL
+          - FLAT
+          - TIME_WINDOW
