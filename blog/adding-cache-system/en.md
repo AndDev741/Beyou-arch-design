@@ -23,7 +23,7 @@ I wrote k6 load test scripts that simulate realistic traffic patterns, reading c
 
 For the docs endpoints, I also used autocannon with 200 concurrent connections to stress test a single endpoint and see how it behaves under heavy load.
 
-The baseline numbers told me what I already suspected: response times were acceptable for light usage, but the p95 latencies were high. The docs endpoints were averaging 32ms per request with p95 at 84ms. The domain endpoints (the ones behind authentication) were even worse, 64ms average with p95 at 108ms. Category listing had a p95 of over 1.3 seconds, which is not great.
+The baseline numbers told me what I already suspected: response times were acceptable for light usage, but the p95 latencies were high. The docs endpoints were averaging 32ms per request with p95 at 84ms. The domain endpoints (the ones behind authentication) were even worse, 64ms average with p95 at 108ms. Category listing had a p95 of over 1.3 seconds, over a full second just to list categories.
 
 ## The Architecture
 
