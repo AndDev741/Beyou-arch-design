@@ -1,0 +1,10 @@
+key: monitoring-layers
+category: technical
+tags: [monitoring, grafana, prometheus, glitchtip, loki]
+featured: false
+publishedAt: 2026-08-16
+coverColor: "#f59e0b"
+coverEmoji: "📊"
+
+author: "André Luiz"
+status: active
