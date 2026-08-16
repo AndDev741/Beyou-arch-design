@@ -1,0 +1,19 @@
+flowchart TD
+  C["⚛️ Web / 📱 Mobile<br/>SSE over fetch"]
+  C -->|"POST /ai/agent/chats/{id}/stream"| SVC["🤖 AiAgentService<br/>2 streams max per user · 30/h"]
+
+  SVC --> MEM["🧠 Memory<br/>global 2000 · chat 1000 · window 20"]
+  SVC --> CHAIN["⛓️ Fallback chain"]
+
+  subgraph CHAIN["⛓️ LLM fallback chain"]
+    P1["Mistral"] -->|"fail before first chunk"| P2["Gemini"]
+    P2 --> P3["GLM"]
+    P3 --> P4["NVIDIA"]
+    P4 --> P5["DeepSeek<br/>never skipped"]
+  end
+
+  CHAIN --> TOOLS["🛠️ 33 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
+  TOOLS --> DOM["⚙️ Same domain services<br/>as the REST API"]
+
+  SVC -->|"token · tool · done events<br/>persist before done"| C
+  TOOLS -->|"touched domains"| C

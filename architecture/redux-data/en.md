@@ -98,9 +98,3 @@ The axios instance policy, in order:
 | Refresh failed | Report the failure, hard-navigate to login, and reject with the original 401 rather than the refresh error, so an expired session is not misfiled as an unknown fault |
 
 On boot, `useSilentRefresh` runs before the router mounts: it trades the httpOnly cookie for an access token, then re-fetches the profile and hydrates the perfil slice, which is necessary precisely because perfil is blacklisted from persistence. The agent's SSE stream rides raw fetch (axios buffers streams) but is configured with the same base URL, live auth header, and the same shared refresh function, so a stream 401 cannot race a second refresh.
-
-## Honest notes
-
-- The offline package in the monorepo is an empty shell today: no read cache and no write queue exist on web. Freshness comes from the auto-refresh policy instead. Docs and plans that mention offline support describe intent, some of it shipped on mobile branches, none of it on web main.
-- The generated API contracts package is wired into the build and checked in CI against the OpenAPI snapshot, but nothing in the web app imports it yet.
-- Redux DevTools are disabled in production only by Redux Toolkit's default, since the store never sets the flag explicitly. Correct, but implicit.

@@ -1,0 +1,13 @@
+flowchart TD
+  CHK["✅ Check-in"] --> XP["🎮 5 × (diff + imp) × streak bonus<br/>10 – 75 XP"]
+  XP --> FAN["Fan-out, whole amount each:<br/>user · routine · habit · categories"]
+  FAN --> CURVE["📈 Level curve<br/>round(50 × L²), 0 – 100"]
+  CHK --> DAY["📅 Daily outcomes<br/>DONE · SKIPPED · MISSED ..."]
+  DAY --> STREAK["🔥 Streaks, re-derived by walking days<br/>only MISSED breaks · 14d = dormant"]
+  CLOSE["🌙 Day-close job<br/>hourly, per timezone, insert-only"] --> DAY
+  LATE["🧊 Late check via snapshot"] -->|"decayed XP<br/>GRADUAL · FLAT · TIME_WINDOW"| FAN
+  LATE -->|"repairs the day"| DAY
+  GOAL["🎯 Goal complete (toggle)"] -->|"calculated reward"| FAN
+  XP --> LEDGER["📒 Signed ledger · EntityXpDay<br/>sums back to every total"]
+  STREAK --> CEL["🎉 Client celebrations<br/>level-ups · milestones 7…100"]
+  CURVE --> CEL

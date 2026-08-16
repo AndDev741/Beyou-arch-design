@@ -1,5 +1,5 @@
 key: email-service
-orderIndex: 7
+orderIndex: 10
 status: ACTIVE
 tags:
   - email
