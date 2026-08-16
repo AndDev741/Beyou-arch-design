@@ -1,271 +1,91 @@
 ---
-title: "AOP — Aspect-Oriented Programming"
-summary: "How cross-cutting concerns like logging, performance tracking, and exception monitoring are handled via Spring AOP."
+title: "Aspect-Oriented Logging (AOP)"
+summary: "Two aspects give every controller and service consistent logging, timing, and error routing, tuned so client mistakes stay quiet and real faults stay loud."
 ---
 
-This document explains how Beyou uses Spring AOP to intercept controller and service method calls for logging, performance measurement, and error tracking — without modifying business code.
+This document explains how Beyou uses Spring AOP for observability: what the two aspects log, how expected client errors are kept out of the error channel, and how the aspect output feeds (and deliberately stays out of) the GlitchTip error tracker.
 
-## What is AOP and Why We Use It
+## What AOP covers here, and what it doesn't
 
-AOP (Aspect-Oriented Programming) lets you attach behavior to existing code without changing it. Instead of adding log statements inside every controller and service method, we define aspects that automatically intercept those calls.
-
-This keeps business logic clean and ensures consistent observability across the entire backend.
+The AOP package holds exactly two aspects, and both do logging. Every other cross-cutting concern lives elsewhere: rate limiting and JWT validation are servlet filters, caching is Spring's `@Cacheable` annotations, transactions are `@Transactional`. One consequence worth knowing: rate-limited rejections happen before the controller is ever invoked, so a 429 never produces an aspect log line.
 
 ```mermaid
 flowchart LR
-  subgraph "Without AOP"
-    C1["Controller<br/>+ logging code<br/>+ timing code<br/>+ error code"]
-    S1["Service<br/>+ logging code<br/>+ timing code<br/>+ error code"]
+  subgraph aspects["The two aspects"]
+    CL["ControllerLogging<br/>every @RestController"]
+    SL["ServiceMethodsLogging<br/>every @Service"]
   end
-
-  subgraph "With AOP"
-    C2["Controller<br/>(business logic only)"]
-    S2["Service<br/>(business logic only)"]
-    A["🔍 Aspects<br/>logging + timing + errors"]
-  end
-
-  A -.->|"intercepts"| C2
-  A -.->|"intercepts"| S2
+  REQ["📥 Request"] --> CL --> SL --> DB["💾 Repository"]
+  CL -.->|"[REQUEST] · [CLIENT_ERROR] · [EXCEPTION]"| LOG["📋 Logs"]
+  SL -.->|"[START] · [END] · [PERFORMANCE] · [ERROR]"| LOG
+  LOG -->|"stdout → Alloy → Loki"| MON["📊 Grafana"]
 ```
 
-## Architecture
+Both pointcuts key off the stock stereotype annotations (`@RestController`, `@Service`), so any new controller or service is woven automatically, wherever it lives. There are no custom annotations and no explicit AOP configuration; the starter (renamed `spring-boot-starter-aspectj` in Spring Boot 4) enables everything.
 
-Beyou has two aspect classes in the AOP package:
+## ServiceMethodsLogging
 
-| Aspect | Targets | What it does |
-|--------|---------|-------------|
-| **ControllerLogging** | All @RestController classes | Logs every request with timing, catches and logs exceptions |
-| **ServiceMethodsLogging** | All @Service classes | Logs method entry/exit, measures performance, catches and logs exceptions |
+Four advices wrap every service method:
 
-```mermaid
-flowchart TD
-  REQ["📥 Request"] --> CFILT["🛡️ Security Filter"]
-  CFILT --> CA["🔍 Controller Aspect"]
-  CA --> CTRL["🎯 Controller Method"]
-  CTRL --> SA["🔍 Service Aspect"]
-  SA --> SVC["⚙️ Service Method"]
-  SVC --> REPO["💾 Repository"]
+| Advice | Level | What it emits |
+|--------|-------|---------------|
+| @Before | INFO | `[START] Starting method: createCategory with 2 arg(s)` |
+| @AfterReturning | INFO / DEBUG | `[END] Method finish: createCategory` at INFO; the return value only at DEBUG |
+| @Around (timing) | INFO | `[PERFORMANCE] Method createCategory exectued in 15 ms` |
+| @Around (exceptions) | WARN / ERROR | See the routing section below; always rethrows |
 
-  CA -.->|"logs"| LOG["📋 Application Logs"]
-  SA -.->|"logs"| LOG
-```
+The most important line in that table is the first one: **argument values are never logged, only the count**. An earlier version logged full argument objects, which put DTOs with passwords and e-mails into the log stream; the security audit flagged it and the aspect now counts instead. The same caution applies to return values, which only materialize at DEBUG.
 
-The aspects sit between the caller and the actual method — they execute before, after, or around the target method, adding observability without touching business code.
+Two smaller details for anyone grepping: the performance line's "exectued" typo is in the source, so grep for that spelling; and two separate `@Around` advices on the same pointcut mean each service call is proxied twice.
 
-## Controller Aspect
+## ControllerLogging
 
-The ControllerLogging aspect intercepts every method in classes annotated with @RestController.
+Two advices wrap every controller method:
 
-### Pointcut
+- `@Around` emits `[REQUEST] {full signature} - completed in {ms} ms` at INFO. It logs after `proceed()` returns, so a throwing controller method produces no `[REQUEST]` line at all; timing exists only for the success path.
+- `@AfterThrowing` routes the failure: expected client errors become a WARN `[CLIENT_ERROR]` line with no stack trace, everything else becomes an ERROR `[EXCEPTION]` line with the full trace. The exception keeps propagating to the GlobalExceptionHandler either way; the aspect observes, never swallows.
 
-Targets all methods in all @RestController classes:
+## Expected-client-error routing
 
-within(@org.springframework.web.bind.annotation.RestController *)
+Both aspects share one routing decision, a static check in ServiceMethodsLogging. Six exception types are "expected": BusinessException (and every domain subclass), JwtNotFoundException, the three refresh-token exceptions, and IllegalArgumentException. These log at WARN with no stack trace, because a wrong password or an expired token is an ordinary Tuesday, not an incident.
 
-This means every endpoint in AuthenticationController, CategoryController, HabitController, TaskController, GoalController, RoutineController, ScheduleController, UserController, and all docs controllers is automatically intercepted.
+That routing is also what keeps the error tracker clean: GlitchTip only turns log lines into events at ERROR level, so expected client noise never becomes an alert. Two subtleties are worth writing down:
 
-### Advice: Request Logging (@Around)
+- The check is a direct `instanceof` with no cause-chain walk, while the Sentry event filter walks up to 20 causes. A BusinessException re-wrapped by a transaction proxy would therefore log at ERROR with a full trace while still being dropped from GlitchTip. Divergent by design today, but coupled logic living in two places.
+- The four token exceptions extend RuntimeException directly rather than BusinessException, which is why the list enumerates them explicitly.
 
-Wraps every controller method call to measure execution time.
+## How the aspects meet GlitchTip
 
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant A as Controller Aspect
-  participant M as Controller Method
+The Sentry SDK turns log lines into two things: breadcrumbs (the trail attached to an event) and events themselves. The aspects are handled differently for each:
 
-  C->>A: HTTP request arrives
-  A->>A: Record start time
-  A->>M: proceed() — execute method
-  M-->>A: Return result
-  A->>A: Calculate duration
-  A->>A: Log [REQUEST] signature, args, duration
-  A-->>C: Return result
-```
+- **Breadcrumbs**: both aspect loggers are excluded. Four INFO lines per request would flood the 100-breadcrumb budget with a call trace the event's stack already carries. The exclusion list is derived from the class names, so a rename moves the exclusion along.
+- **Events**: deliberately not excluded. One unhandled fault is captured three times on its way out (service aspect, controller aspect, MVC resolver), and the SDK's deduplication collapses them. Filtering by logger name instead would mark the throwable as seen on the first capture and suppress the real event.
 
-**Log format:**
+## Proxy mechanics and their traps
 
-[REQUEST] CategoryController.getCategories(..) called with args [..] - completed in 42 ms
+Spring AOP is proxy-based (CGLIB), which brings the classic caveat: a method calling another method on the same class bypasses the proxy, so neither logging nor `@Cacheable` nor `@Transactional` fires on the inner call. The snapshot scheduler documents this trap explicitly in its own code. The aspects also wrap the caching service beans, so a cached read carries the aspect proxies plus the cache interceptor.
 
-**Log level:** INFO
-
-This gives visibility into which endpoints are being called, what arguments they receive, and how long they take — without adding a single line of code to any controller.
-
-### Advice: Exception Logging (@AfterThrowing)
-
-Catches any exception thrown from a controller method and logs it at ERROR level.
-
-**Log format:**
-
-[EXCEPTION] Exception in CategoryController.createCategory(..): Category name already exists
-
-**Log level:** ERROR
-
-The exception continues to propagate normally to the GlobalExceptionHandler — the aspect only observes, it does not swallow or transform the error.
-
-## Service Aspect
-
-The ServiceMethodsLogging aspect intercepts every method in classes annotated with @Service, providing detailed lifecycle logging.
-
-### Pointcut
-
-Targets all methods in all @Service classes:
-
-within(@org.springframework.stereotype.Service *)
-
-This covers every service in the application — UserService, CategoryService, HabitService, TaskService, GoalService, RoutineService, ScheduleService, RefreshTokenService, PasswordResetService, and more.
-
-### Advice: Method Entry (@Before)
-
-Logs before every service method starts executing.
-
-**Log format:**
-
-[START] Starting method: createCategory with args [CreateCategoryDTO{name=Health, ...}, User{...}]
-
-**Log level:** INFO
-
-### Advice: Method Exit (@AfterReturning)
-
-Logs after a service method completes successfully, including the return value.
-
-**Log format:**
-
-[END] Method finish: createCategory
-[END] Return: Category{id=abc-123, name=Health, ...}
-
-**Log level:** INFO
-
-**Note:** Logging return values can expose sensitive data in logs (e.g., user objects with emails). In production, consider filtering sensitive fields or reducing log level to DEBUG.
-
-### Advice: Performance Timing (@Around)
-
-Measures how long each service method takes to execute.
-
-```mermaid
-sequenceDiagram
-  participant C as Controller
-  participant A as Service Aspect
-  participant S as Service Method
-  participant DB as Database
-
-  C->>A: Call service method
-  A->>A: Record start time
-  A->>S: proceed()
-  S->>DB: Query database
-  DB-->>S: Result
-  S-->>A: Return value
-  A->>A: Calculate duration
-  A->>A: Log [PERFORMANCE] method, duration
-  A-->>C: Return value
-```
-
-**Log format:**
-
-[PERFORMANCE] Method createCategory executed in 15 ms
-
-**Log level:** INFO
-
-This is valuable for identifying slow service methods during development and debugging.
-
-### Advice: Exception Handling (@Around)
-
-A separate @Around advice wraps service methods in try-catch to log exceptions.
-
-**Log format:**
-
-[ERROR] Exception in method CategoryService.createCategory(..): Duplicate name
-
-**Log level:** ERROR
-
-The exception is re-thrown after logging, preserving normal error propagation to the GlobalExceptionHandler.
-
-## Complete Request Lifecycle with AOP
-
-Here is what happens when a user creates a category, showing every log produced by the aspects:
-
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant CA as Controller Aspect
-  participant CTRL as CategoryController
-  participant SA as Service Aspect
-  participant SVC as CategoryService
-  participant DB as Database
-
-  C->>CA: POST /category
-  Note right of CA: ⏱️ Start controller timer
-
-  CA->>CTRL: proceed()
-  CTRL->>SA: createCategory(dto, user)
-  Note right of SA: 📋 [START] createCategory with args [...]
-  Note right of SA: ⏱️ Start service timer
-
-  SA->>SVC: proceed()
-  SVC->>DB: Save category
-  DB-->>SVC: Category entity
-  SVC-->>SA: Return category
-
-  Note right of SA: 📋 [PERFORMANCE] createCategory in 15 ms
-  Note right of SA: 📋 [END] Method finish: createCategory
-  Note right of SA: 📋 [END] Return: Category{...}
-
-  SA-->>CTRL: Return category
-  CTRL-->>CA: Return ResponseEntity
-
-  Note right of CA: 📋 [REQUEST] createCategory called with args [...] - completed in 23 ms
-  CA-->>C: 201 Created
-```
-
-## Log Prefix Reference
-
-All aspect logs use prefixes for easy filtering with tools like grep or log management platforms:
+## Log prefix reference
 
 | Prefix | Source | Level | Meaning |
 |--------|--------|-------|---------|
-| [REQUEST] | Controller Aspect | INFO | Full request with signature, args, and execution time |
-| [EXCEPTION] | Controller Aspect | ERROR | Exception thrown from a controller |
-| [START] | Service Aspect | INFO | Service method entry with args |
-| [END] | Service Aspect | INFO | Service method exit with return value |
-| [PERFORMANCE] | Service Aspect | INFO | Service method execution duration |
-| [ERROR] | Service Aspect | ERROR | Exception caught in service method |
+| [REQUEST] | Controller aspect | INFO | Full signature plus duration, success path only |
+| [CLIENT_ERROR] | Controller aspect | WARN | Expected client error, no stack trace |
+| [EXCEPTION] | Controller aspect | ERROR | Unexpected fault, full stack trace |
+| [START] | Service aspect | INFO | Method entry with argument count |
+| [END] | Service aspect | INFO / DEBUG | Method exit; return value at DEBUG only |
+| [PERFORMANCE] | Service aspect | INFO | Duration ("exectued", per the source) |
+| [ERROR] | Service aspect | ERROR | Unexpected fault, full stack trace |
+| [LOG] | Domain services | varies | The hand-written convention inside business code |
 
-## How It Works Under the Hood
+These prefixes are what the Loki queries and the Beyou Logs dashboard filter on.
 
-Spring AOP uses **proxy-based interception**. When Spring creates a bean, it wraps it in a proxy that intercepts method calls matching the aspect pointcuts.
+## Honest gaps
 
-```mermaid
-flowchart LR
-  CALL["Method call"] --> PROXY["Spring Proxy<br/>(CGLIB)"]
-  PROXY --> BEFORE["@Before advice"]
-  BEFORE --> AROUND["@Around advice<br/>(calls proceed)"]
-  AROUND --> TARGET["Actual method"]
-  TARGET --> AFTER["@AfterReturning advice"]
-  AFTER --> PROXY
-  PROXY --> CALL
-```
-
-**Key implications:**
-
-- Only external calls are intercepted — if a service method calls another method in the same class, the aspect does not trigger (because it bypasses the proxy)
-- AOP uses CGLIB proxies by default in Spring Boot (not JDK dynamic proxies)
-- No special configuration needed — spring-boot-starter-aop auto-enables everything
-
-## Configuration
-
-No explicit AOP configuration exists. Spring Boot auto-enables AOP when the starter dependency is present:
-
-spring-boot-starter-aop (in pom.xml)
-
-The aspects are picked up by component scanning via @Aspect + @Component annotations. No @EnableAspectJAutoProxy is needed.
-
-## Potential Improvements
-
-| Area | Current State | Suggestion |
-|------|--------------|------------|
-| Log verbosity | All logs at INFO level | Move [START], [END], [PERFORMANCE] to DEBUG for production |
-| Sensitive data | Return values logged fully | Filter or mask sensitive fields (emails, tokens) in log output |
-| Repository logging | Not covered | Consider adding a repository aspect for query timing |
-| Conditional logging | Always active | Add profile-based activation (e.g., only in dev/staging) |
-| Structured logging | Plain text format | Consider JSON-structured logs for easier parsing in log platforms |
-| Custom annotations | None | Add @Timed or @Logged annotations for selective method-level control |
+| Area | Current state | Note |
+|------|--------------|------|
+| Correlation IDs | None | No MDC, no request id; correlating a request's lines relies on thread identity and timestamps |
+| Failed-request timing | [REQUEST] only on success | A throwing endpoint leaves no duration record |
+| Exception-message hygiene | Logged unescaped and uncapped | One controller sanitizes its messages at the source against log forging; the advice itself does not, so the same hole exists for any other message |
+| Test coverage | One PII-regression test | ControllerLogging has a guard proving arguments never leak; ServiceMethodsLogging and the WARN/ERROR routing have no dedicated tests |
+| Structured logging | Plain text | JSON logs would make the Loki queries sturdier than prefix-grepping |

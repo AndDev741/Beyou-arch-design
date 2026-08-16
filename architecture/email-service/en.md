@@ -1,212 +1,104 @@
 ---
 title: "Email Service"
-summary: "How email sending works in Beyou — SMTP configuration, HTML templates, transaction-safe delivery, and bilingual support."
+summary: "Five transactional e-mails, one service class: how each mail decouples from its database transaction, what happens when SMTP fails, and the bilingual inline templates."
 ---
 
-This document covers the email infrastructure in Beyou: what triggers emails, how they are built, how they are sent safely, and what the templates look like.
+This document covers the e-mail subsystem: which mails exist, how each one is kept transaction-safe, how failures are handled per flow, and how the templates are built and localized.
 
-## Current Scope
+## What gets sent
 
-Email is currently used for **one purpose only**: password reset. There are no registration confirmation emails, no notification emails, and no marketing emails. The entire email system lives in a single service class.
+The system sends exactly five e-mails, all owned by one service class in the notification package:
+
+| # | Mail | Trigger | Contains |
+|---|------|---------|----------|
+| 1 | Registration verification | New account created | Button link to the verify page, 24-hour expiry notice |
+| 2 | Password reset | Forgot-password request | Button link to the reset page, TTL in minutes |
+| 3 | Account deletion code | Deletion requested | Six digits, deliberately no link and no button: a deletion must not be one click away from an inbox |
+| 4 | Feedback acknowledgement | User submits feedback | Echo of the category and the submitted text |
+| 5 | Feedback reply | Admin replies | The reply plus the original quoted back |
+
+Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google sign-ups get nothing (Google already verified the address), and nothing announces password-reset completion or the account's actual deletion.
 
 ```mermaid
 flowchart LR
-  subgraph "Email Triggers"
-    PR["🔑 Password Reset"]
-    F1["🚫 Registration<br/>(not yet)"]
-    F2["🚫 Notifications<br/>(not yet)"]
-  end
-
-  PR --> ES["✉️ EmailService"]
-  ES --> SMTP["📤 SMTP Server"]
-  SMTP --> USER["📬 User Inbox"]
-
-  style F1 opacity:0.3
-  style F2 opacity:0.3
+  REG["📝 Registration"] --> ES["✉️ EmailService"]
+  PR["🔑 Password reset"] --> ES
+  DEL["🗑️ Deletion code"] --> ES
+  FB["💬 Feedback ack + reply"] --> ES
+  ES --> SMTP["📤 SMTP (StartTLS)"] --> INBOX["📬 Inbox"]
 ```
 
-## Architecture
+## Three ways to decouple from the transaction
 
-The email system is minimal and intentional — one service, no external queue, no template engine.
+Every mail must wait for its database transaction to commit; a reset link pointing at a token that rolled back would be worse than no mail. The codebase reaches that goal three different ways, and the differences matter:
 
-| Component | What it is |
-|-----------|-----------|
-| **EmailService** | Single @Service class in the notification package. One public method. |
-| **PasswordResetService** | The only caller. Schedules email delivery after database transaction commits. |
-| **JavaMailSender** | Spring's mail sender, configured via application.yaml SMTP properties. |
-| **HTML templates** | Inline Java text blocks inside EmailService. Bilingual (en/pt). |
+| Flow | Mechanism | Thread |
+|------|-----------|--------|
+| Feedback ack + reply | @Async listener on an AFTER_COMMIT transactional event | Background |
+| Password reset, deletion code | Hand-registered afterCommit synchronization | The request thread: the HTTP response waits on SMTP |
+| Registration verification | Plain @Async event listener, no transaction phase | Background |
 
-```mermaid
-flowchart TD
-  CTRL["🎯 AuthenticationController<br/>POST /auth/forgot-password"]
-  CTRL --> PRS["🔒 PasswordResetService<br/>requestPasswordReset()"]
-  PRS --> TOKEN["💾 Create PasswordResetToken<br/>(BCrypt hash in DB)"]
-  PRS --> SCHED["⏱️ Schedule email<br/>(afterCommit callback)"]
-  SCHED --> ES["✉️ EmailService<br/>sendPasswordResetEmail()"]
-  ES --> BUILD["🎨 Build HTML body<br/>(language-aware)"]
-  BUILD --> SEND["📤 JavaMailSender<br/>send MIME message"]
-```
+The registration path deserves its own warning label: it is only correct because `registerUser` carries no `@Transactional`, so the save has already committed when the event publishes. Adding `@Transactional` to that method would silently reintroduce the send-before-commit race the other flows guard against.
 
-## Email Delivery Flow
+No executor is configured; `@Async` rides the virtual-thread default. Unbounded, no queue, no retry anywhere.
 
-The most important design decision is **transaction-safe delivery**: the email is only sent after the reset token is committed to the database. This prevents a scenario where the user receives a reset link but the token doesn't exist yet.
+## When SMTP fails
 
-```mermaid
-sequenceDiagram
-  participant PRS as PasswordResetService
-  participant DB as Database
-  participant TX as TransactionSynchronization
-  participant ES as EmailService
-  participant SMTP as SMTP Server
+Each flow answers the failure differently, and the differences are the design:
 
-  rect rgba(59, 130, 246, 0.25)
-  PRS->>DB: 🔑 Save PasswordResetToken (hash)
-  PRS->>TX: Register afterCommit callback
-  Note right of TX: Email is NOT sent yet
-  TX->>DB: COMMIT transaction
-  end
+- **Password reset**: the error is logged and the token row is deleted, so the 5-minute cooldown cannot strand a user waiting on a link that never left the building.
+- **Deletion code**: same idea, sharper edge. The code row is discarded through a REQUIRES_NEW helper, because the discard runs after commit where a plain repository call would join a dead transaction. Nobody got the code, so nobody should sit out the cooldown.
+- **Feedback mails**: logged and swallowed. The submission or reply survives; the receipt is best-effort.
+- **Registration verification**: nothing catches it. The exception dies in the async handler's default logging, the user row and its token stay, and here is the real gap: login refuses unverified accounts with EMAIL_NOT_VERIFIED, and no resend endpoint exists. A lost verification mail strands the account.
 
-  rect rgba(16, 185, 129, 0.25)
-  TX->>ES: ✉️ afterCommit — now send email
-  ES->>ES: Build HTML (en or pt)
-  ES->>SMTP: Send MIME message
-  SMTP-->>ES: Delivered
-  end
+There is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
 
-  rect rgba(239, 68, 68, 0.25)
-  Note right of ES: If sending fails:
-  ES->>DB: 🗑️ Delete the reset token (cleanup)
-  ES->>ES: Log error, do not propagate
-  end
-```
+One operational side effect: Spring's mail health indicator is on, so a dead SMTP server flips `/actuator/health` to DOWN.
 
-### Why afterCommit?
+## SMTP configuration
 
-| Scenario | Without afterCommit | With afterCommit |
-|----------|-------------------|-----------------|
-| Email sent, DB commits | Works | Works |
-| Email sent, DB rolls back | User gets link to a token that doesn't exist | Never happens — email waits for commit |
-| Email fails | Token exists but user never got the link | Token is cleaned up from DB |
+| Variable | Purpose |
+|----------|---------|
+| MAIL_HOST / MAIL_PORT | SMTP server, StartTLS enabled, auth on |
+| MAIL_USERNAME / MAIL_PASSWORD | Credentials |
+| MAIL_FROM | Sender address, defaults to MAIL_USERNAME |
 
-If no active transaction exists (edge case), the email is sent immediately as a fallback.
+Mail is not optional. The four core values ship without defaults, and the from-address resolution fails bean creation when the variables are missing entirely, so the app does not boot without a mail environment. Empty values boot and then fail per-send. The only sanctioned no-SMTP mode is the e2e profile, which sidesteps mail instead of disabling it: registration auto-verifies and skips the event, and the deletion code is returned in the response body. Both escape hatches are blocked in production by the boot validator.
 
-## SMTP Configuration
+## Templates and languages
 
-All SMTP settings are externalized via environment variables:
+No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes ten hardcoded templates sharing the BeYou header, the brand blue, and the year-stamped footer.
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| MAIL_HOST | SMTP server hostname | smtp.gmail.com |
-| MAIL_PORT | SMTP port | 587 |
-| MAIL_USERNAME | SMTP authentication username | beyou@example.com |
-| MAIL_PASSWORD | SMTP authentication password | app-specific-password |
-| MAIL_FROM | Sender email address (defaults to MAIL_USERNAME) | noreply@beyou.app |
+Language selection is a two-branch decision per mail: anything starting with "pt" gets Portuguese, everything else (including null) gets English. The interesting part is where each flow reads the language from:
 
-**Security settings:**
+- The feedback acknowledgement prefers the language captured in the submission's UI context over the profile preference, because the receipt lands immediately and the profile field stays null until the user ever opens settings. Reading the profile first used to send every new account an English receipt.
+- The feedback reply prefers the current profile preference, because a reply can land days later, when the captured context is stale.
 
-- SMTP authentication enabled (auth: true)
-- StartTLS enabled (encrypted connection)
-- Standard for production SMTP providers (Gmail, SendGrid, AWS SES, etc.)
+User-authored and admin-authored text is HTML-escaped before interpolation, so a feedback body cannot inject markup into its own receipt.
 
-## HTML Email Templates
+## Cooldowns and rate limits
 
-Templates are inline Java text blocks inside EmailService — no external template engine (Thymeleaf, FreeMarker, etc.). This keeps the system simple with zero additional dependencies.
+Two independent layers throttle the mail-producing endpoints:
 
-### Template structure
+| Flow | Service-level cooldown | Rate-limit bucket |
+|------|------------------------|-------------------|
+| Password reset | 5 min between requests per account; each new token invalidates the previous | 5 / 15 min per IP (auth tier) |
+| Deletion code | 60 seconds, in seconds on purpose: the user is waiting on-screen and resend must work in the same sitting | 10 / hour per user |
+| Registration | None | 5 / 15 min per IP (auth tier) |
+| Feedback | None | 10 / hour per user |
 
-Both languages follow the same layout:
+One configuration nit carried here for honesty: the yaml default for the reset TTL is 15 minutes, while the env template still ships 30. The yaml wins unless the operator copies the template value.
 
-```mermaid
-flowchart TD
-  subgraph "Email Template"
-    H["✨ BeYou Header<br/>logo + tagline"]
-    H --> T["📝 Title<br/>Forgot your password?"]
-    T --> B["💬 Body Text<br/>motivational message about XP"]
-    B --> CTA["🔘 CTA Button<br/>Reset My Password"]
-    CTA --> EXP["⏳ Expiration Notice<br/>Link expires in X minutes"]
-    EXP --> FALL["🔗 Fallback Link<br/>plain text URL"]
-    FALL --> F["📋 Footer<br/>copyright + tagline"]
-  end
-```
+## Test coverage
 
-### Bilingual support
+No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The one gap: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
 
-The language is determined from the user's languageInUse preference stored in the database:
+## What could be improved
 
-| User language | Template used | Subject line |
-|--------------|--------------|-------------|
-| pt, pt-BR, pt-PT | Portuguese | Redefina sua senha BeYou |
-| en, null, anything else | English | Reset your BeYou password |
-
-**Language detection logic:**
-
-- null or blank → English (default)
-- Starts with "pt" → Portuguese
-- Anything else → English
-
-### Template parameters
-
-Each template receives three dynamic values:
-
-| Parameter | Value | Used in |
-|-----------|-------|---------|
-| Reset link | Full URL with token | CTA button href, fallback link |
-| TTL in minutes | From config (default 30) | Expiration notice |
-| Current year | Auto-calculated | Footer copyright |
-
-### Design
-
-The templates use email-safe inline CSS with:
-
-- Primary blue (#0082E1) for CTA button and accents
-- White card on light gray background
-- Rounded corners and shadows (supported in modern email clients)
-- Responsive max-width (520px)
-- Emoji in subject line and headers for personality
-
-## Error Handling
-
-```mermaid
-flowchart TD
-  SEND["📤 Send email"]
-  SEND --> OK{"Success?"}
-  OK -->|Yes| DONE["✅ Email delivered<br/>Token stays in DB"]
-  OK -->|No| ERR["❌ Exception caught"]
-  ERR --> LOG["📋 Log error with user ID"]
-  ERR --> CLEAN["🗑️ Delete reset token from DB"]
-  ERR --> SILENT["🤫 No error shown to user"]
-```
-
-**Key behavior:**
-
-- Email failures are caught and logged at the PasswordResetService level
-- The failed reset token is cleaned up from the database
-- The user sees no error — the endpoint always returns 200 OK (to prevent user enumeration)
-- The user can simply request another reset email
-
-## What EmailService Does NOT Do
-
-Understanding the boundaries helps contributors know where to add new email functionality:
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Password reset email | Implemented | Only current use case |
-| Registration confirmation | Not implemented | Users can log in immediately after registration |
-| Email verification | Not implemented | No email verification flow exists |
-| Notification emails | Not implemented | No habit reminders, goal alerts, etc. |
-| Async queue | Not used | Emails sent on the application thread (deferred, but synchronous) |
-| Template engine | Not used | Inline HTML text blocks, no Thymeleaf/FreeMarker |
-| Retry on failure | Not implemented | Single attempt, cleanup on failure |
-| Email logging/tracking | Not implemented | No delivery tracking or open tracking |
-
-## Potential Improvements
-
-| Area | Current State | Suggestion |
-|------|--------------|------------|
-| Template management | Inline Java text blocks | Extract to HTML files or a template engine for easier editing |
-| Async sending | Synchronous on afterCommit | Use @Async or a message queue for non-blocking email delivery |
-| Retry logic | Single attempt | Add retry with exponential backoff for transient SMTP failures |
-| Welcome email | None | Send a welcome email on registration with onboarding tips |
-| Notification system | None | Add habit reminders, goal deadline alerts, streak alerts |
-| Email preview | None | Add a dev endpoint to preview email templates without sending |
-| Delivery tracking | None | Consider integration with an email provider API (SendGrid, SES) for delivery status |
+| Area | Current state | Note |
+|------|--------------|------|
+| Verification resend | No endpoint | The one failure mode that strands an account; the top candidate |
+| Retry | Single attempt everywhere | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
+| Reset/deletion sending thread | Request thread waits on SMTP | Moving to the async listener pattern the feedback flows use would cut response latency |
+| Templates | Ten inline HTML blocks | Extracting shared chrome would shrink the duplication; a template engine is still overkill |
+| Reset flow tests | None | The only mail flow without direct coverage |
