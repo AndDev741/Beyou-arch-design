@@ -1,61 +1,19 @@
 ---
 title: "Beyou Frontend"
-summary: "React-based frontend for the Beyou application, providing a user interface for habit tracking and productivity."
+summary: "The monorepo holding both clients: the React web app, the native mobile app, eight shared source packages, and the marketing site."
 ---
 # Beyou Frontend
 
-This is the frontend application for the Beyou productivity platform.
+One TypeScript codebase, two clients. npm workspaces with Turborepo hold the React 18 web app (`apps/web`), the React Native 0.85 + Expo mobile app (`apps/mobile`), and eight shared packages consumed as raw source, so a single edit hot-reloads both apps.
 
-## Overview
+## What is shared, what is not
 
-Built with modern web technologies:
+The state (17 Redux slices and the gamification logic), the API layer behind a narrow HttpClient interface, the theme tokens, the translations, the validation schemas, and the icon registry are all one implementation. Each platform keeps only what must differ: persistence, navigation, token storage, and the entire render layer. The marketing site lives at the repo root, deliberately outside the workspace, and ships to Cloudflare Pages on its own.
 
-- **React** for UI components
-- **TypeScript** for type safety
-- **Vite** for fast builds and development
-- **Tailwind CSS** for styling
-- **shadcn/ui** for component library
+## How it ships
 
-## Features
+One CI graph typechecks, builds, and tests every workspace, then runs the Playwright e2e suite against the full stack. A push to main publishes the web image to GHCR (Watchtower deploys it) and, when the mobile app or any shared package changed, builds a signed Android APK published to a rolling GitHub release.
 
-- User authentication and session management
-- Goal tracking with visual progress
-- Habit formation with streaks
-- Task management with drag‑and‑drop
-- Routine scheduling and calendar integration
-- Real‑time notifications
+## Deep dives
 
-## Architecture
-
-The frontend follows a feature‑first folder structure, separating concerns into:
-
-- `src/components` – reusable UI components
-- `src/pages` – top‑level page components
-- `src/lib` – utilities, API clients, and shared logic
-- `src/context` – React context providers (theme, auth, etc.)
-- `src/hooks` – custom React hooks
-
-## Development
-
-To start the development server:
-
-```bash
-npm install
-npm run dev
-```
-
-The app will be available at `http://localhost:5173`.
-
-## Testing
-
-We use **Vitest** for unit tests and **Playwright** for end‑to‑end tests.
-
-Run tests with:
-
-```bash
-npm run test
-```
-
-## Deployment
-
-The frontend is automatically deployed to **Vercel** on every push to the `main` branch.
+The monorepo, UI components, Redux and data, language and theme, and UI security architecture topics all document this repository.

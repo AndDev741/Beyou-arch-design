@@ -1,11 +1,11 @@
 key: beyou-arch-design
-orderIndex: 4
+orderIndex: 6
 status: ACTIVE
-blogTopicKey: building-auth-system
-architectureTopicKey: overview
+architectureTopicKey: docs-system
 repositoryUrl: https://github.com/AndDev741/Beyou-arch-design
 tags:
   - markdown
   - yaml
   - mermaid
+  - openapi
   - documentation

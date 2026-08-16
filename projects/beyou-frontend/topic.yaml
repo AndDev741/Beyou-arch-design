@@ -1,12 +1,13 @@
 key: beyou-frontend
 orderIndex: 2
 status: ACTIVE
-blogTopicKey: building-auth-system
-architectureTopicKey: overview
+# The importer reads this legacy field name for the blog cross-link.
+designTopicKey: security-audit-with-claude-code
+architectureTopicKey: monorepo
 repositoryUrl: https://github.com/AndDev741/Beyou-Frontend
 tags:
   - react
+  - react-native
+  - expo
   - typescript
-  - vite
-  - tailwind
-  - shadcn/ui
+  - monorepo

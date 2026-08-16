@@ -1,0 +1,12 @@
+key: beyou-e2e-tests
+orderIndex: 4
+status: ACTIVE
+# The importer reads this legacy field name for the blog cross-link.
+designTopicKey: security-audit-with-claude-code
+architectureTopicKey: security
+repositoryUrl: https://github.com/AndDev741/Beyou-e2e-tests
+tags:
+  - playwright
+  - e2e
+  - testing
+  - typescript

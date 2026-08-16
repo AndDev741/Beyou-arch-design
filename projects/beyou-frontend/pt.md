@@ -1,61 +1,19 @@
 ---
 title: "Beyou Frontend"
-summary: "Frontend baseado em React para a aplicação Beyou, fornecendo uma interface de utilizador para rastreamento de hábitos e produtividade."
+summary: "O monorepo com os dois clientes: o web app React, o app mobile nativo, oito pacotes de código compartilhado e o site de marketing."
 ---
 # Beyou Frontend
 
-Esta é a aplicação frontend para a plataforma de produtividade Beyou.
+Uma base TypeScript, dois clientes. npm workspaces com Turborepo guardam o web app React 18 (`apps/web`), o app mobile React Native 0.85 + Expo (`apps/mobile`) e oito pacotes compartilhados consumidos como código-fonte cru, então uma única edição recarrega os dois apps.
 
-## Visão geral
+## O que é compartilhado, e o que não é
 
-Construída com tecnologias web modernas:
+O estado (17 slices Redux e a lógica de gamificação), a camada de API atrás de uma interface HttpClient estreita, os tokens de tema, as traduções, os schemas de validação e o registro de ícones são uma implementação só. Cada plataforma mantém apenas o que precisa diferir: persistência, navegação, armazenamento de tokens e toda a camada de renderização. O site de marketing vive na raiz do repositório, deliberadamente fora do workspace, e vai sozinho para o Cloudflare Pages.
 
-- **React** para componentes de UI
-- **TypeScript** para segurança de tipos
-- **Vite** para builds rápidos e desenvolvimento
-- **Tailwind CSS** para estilização
-- **shadcn/ui** para biblioteca de componentes
+## Como é entregue
 
-## Funcionalidades
+Um único grafo de CI faz typecheck, build e testes de cada workspace, e então roda a suíte e2e Playwright contra a stack completa. Um push na main publica a imagem web no GHCR (o Watchtower a implanta) e, quando o app mobile ou qualquer pacote compartilhado mudou, constrói um APK Android assinado publicado em um release rolante do GitHub.
 
-- Autenticação de utilizadores e gestão de sessões
-- Acompanhamento de objetivos com progresso visual
-- Formação de hábitos com sequências
-- Gestão de tarefas com arrastar e largar
-- Agendamento de rotinas e integração de calendário
-- Notificações em tempo real
+## Mergulhos profundos
 
-## Arquitetura
-
-O frontend segue uma estrutura de pastas orientada a funcionalidades, separando responsabilidades em:
-
-- `src/components` – componentes UI reutilizáveis
-- `src/pages` – componentes de página de alto nível
-- `src/lib` – utilitários, clientes API e lógica partilhada
-- `src/context` – provedores de contexto React (tema, autenticação, etc.)
-- `src/hooks` – hooks React personalizados
-
-## Desenvolvimento
-
-Para iniciar o servidor de desenvolvimento:
-
-```bash
-npm install
-npm run dev
-```
-
-A aplicação ficará disponível em `http://localhost:5173`.
-
-## Testes
-
-Utilizamos **Vitest** para testes unitários e **Playwright** para testes end‑to‑end.
-
-Executar testes com:
-
-```bash
-npm run test
-```
-
-## Implementação
-
-O frontend é automaticamente implementado na **Vercel** em cada push para o branch `main`.
+Os tópicos de arquitetura do monorepo, componentes de UI, Redux e dados, idioma e tema, e segurança na UI documentam este repositório.

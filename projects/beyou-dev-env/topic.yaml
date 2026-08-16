@@ -1,12 +1,13 @@
 key: beyou-dev-env
-orderIndex: 5
+orderIndex: 3
 status: ACTIVE
-blogTopicKey: building-auth-system
-architectureTopicKey: overview
+# The importer reads this legacy field name for the blog cross-link.
+designTopicKey: adding-cache-system
+architectureTopicKey: infrastructure
 repositoryUrl: https://github.com/AndDev741/Beyou-dev-env
 tags:
   - docker
   - docker-compose
-  - postgres
-  - mailhog
-  - development
+  - monitoring
+  - grafana
+  - infrastructure

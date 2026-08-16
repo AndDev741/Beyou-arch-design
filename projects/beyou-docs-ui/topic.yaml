@@ -1,12 +1,11 @@
 key: beyou-docs-ui
-orderIndex: 3
+orderIndex: 5
 status: ACTIVE
-blogTopicKey: building-auth-system
-architectureTopicKey: overview
+architectureTopicKey: docs-system
 repositoryUrl: https://github.com/AndDev741/Beyou-docs-ui
 tags:
   - react
   - typescript
-  - tailwind
-  - openapi
-  - markdown
+  - vite
+  - mermaid
+  - seo

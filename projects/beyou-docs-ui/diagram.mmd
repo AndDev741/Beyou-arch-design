@@ -1,40 +1,7 @@
----
-title: Beyou Docs UI Architecture
----
-flowchart TD
-    User[User]
-    UI[Docs UI<br/>React + TypeScript]
-    API[Backend API<br/>Spring Boot]
-    DB[(PostgreSQL)]
-    GitHub[GitHub Repo<br/>beyou-arch-design]
-    Import[Import Service]
-
-    User --> UI
-    UI --> API
-    API --> DB
-    GitHub --> Import
-    Import --> DB
-
-    subgraph "UI Components"
-        Pages[Pages<br/>Projects, API, Design, Architecture]
-        Components[Reusable Components<br/>Cards, Modals, Search]
-        Markdown[Markdown Renderer]
-        Diagram[Mermaid Diagram Renderer]
-    end
-
-    UI --> Pages
-    UI --> Components
-    UI --> Markdown
-    UI --> Diagram
-
-    subgraph "Backend Modules"
-        Project[Project Module]
-        Design[Design Module]
-        Arch[Architecture Module]
-        APIDocs[API Docs Module]
-    end
-
-    API --> Project
-    API --> Design
-    API --> Arch
-    API --> APIDocs
+flowchart LR
+  API["🍃 Public docs API"] --> SPA["⚛️ React SPA<br/>architecture · blog · apis · projects · search"]
+  SPA --> MMD["📊 Mermaid rendering<br/>theme-aware"]
+  SPA --> OAS["🔎 OpenAPI endpoint browser"]
+  PRE["🖼️ Prerender script<br/>real HTML per route"] --> IMG["🐳 Static image<br/>nginx · GHCR"]
+  API --> PRE
+  IMG --> LIVE["docs.beyouweb.com"]

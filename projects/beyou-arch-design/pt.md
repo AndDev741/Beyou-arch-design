@@ -1,31 +1,15 @@
 ---
-title: "Beyou Arch & Design"
-summary: "Repositório central para documentação de arquitetura e design do projeto Beyou, incluindo diagramas, descrições de tópicos e especificações OpenAPI."
+title: "Beyou Arch Design"
+summary: "A fonte de verdade de tudo neste site: tópicos de arquitetura, posts do blog, as specs OpenAPI dos controllers e este catálogo de projetos, publicados por um workflow a cada merge."
 ---
-# Beyou Arch & Design
+# Beyou Arch Design
 
-Este repositório contém a documentação de arquitetura e design do projeto Beyou, servindo como fonte única de verdade para decisões de design do sistema, especificações de API e fluxos de utilizador.
+O repositório de conteúdo. Tudo que este site de documentação renderiza vive aqui como arquivo: dezesseis tópicos de arquitetura (inglês, português e um diagrama Mermaid cada), o blog de engenharia, a referência de API como uma spec OpenAPI por controller do backend e este catálogo de projetos.
 
-## Visão geral
+## Como a publicação funciona
 
-O repositório está organizado em três secções principais:
+Um merge na main é um deploy. O workflow de publicação faz login no backend, aciona os quatro endpoints de importação atrás do portão duplo de JWT mais segredo, e então dispara o CI do site de docs, que pré-renderiza cada rota contra o conteúdo fresco e entrega uma imagem nova. Tópicos removidos do repositório são arquivados no banco em vez de apagados, então despublicar é reversível.
 
-- **arquitetura** – diagramas de alto nível do sistema, descrições de componentes e topologias de implementação
-- **design** – maquetes de interface de utilizador, fluxos de interação e diretrizes de usabilidade
-- **api** – especificações OpenAPI para cada grupo de endpoints, juntamente com documentação ao nível do controlador
+## Convenções
 
-## Funcionalidades
-
-- Documentação baseada em Markdown com metadados YAML
-- Suporte multilingue (inglês e português)
-- Ficheiros fonte de diagramas (Mermaid) que podem ser renderizados como SVG
-- Importação automatizada para o backend Beyou para visualização em tempo real na UI
-- Controlo de versão juntamente com alterações de código
-
-## Utilização
-
-Programadores e designers contribuem para este repositório adicionando ou atualizando ficheiros markdown nas pastas apropriadas. A documentação é importada automaticamente para o backend Beyou através da API de Importação de Documentação.
-
-## Integração
-
-O conteúdo é consumido pela UI de Documentação Beyou, que o renderiza numa interface amigável. As alterações enviadas para o branch `main` disparam um webhook de importação que atualiza a documentação em direto.
+Um diretório por tópico, um descritor YAML, um arquivo markdown por idioma e um diagrama onde a área exige. As specs de API são geradas da saída springdoc viva do backend, divididas por controller com cada spec carregando só os schemas que referencia.

@@ -1,0 +1,6 @@
+flowchart LR
+  SPECS["🎭 Playwright specs<br/>auth · habits · goals · routines<br/>tutorial · gamification"]
+  SPECS --> FE["⚛️ Web app :3000"]
+  FE --> BE["🍃 Backend<br/>SPRING_PROFILES_ACTIVE=e2e"]
+  BE --> DB[("🐘 beyou_e2e database<br/>E2eSafetyCheck enforced")]
+  CI["⚙️ Frontend CI"] -->|"boots the stack, runs the suite"| SPECS
