@@ -1,0 +1,32 @@
+flowchart TD
+  subgraph pkgs["packages/* · raw source, no build step"]
+    API["api<br/>HttpClient interface"]
+    ST["state<br/>17 slices + pure logic"]
+    TH["theme<br/>tokens · accent packs"]
+    I18["i18n · validation · types<br/>icons · contracts"]
+  end
+
+  subgraph web["apps/web · React 18"]
+    WAD["axios adapter<br/>cookies · silent refresh"]
+    WPR["redux-persist · PII blacklist"]
+    WCSS["CSS variables on :root"]
+  end
+
+  subgraph mob["apps/mobile · React 19 + Expo"]
+    MAD["fetch adapter<br/>X-Client: mobile · secure store"]
+    MST["in-memory store · logout reset"]
+    MNW["NativeWind vars()"]
+  end
+
+  API -->|"setHttpClient at boot"| WAD
+  API -->|"setHttpClient at boot"| MAD
+  ST --> WPR
+  ST --> MST
+  TH --> WCSS
+  TH --> MNW
+  I18 --> web
+  I18 --> mob
+
+  CI["⚙️ One CI graph<br/>typecheck · build · tests · e2e"]
+  CI -->|"push to main"| GHCR["🐳 beyou-web → GHCR"]
+  CI -->|"apps/mobile or packages change"| APK["🤖 signed APK → rolling release"]

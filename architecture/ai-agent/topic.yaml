@@ -1,0 +1,10 @@
+key: ai-agent
+orderIndex: 7
+status: ACTIVE
+tags:
+  - ai
+  - llm
+  - agent
+  - spring-ai
+  - sse
+projectKey: beyou-backend
