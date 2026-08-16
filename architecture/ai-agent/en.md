@@ -93,9 +93,3 @@ The web widget mounts once inside the protected shell, lazy-loads the panel on f
 | Transcript persistence fails | The client gets TRANSCRIPT_PERSIST_FAILED instead of a false done |
 | Rate limit | 30 streams per hour per user (onboarding has its own separate 30) |
 | Dead client mid-pause | The 15-second heartbeat is the detector; its failure tears down the stream and frees the slot |
-
-## Honest notes
-
-- The agent's error keys have no i18n entries, so every failure currently reads as the generic unexpected-error toast. The plumbing delivers precise keys; the translations just do not exist yet.
-- The web habits and tasks pages hold local state rather than Redux, so after the agent changes them, those two pages catch up on next mount instead of instantly. Known, documented in the code.
-- Chat titles are not AI-generated; the client slices the first message to 40 characters. Cheap and good enough.

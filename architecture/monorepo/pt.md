@@ -68,9 +68,3 @@ Mais duas armadilhas carregam placas de aviso no repositório: a busca hierárqu
 Um workflow roda o grafo inteiro a cada push: typecheck, build e testes em todos os workspaces (vitest para web e pacotes, jest para o mobile), o portão de staleness dos contratos, uma checagem de assets de marca e um npm audit. Um job de e2e então sobe a stack completa e roda Playwright contra ela, com um resolvedor de branch irmã: quando o repositório de e2e ou o do backend tem uma branch com o mesmo nome da atual, o job testa contra ela em vez da main, então uma mudança de frontend que precisa de specs novas consegue ficar verde antes de qualquer merge.
 
 A entrega se divide por plataforma. Um push na main publica a imagem web no GHCR (o Watchtower a implanta, como o tópico de infraestrutura cobre). O app mobile tem workflow próprio, disparado por mudanças no app ou em qualquer pacote compartilhado, que é o monorepo se pagando no CI: uma mudança no pacote de estado reconstrói o APK. Ele faz o prebuild do projeto Android, monta um release arm64 assinado com flags de Gradle bem ajustadas e publica em um release rolante do GitHub com URL estável de download. Sem loja de aplicativos, sem EAS, sem OTA por enquanto.
-
-## Notas honestas
-
-- O app mobile importa seis dos oito pacotes sem declará-los como dependências; a resolução funciona por içamento do workspace e pelas watch folders do Metro. Aguenta, e é a costura mais frágil da fiação.
-- O Dockerfile do web copia os manifests dos workspaces um a um para sua camada de instalação, e a lista nunca foi estendida para os pacotes de validação e ícones. O build sobrevive porque os aliases de código-fonte e dependências já presentes cobrem o buraco; o primeiro pacote compartilhado com uma dependência de runtime própria vai quebrar o build da imagem naquela linha.
-- O diretório do pacote offline que algumas máquinas carregam é resíduo não rastreado, não um pacote: nada o referencia e ele não está no repositório.

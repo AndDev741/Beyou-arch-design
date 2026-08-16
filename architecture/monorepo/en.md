@@ -68,9 +68,3 @@ Two more traps carry warning signs in the repo: Metro's hierarchical lookup must
 One workflow runs the whole graph on every push: typecheck, build, and tests across all workspaces (vitest for web and the packages, jest for mobile), the contracts staleness gate, a brand-asset check, and an npm audit. An e2e job then boots the full stack and runs Playwright against it, with a sibling-branch resolver: when the e2e or backend repo has a branch matching the current one, the job tests against that branch instead of main, so a frontend change that needs new specs can go green before anything merges.
 
 Delivery splits by platform. A push to main publishes the web image to GHCR (Watchtower deploys it, as the infrastructure topic covers). The mobile app has its own workflow, triggered by changes to the mobile app or any shared package, which is the monorepo paying off in CI: a state-package change rebuilds the APK. It prebuilds the Android project, assembles a signed arm64 release with heavily tuned Gradle flags, and publishes to a rolling GitHub release with a stable download URL. No app store, no EAS, no OTA updates yet.
-
-## Honest notes
-
-- The mobile app imports six of the eight packages without declaring them as dependencies; resolution works through workspace hoisting and Metro's watch folders. It holds, and it is the one fragile seam in the wiring.
-- The web Dockerfile copies workspace manifests one by one for its install layer, and the list was never extended for the validation and icons packages. The build survives because source aliases and already-present dependencies cover for it; the first shared package with a unique runtime dependency will break the image build at that line.
-- The offline package directory some machines carry is untracked residue, not a package: nothing references it and it is not in the repository.

@@ -93,9 +93,3 @@ O widget web monta uma vez dentro do shell protegido, carrega o painel de forma 
 | Persistência do transcript falha | O cliente recebe TRANSCRIPT_PERSIST_FAILED em vez de um done falso |
 | Rate limit | 30 streams por hora por usuário (o onboarding tem seus próprios 30, separados) |
 | Cliente morto em pausa silenciosa | O heartbeat de 15 segundos é o detector; sua falha derruba o stream e libera a vaga |
-
-## Notas honestas
-
-- As chaves de erro do agente não têm entradas de i18n, então toda falha aparece hoje como o toast genérico de erro inesperado. O encanamento entrega chaves precisas; as traduções apenas não existem ainda.
-- As páginas web de hábitos e tarefas guardam estado local em vez de Redux, então depois que o agente as muda, essas duas páginas se atualizam na próxima montagem em vez de na hora. Conhecido, documentado no código.
-- Títulos de chat não são gerados por IA; o cliente corta a primeira mensagem em 40 caracteres. Barato e suficiente.

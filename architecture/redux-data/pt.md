@@ -98,9 +98,3 @@ A política da instância axios, em ordem:
 | Refresh falhou | Reporta a falha, navega duro para o login e rejeita com o 401 original em vez do erro do refresh, para uma sessão expirada não ser arquivada como falha desconhecida |
 
 No boot, o `useSilentRefresh` roda antes de o router montar: troca o cookie httpOnly por um access token, depois rebusca o perfil e hidrata o slice perfil, o que é necessário justamente porque o perfil está na blacklist da persistência. O stream SSE do agente anda sobre fetch cru (o axios bufferiza streams), mas é configurado com a mesma URL base, o header de auth vivo e a mesma função compartilhada de refresh, então um 401 no stream não corre contra um segundo refresh.
-
-## Notas honestas
-
-- O pacote de offline do monorepo é uma casca vazia hoje: não existe cache de leitura nem fila de escrita no web. A frescura vem da política de auto-refresh. Documentos e planos que mencionam suporte offline descrevem intenção, parte entregue em branches do mobile, nada no main do web.
-- O pacote de contratos gerados da API está ligado no build e conferido no CI contra o snapshot do OpenAPI, mas nada no web app o importa ainda.
-- O Redux DevTools fica desligado em produção só pelo padrão do Redux Toolkit, já que a store nunca define a flag explicitamente. Correto, mas implícito.
