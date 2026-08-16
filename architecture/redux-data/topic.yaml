@@ -6,4 +6,5 @@ tags:
   - redux
   - frontend
   - state-management
-projectKey: null
+  - monorepo
+projectKey: beyou-frontend

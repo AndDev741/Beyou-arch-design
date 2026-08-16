@@ -1,231 +1,106 @@
 ---
 title: "Redux e Arquitetura de Dados"
-summary: "Como o gerenciamento de estado funciona no frontend — configuração do store, todos os 16 slices, persistência, fluxo de dados e padrões de dispatch."
+summary: "Um pacote de estado dividido entre web e mobile: 17 slices, uma blacklist de persistência ciente de PII, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
 ---
 
-Este documento explica a arquitetura Redux completa no frontend Beyou: como o store é configurado, o que cada slice armazena, como os dados fluem entre componentes e a API, e os padrões usados para atualizações de estado.
+Este documento explica a camada de estado e dados: onde os slices vivem, o que persiste e o que deliberadamente não persiste, como a resposta de um check se espalha pela store e como o cliente HTTP é estruturado para web e mobile dividirem tudo acima do transporte.
 
-## Arquitetura do Store
+## Uma definição de estado, dois apps
 
-```mermaid
-flowchart TD
-  subgraph "Redux Store"
-    PERFIL["👤 perfil<br/>perfil do usuário + configurações"]
-    ENTITIES["📦 Slices de Entidades<br/>habits, tasks, goals,<br/>categories, routines"]
-    EDIT["✏️ Slices de Edição<br/>editHabit, editTask,<br/>editGoal, editCategory,<br/>editRoutine"]
-    TODAY["📋 todayRoutine"]
-    FILTERS["🔽 viewFilters"]
-    AUTH["🔐 register"]
-    ERR["⚠️ errorHandler"]
-  end
-
-  PERSIST["💾 redux-persist<br/>localStorage key: 'root'"]
-  STORE --> PERSIST
-  PERSIST --> STORE
-
-  subgraph "Redux Store"
-    STORE[" "]
-  end
-```
-
-### Configuração
-
-- **Store:** configureStore do @reduxjs/toolkit
-- **Persistência:** redux-persist com localStorage (key: "root")
-- **Middleware:** serializableCheck ignora ações REGISTER, REHYDRATE, PERSIST (necessário para redux-persist)
-- **Reidratação:** PersistGate envolve o app, loading null até o estado ser restaurado do localStorage
-
-Isso significa que todo o estado Redux sobrevive a refreshes de página. Quando o usuário fecha e reabre o app, perfil, tema, idioma e dados de entidades estão imediatamente disponíveis.
-
-## Todos os 16 Slices
-
-### perfil — Perfil e Configurações do Usuário
-
-O slice mais importante. Armazena tudo sobre o usuário logado.
-
-| Campo | Tipo | Propósito |
-|-------|------|-----------|
-| username | string | Nome de exibição |
-| email | string | Email do usuário |
-| phrase / phrase_author | string | Citação motivacional |
-| photo | string | URL da foto de perfil |
-| isGoogleAccount | boolean | Flag OAuth |
-| themeInUse | ThemeType | Objeto do tema atual (9 temas disponíveis) |
-| languageInUse | string | Código do idioma atual (en/pt) |
-| xp, level, nextLevelXp, actualLevelXp | number | Estado de gamificação |
-| constance, maxConstance | number | Rastreamento de streak |
-| widgetsIdsInUse | string[] | Widgets ativos no dashboard |
-| isTutorialCompleted | boolean | Flag de onboarding |
-| checkedItemsInScheduledRoutine | number | Numerador do progresso de hoje |
-| totalItemsInScheduledRoutine | number | Denominador do progresso de hoje |
-
-**18 actions** — uma action Enter por campo (ex: nameEnter, themeInUseEnter, languageInUserEnter).
-
-Populado após login com todos os dados do usuário da resposta do backend.
-
-### Slices de Coleção de Entidades
-
-Cinco slices que mantêm as listas de entidades do usuário:
-
-| Slice | Estado | Actions |
-|-------|--------|---------|
-| **categories** | { categories: category[] } | enterCategories, updateCategorie, refreshCategorie |
-| **habits** | { habits: habit[] } | enterHabits |
-| **tasks** | { tasks: task[] } | enterTasks |
-| **goals** | { goals: goal[] } | enterGoals, updateGoal |
-| **routines** | { routines: Routine[] } | enterRoutines |
-
-Categories e goals têm actions extras de update para mudanças parciais de estado (refresh de XP, progresso de meta).
-
-### todayRoutine — Rotina do Dashboard
-
-| Campo | Tipo | Propósito |
-|-------|------|-----------|
-| routine | Routine ou null | Rotina agendada para hoje |
-
-**Actions:**
-
-- enterTodayRoutine — define a rotina de hoje da API
-- refreshItemGroup({groupItemId, check}) — atualiza um único status de check sem refetch
-
-### Slices de Modo Edição
-
-Cinco slices que gerenciam o estado de "editando uma entidade". Todos seguem o mesmo padrão:
+Os slices vivem no pacote compartilhado `packages/state`, e cada app monta a própria store com eles sob chaves de reducer idênticas, então actions e selectors compartilhados se alinham em todo lugar.
 
 ```mermaid
 flowchart LR
-  CLICK["Clique no card"] -->|"dispatch editModeEnter(true)"| EDIT["Edit Slice<br/>editMode: true<br/>id: entity.id<br/>...campos populados"]
-  EDIT -->|"formulário renderiza"| FORM["Formulário de Edição"]
-  FORM -->|"submit + dispatch editModeEnter(false)"| DONE["Edit Slice<br/>editMode: false"]
+  subgraph pkg["packages/state"]
+    SLICES["17 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
+  end
+
+  subgraph web["apps/web"]
+    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration"]
+  end
+
+  subgraph mobile["apps/mobile"]
+    MSTORE["store, sem persistência<br/>+ slices auth e tutorial<br/>logout zera todos os slices"]
+  end
+
+  SLICES --> WSTORE
+  SLICES --> MSTORE
 ```
 
-Quando o usuário clica no botão editar de um card, o componente dispara múltiplas actions para popular cada campo do edit slice. O formulário de edição lê esses valores como padrões. No submit ou cancelamento, editModeEnter(false) reseta o modo.
+## Os 17 slices
 
-### viewFilters — Preferências de Ordenação
+| Slice | Guarda |
+|-------|--------|
+| perfil | O usuário: nome, e-mail, foto, frase, XP/level, streaks e dormência, widgets, tema, idioma, timezone, estratégia de decaimento de XP, flag do tutorial, checkRevision |
+| categories / habits / tasks / goals / routines | As listas de entidades, cada uma com sua action de entrada e actions de refresh dirigido onde os checks as atualizam no lugar |
+| editCategory / editHabit / editTask / editGoal / editRoutine | Rascunhos do modo de edição, populados campo a campo quando o botão de editar de um card é clicado |
+| todayRoutine | A rotina agendada de hoje, com refreshItemGroup aplicando o resultado de um check sem rebuscar |
+| snapshot | Snapshots históricos de rotina por data, mais a data selecionada |
+| celebration | Uma fila FIFO de celebrações pendentes (level-ups, marcos de streak) |
+| viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves |
+| register | Um booleano para a tela de sucesso pós-cadastro |
+| errorHandler | Uma string global de erro |
 
-Armazena a opção de ordenação selecionada para cada página de feature:
+O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede dezessete slices de pisarem uns nos outros em dois apps.
 
-| Key | Padrão | Exemplos de Opções |
-|-----|--------|-------------------|
-| categories | "default" | name-asc, name-desc, level-desc, xp-desc |
-| habits | "default" | name-asc, importance-desc, difficulty-desc, xp-desc |
-| tasks | "default" | name-asc, name-desc, created-desc |
-| goals | "default" | name-asc, progress-desc, xp-desc |
-| routines | "default" | name-asc, name-desc |
+Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh e os helpers de criação de entidades do onboarding.
 
-**Action:** setViewSort({ view, sortBy }) — persistido entre navegações via redux-persist.
+## Persistência, e o que se recusa a persistir
 
-### register
+A store do web persiste em localStorage com uma blacklist deliberada:
 
-| Campo | Tipo | Propósito |
-|-------|------|-----------|
-| successRegister | boolean | Sinaliza registro bem-sucedido |
+| Slice excluído | Por quê |
+|----------------|---------|
+| perfil | Nome, e-mail e foto são PII e não pertencem ao localStorage; o perfil re-hidrata da API a cada boot |
+| snapshot | Histórico de rotina é PII por acúmulo |
+| celebration | Transitório por definição: um level-up na fila não pode tocar de novo depois de um reload |
 
-Usado para mostrar mensagem de sucesso na página de login após registro.
+Todo o resto (listas de entidades, rascunhos de edição, preferências de ordenação) persiste, então um reload pinta na hora com dados locais enquanto dados frescos carregam por trás. O app mobile não persiste nada: tokens vivem no armazenamento seguro, dados rebuscam ao montar e o logout dele zera todos os slices pelo root reducer. No web, o logout purga o persistor e navega de forma dura, o que descarta a store em memória por inteiro.
 
-### errorHandler
+## A resposta do check: applyRefreshUi
 
-| Campo | Tipo | Propósito |
-|-------|------|-----------|
-| defaultError | string | Mensagem de erro global |
-
-Exibição de erro fallback para erros inesperados.
-
-## Padrões de Fluxo de Dados
-
-### Padrão 1: Carregamento de Página (Fetch + Dispatch)
+O coração do fluxo de gamificação é uma função pura compartilhada, deliberadamente não um thunk, para um dispatch simples funcionar igual no web e no React Native:
 
 ```mermaid
 sequenceDiagram
-  participant PG as Componente da Página
-  participant API as Serviço API
+  participant UI as Seção da rotina
   participant BE as Backend
-  participant RDX as Redux Store
+  participant AP as applyRefreshUi
+  participant ST as Store
 
-  PG->>PG: useAuthGuard()
-  PG->>API: getHabits(t)
-  API->>BE: GET /habit
-  BE-->>API: habit[]
-  API-->>PG: habit[]
-  PG->>RDX: dispatch(enterHabits(habits))
-  RDX-->>PG: useSelector → hábitos ordenados renderizados
+  UI->>BE: POST /routine/check
+  BE-->>UI: Payload RefreshUI
+  UI->>AP: level + streak anteriores, payload
+  AP->>ST: fila de celebração (subiu de level? cruzou marco?)
+  AP->>ST: perfil: xp, level, streaks, dormência desligada
+  AP->>ST: refresh de categorias / hábito / grupo de item
+  AP->>ST: checkRecorded → incrementa checkRevision
 ```
 
-### Padrão 2: Criar Entidade
+A ordem importa: quem chama lê o level e o streak anteriores da store antes de aplicar, para a função decidir se uma celebração foi conquistada. Ela desliga à força a flag de dormência de streak (uma execução que acabou de marcar algo não pode estar dormente) e, ao final, incrementa um contador de revisão que as faixas de dias e os heatmaps mantêm nas dependências de busca, então o quadrado de hoje repinta sem ninguém rebuscar listas. Os campos de streak do payload são opcionais de propósito; leitores caem para os valores existentes em vez de zerar, porque donos de categoria reportam zeros e respostas antigas não têm os campos.
 
-```mermaid
-sequenceDiagram
-  participant FM as Formulário
-  participant API as Serviço API
-  participant BE as Backend
-  participant RDX as Redux Store
-  participant UI as Página
+## A camada HTTP
 
-  FM->>FM: Validação Zod
-  FM->>API: createHabit(data)
-  API->>BE: POST /habit
-  BE-->>API: Hábito criado
-  FM->>API: getHabits(t)
-  API->>BE: GET /habit
-  BE-->>API: habit[] atualizado
-  FM->>RDX: dispatch(enterHabits(habits))
-  FM->>FM: Reset form + toast sucesso
-  RDX-->>UI: Grid re-renderiza com novo hábito
-```
+Dois níveis, para tudo acima do transporte ser compartilhado:
 
-### Padrão 3: Editar Entidade
+- **A interface** (`packages/api`): um contrato de cliente http estreito de propósito (get, post, put, delete; headers, params, timeout e nada mais, para nenhum adaptador engolir uma opção em silêncio), um singleton de módulo, um ApiError tipado e o helper de stream SSE do agente.
+- **O adaptador web**: axios atrás dessa interface, mais a instância axios real, onde vive a política interessante.
 
-```mermaid
-sequenceDiagram
-  participant BOX as Card da Entidade
-  participant RDX as Redux Store
-  participant FM as Formulário de Edição
-  participant API as Serviço API
+A política da instância axios, em ordem:
 
-  BOX->>RDX: dispatch(editModeEnter(true))
-  BOX->>RDX: dispatch(idEnter(entity.id))
-  BOX->>RDX: dispatch(nameEnter(entity.name))
-  Note right of BOX: ...dispatch de todos os campos
-  RDX-->>FM: Form de edição renderiza com valores
-  FM->>API: editHabit(id, data)
-  FM->>RDX: dispatch(editModeEnter(false))
-  FM->>API: getHabits(t) → refetch
-  FM->>RDX: dispatch(enterHabits(habits))
-```
+| Regra | Comportamento |
+|-------|---------------|
+| Base | VITE_API_URL, credenciais ligadas |
+| Dedup de refresh | Uma promise de refresh no módulo: N 401s simultâneos dividem uma única chamada, e o token é lido do header de resposta X-Access-Token |
+| Lista de exceção | /auth/refresh, /auth/login, /auth/google passam direto: eles dão 401 legitimamente |
+| 429 | Um toast traduzido de limite de requisições |
+| 401, primeira vez | Marca a requisição, faz refresh, escreve o token nos defaults do axios e na requisição repetida, repete |
+| Refresh falhou | Reporta a falha, navega duro para o login e rejeita com o 401 original em vez do erro do refresh, para uma sessão expirada não ser arquivada como falha desconhecida |
 
-### Padrão 4: Check na Rotina (Update Otimista)
+No boot, o `useSilentRefresh` roda antes de o router montar: troca o cookie httpOnly por um access token, depois rebusca o perfil e hidrata o slice perfil, o que é necessário justamente porque o perfil está na blacklist da persistência. O stream SSE do agente anda sobre fetch cru (o axios bufferiza streams), mas é configurado com a mesma URL base, o header de auth vivo e a mesma função compartilhada de refresh, então um 401 no stream não corre contra um segundo refresh.
 
-```mermaid
-sequenceDiagram
-  participant UI as Seção da Rotina
-  participant RDX as Redux Store
-  participant API as Serviço API
+## Notas honestas
 
-  UI->>API: checkItem(routineId, groupId)
-  UI->>RDX: dispatch(refreshItemGroup({groupId, check: true}))
-  Note right of RDX: Update imediato na UI
-  API-->>UI: Dados de XP atualizados
-  UI->>RDX: dispatch(xpEnter(newXp))
-  UI->>RDX: dispatch(refreshCategorie({id, xp, level}))
-```
-
-## Estratégia de Persistência
-
-```mermaid
-flowchart LR
-  STORE["🗄️ Redux Store"] -->|"auto-persist"| LS["💾 localStorage<br/>key: 'root'"]
-  LS -->|"PersistGate reidratar"| STORE
-  CLOSE["🚪 Usuário fecha aba"] -.-> LS
-  OPEN["🔄 Usuário reabre app"] -.-> LS
-```
-
-**O que é persistido:** Tudo — todos os 16 slices, incluindo listas de entidades, perfil de usuário, estado de modo edição, preferências de ordenação e progresso do tutorial.
-
-**O que isso significa:**
-
-- Refresh de página não perde estado
-- Usuário vê seus dados imediatamente ao reabrir (antes de qualquer chamada API)
-- Tema e idioma aplicam instantaneamente (sem flash do tema padrão)
-- Preferências de ordenação sobrevivem entre sessões
-
-**Trade-off:** Dados obsoletos são possíveis se o usuário tem múltiplos dispositivos. Cada página faz refetch da API no mount, então os dados persistidos são rapidamente substituídos por dados frescos.
+- O pacote de offline do monorepo é uma casca vazia hoje: não existe cache de leitura nem fila de escrita no web. A frescura vem da política de auto-refresh. Documentos e planos que mencionam suporte offline descrevem intenção, parte entregue em branches do mobile, nada no main do web.
+- O pacote de contratos gerados da API está ligado no build e conferido no CI contra o snapshot do OpenAPI, mas nada no web app o importa ainda.
+- O Redux DevTools fica desligado em produção só pelo padrão do Redux Toolkit, já que a store nunca define a flag explicitamente. Correto, mas implícito.

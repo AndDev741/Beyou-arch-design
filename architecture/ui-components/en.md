@@ -1,253 +1,105 @@
 ---
 title: "UI Components and Page Structure"
-summary: "How the React frontend is organized — layout, pages, shared components, feature patterns, dashboard, and tutorial system."
+summary: "How the web app is organized inside the monorepo: the shared shell, the entity component quartet, the widget system, the two-part tutorial, and the code-splitting that keeps first load small."
 ---
 
-This document maps out the entire frontend component architecture: how pages are structured, what shared components exist, the patterns used for feature pages, and how the dashboard and tutorial system work.
+This document maps the web frontend: how pages and components are organized, the patterns every feature follows, how the dashboard widgets and the tutorial work, and how the bundle is split. The web app lives in `apps/web` of the frontend monorepo and consumes the shared packages (state, theme, i18n, validation, icons, api) as source through Vite aliases.
 
-## Page Structure
-
-Every page follows the same skeleton: the App router wraps everything in a ThemeProvider, and each protected page calls useAuthGuard before rendering.
+## Routing and the shell
 
 ```mermaid
 flowchart TD
-  APP["⚛️ App.tsx<br/>ThemeProvider + BrowserRouter"]
-  APP --> PUBLIC["Public Routes"]
-  APP --> PROTECTED["Protected Routes"]
-
-  PUBLIC --> LOGIN["/ → Login"]
-  PUBLIC --> REG["/register → Register"]
-  PUBLIC --> FORGOT["/forgot-password"]
-  PUBLIC --> RESET["/reset-password"]
-
-  PROTECTED --> DASH["/dashboard"]
-  PROTECTED --> CAT["/categories"]
-  PROTECTED --> HAB["/habits"]
-  PROTECTED --> GOAL["/goals"]
-  PROTECTED --> TASK["/tasks"]
-  PROTECTED --> RTN["/routines"]
-  PROTECTED --> CFG["/configuration"]
+  APP["⚛️ App.tsx<br/>ThemeProvider + Router + ErrorBoundary"]
+  APP --> PUB["Public routes<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
+  APP --> PROT["ProtectedRoute (layout route)"]
+  PROT --> SHELL["Shell, mounted once:<br/>Sidebar · BottomNav · AgentWidget"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals<br/>/tasks · /routines · /configuration · /feedback"]
+  PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
-### Route configuration
+Every route component is lazy, including AdminRoute itself, so ordinary users never download the admin gate or its API calls. One Suspense boundary with a full-screen spinner wraps the whole route table. On boot, `useSilentRefresh` holds the app in a "checking" state until the refresh cookie has been traded for a token, which is what prevents a flash of 401s or a bounce to login on reload.
 
-| Route | Page | Auth Required |
-|-------|------|---------------|
-| / | Login | No |
-| /register | Register | No |
-| /forgot-password | ForgotPassword | No |
-| /reset-password | ResetPassword | No |
-| /dashboard | Dashboard | Yes |
-| /categories | Categories | Yes |
-| /habits | Habits | Yes |
-| /goals | Goals | Yes |
-| /tasks | Tasks | Yes |
-| /routines | Routines | Yes |
-| /configuration | Configuration | Yes |
+The shell mounts once inside the protected layout route: the collapsible desktop Sidebar (order: Today, Categories, Habits, Tasks, Routines, Goals, with Feedback and Config in the footer), the phone BottomNav (Today, Routines, the Assistant in the center slot as the only entry to the agent, Habits, and a More sheet), and the floating AgentWidget. Pages render no header of their own; a shared PageHeader component is the in-page title block. Nav items carry `data-tutorial-id` anchors for the tutorial spotlight.
 
-## Layout Components
+Auth pages deliberately avoid the icon registry, keeping the icon and emoji chunks out of the unauthenticated first load.
 
-### Header
+## Component organization
 
-Present on every protected page. Fixed 60px height with primary background color.
-
-- Displays translated page title
-- Return-to-dashboard link (left side)
-- Logout button (right side, optional)
-- Responsive text sizing
-
-### Modal
-
-Portal-based overlay component used for create forms, delete confirmations, and category selection.
-
-- Dark backdrop (bg-black/40)
-- Click-outside-to-close
-- Max 90vh height with overflow scroll
-- Accessible: role="dialog", aria-modal
-
-## Shared Components
-
-| Component | Purpose | Props |
-|-----------|---------|-------|
-| **Button** | Primary action button | text, size (big/medium/small), mode (cancel/create/default), icon |
-| **SmallButton** | Compact action | text, disabled, onClick |
-| **ErrorNotice** | Display API errors | error (ApiErrorPayload) |
-| **ProgressRing** | SVG circular progress | progress (0-100), size (sm/md/lg) |
-| **DeleteModal** | Confirm deletion | objectId, name, deletePhrase, mode |
-| **SortFilterBar** | Sort controls for lists | options, value, onChange, quickValues |
-
-## Input Components
-
-All form inputs follow the same pattern: controlled value, onChange callback, error message display, and responsive sizing.
-
-| Component | Purpose | Key Features |
-|-----------|---------|-------------|
-| **GenericInput** | Standard text field | Label, error border, responsive widths |
-| **DescriptionInput** | Textarea | Dynamic min-height by screen size |
-| **ChooseInput** | Radio button group | Toggle behavior, color on selection |
-| **SelectorInput** | Dropdown select | Object mapping, error display |
-| **ExperienceInput** | XP level selector | Beginner/Intermediary/Advanced |
-| **IconsBox** | Icon picker | Search, 13 categories, recents, emoji support |
-| **ChooseCategories** | Category multi-select | Fetch categories, create inline, pending selection |
-
-### Icon System
-
-The icon picker is one of the most complex shared components:
-
-```mermaid
-flowchart LR
-  SEARCH["🔍 Search Input"] --> INDEX["Icon Search Index<br/>keywords + locale"]
-  INDEX --> GRID["📦 Icon Grid<br/>react-icons + emoji"]
-  CATS["📂 Category Buttons<br/>13 categories"] --> INDEX
-  REC["⏱️ Recents<br/>localStorage"] --> GRID
-  GRID --> SELECT["✅ Selected Icon<br/>iconId stored"]
+```
+src/
+  pages/        one folder per route, tests colocated
+  components/   per-domain folders (agent, categories, dashboard, goals,
+                habits, routines, tasks, tutorial, widgets, ...)
+  ui/           design-system primitives with no domain knowledge
+  hooks/  context/  lib/  services/  redux/  utils/
 ```
 
-- Icons sourced from react-icons (Material Design, Font Awesome, Ant Design) and emoji-datasource
-- Search supports English and Portuguese keywords
-- 13 categories: all, recents, icons, emoji, smileys, people, nature, food, travel, activities, objects, symbols, flags
-- Recent icons tracked in localStorage (max 6)
+The `ui/` layer holds the primitives: Card, Chip, Ring, XpBar, XpSparkline, StatTile, SegmentedControl, IconButton, IconTile, CheckStrip, GhostAdd, BeyouIcon, PageHeader. Domain components compose these. The shared Modal is a portal with a real focus trap: Tab cycling, focus restore on close, Escape, and aria-labelledby, and every dialog in the app renders through it.
 
-## Feature Page Pattern
+### The entity quartet
 
-Every feature (habits, tasks, goals, categories, routines) follows the same **Create/Edit/Render/Box** pattern:
+Every domain entity (category, habit, task, goal, routine) follows the same four-part pattern:
 
-```mermaid
-flowchart TD
-  PAGE["📄 Feature Page"]
-  PAGE --> GUARD["🛡️ useAuthGuard()"]
-  PAGE --> HEADER["📌 Header"]
-  PAGE --> SORT["🔽 SortFilterBar"]
-  PAGE --> CREATE["➕ Create Section<br/>FeatureForm mode=create"]
-  PAGE --> RENDER["📦 Render Grid<br/>renderFeatures.tsx"]
-  PAGE --> EDIT["✏️ Edit Overlay<br/>FeatureForm mode=edit<br/>(conditional)"]
-  PAGE --> TUT["📖 SpotlightTutorial<br/>(conditional)"]
+| Part | Role |
+|------|------|
+| createX / editX | Thin modal wrappers choosing the form's mode |
+| XForm | The shared react-hook-form component, one per entity |
+| xBox | The expandable card showing one item, with edit and delete actions |
+| renderXs | The responsive grid that maps the list |
 
-  RENDER --> BOX1["featureBox"]
-  RENDER --> BOX2["featureBox"]
-  RENDER --> BOX3["featureBox"]
+Forms resolve through zod schemas that live in the shared validation package, written as factories taking the translation function, so every validation message is bilingual by construction. Cross-field routine rules (overlapping section times, overnight ranges) live beside them as plain functions the form and the routine builder both call.
+
+## Dashboard and widgets
+
+The dashboard composes a profile card, shortcut links, today's routine with its check-in flow, a goals rail, and the configurable widget area.
+
+Widget identity is shared state: the list of ids lives in the state package (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), and both apps read it. Four render full-width. A fabric component maps id to component, so adding a widget is one entry in the map plus one entry in the shared list.
+
+Selection lives in Configuration: a drag-to-reorder list that autosaves on every change, pushing the new order to the backend and Redux together, and rolling nothing into Redux when the server rejects. On phones the dashboard renders widgets in a snap-scroll carousel, one per screen, so adding widgets never pushes today's routine below the fold.
+
+## The tutorial, in two systems
+
+Onboarding is a phase machine persisted in localStorage, with values whitelist-validated on read:
+
+```
+intro → ai-onboarding → dashboard → categories → habits-dashboard → habits
+→ routines-dashboard → routines → routines-summary → config-dashboard → config → done
 ```
 
-### Form component (FeatureForm)
+Two distinct systems ride that machine:
 
-Each feature has a shared form that handles both create and edit modes:
+- **The intro modal**: four concept cards (categories, habits, tasks, routines), and then a fork: take the AI onboarding wizard or the manual tour.
+- **The spotlight tour**: each step names a CSS selector, a position, and an action (click or observe). The finder picks the first visible match, which is what lets the desktop sidebar and the phone More-sheet share the same step definitions, and the tooltip clamps itself to the viewport. Each page has a hook owning its steps and phase transitions.
 
-- react-hook-form with Controller wrappers for each input
-- Zod schema validation with bilingual error messages (schema receives the t function)
-- Mode-aware default values (empty for create, populated from Redux for edit)
-- API call on submit (createX or editX)
-- On success: refetch list, reset form, show toast
-- On error: parse ApiErrorPayload, show ErrorNotice
+The AI onboarding wizard walks five steps (categories, habits and tasks, routine, goals, summary), fetching typed suggestions from the backend and creating real entities step by step through the ordinary REST endpoints. Progress persists to localStorage as step-plus-created-references only; the suggestions themselves are deliberately not persisted, so a reload re-fetches instead of double-creating.
 
-### Box component (featureBox)
+## Gamification feedback
 
-Expandable card for displaying individual items:
+Three pieces turn a routine check into visible progress:
 
-- Collapsed: icon, name, basic info
-- Expanded: full details (description, categories, metrics)
-- Edit button: dispatches to Redux edit slice, opens edit form
-- Delete button: opens DeleteModal
-- Color-coded difficulty/importance via useColors hook
+- **XpFloat**: a "+N XP" chip that rises over the checked item for a second, driven by the real xpGenerated value in the check response. Under reduced motion it fades in place.
+- **CelebrationOverlay**: a global overlay draining a FIFO queue of celebrations (level-ups and streak milestones), auto-dismissing after four seconds, dismissable by click or Escape.
+- **The RefreshUI flow**: check responses carry a RefreshUI payload, and a shared apply function updates the profile, categories, habit, and routine slices in one pass, deciding on the way whether a celebration belongs in the queue. The details live in the [Redux and data topic](/architecture/redux-data).
 
-### Render component (renderFeatures)
+Data freshness is handled by a shared auto-refresh policy with three prompts: returning to the tab, the local day rolling over, and a five-minute interval while visible. Single-flight, silent on failure, and paused entirely while the tab is hidden or a check animation is mid-flight.
 
-Grid display using CSS auto-fit with responsive column minimums:
+## Code splitting
 
-- Mobile: 100px min columns
-- Tablet: 170px min columns
-- Desktop: 220px min columns
+Route-level laziness plus five manual chunks, in an order that matters:
 
-### Sort/filter
+| Chunk | Contents | Why |
+|-------|----------|-----|
+| icons-base | react-icons | The heaviest optional weight |
+| telemetry | Sentry SDK | Must be matched before the forms rule: the SDK ships a file with "zod" in its path. Tree-shaken away entirely in builds without a DSN |
+| motion | framer-motion | Only needed after login |
+| forms | react-hook-form, resolvers, zod | Form-heavy pages only |
+| vendor | react, router, redux family | The stable base |
 
-- SortFilterBar at top of each page
-- Sort preference stored in Redux viewFiltersSlice
-- Sorting done client-side with useMemo
-- Options: name, level, xp, importance, difficulty, date (varies by feature)
+The dev server pre-bundles the lazy-route dependencies, because discovering them mid-session used to trigger a re-optimization and a full reload halfway through using the app.
 
-## Dashboard
+## Conventions worth keeping
 
-The dashboard is a composite page with multiple widget areas:
-
-```mermaid
-flowchart TD
-  DASH["📊 Dashboard"]
-  DASH --> PROF["👤 Profile Card<br/>photo, name, constance, phrase"]
-  DASH --> SHORT["🔗 Shortcuts<br/>6 quick nav links"]
-  DASH --> RTN["📋 Day Routine<br/>today's sections + checks"]
-  DASH --> GOALS["🎯 Goals View<br/>drag-scroll + time filters"]
-  DASH --> WIDG["📈 Widgets<br/>configurable cards"]
-```
-
-### Profile Card (perfil.tsx)
-
-- Shows user photo, greeting, and constance streak
-- Time display (updates every 30 seconds)
-- Motivational phrase (italic)
-- Responsive: full-width mobile, card layout desktop
-
-### Shortcuts
-
-Quick navigation to all 6 main features (Categories, Habits, Tasks, Routines, Goals, Configuration). Hover effects with scale and color transitions.
-
-### Day Routine
-
-Displays today's scheduled routine with sections. Each section shows habit/task groups that can be checked or skipped.
-
-### Goals View
-
-Horizontal drag-scroll container with time-based filter tabs (This Week, This Month, This Year, Future, Past). Uses useDragScroll hook for mobile swipe support.
-
-### Widgets
-
-Configurable dashboard cards in the widgets folder:
-
-| Widget | Content |
-|--------|---------|
-| Constance | Streak days counter |
-| Daily Progress | Doughnut chart (Chart.js) |
-| Level Progress | XP bar visualization |
-| Better Area | Top-performing category |
-| Worst Area | Category needing attention |
-| Fast Tips | Quick productivity tips |
-
-Widget visibility is configured in the Configuration page and stored in Redux (perfil.widgetsIdsInUse).
-
-## Tutorial System
-
-An interactive onboarding system that guides new users through the app using spotlight highlights.
-
-```mermaid
-flowchart LR
-  INTRO["🎬 Onboarding Modal"] --> DASH_T["📊 Dashboard Tour"]
-  DASH_T --> CAT_T["📂 Categories Tour"]
-  CAT_T --> HAB_T["💪 Habits Tour"]
-  HAB_T --> RTN_T["📋 Routines Tour"]
-  RTN_T --> CFG_T["⚙️ Config Tour"]
-  CFG_T --> DONE["✅ Tutorial Complete"]
-```
-
-### How it works
-
-- **SpotlightTutorial** component targets elements via CSS selectors (data-tutorial-id attributes)
-- Each step has a title, description, position (auto-calculated), and action type (click/observe)
-- Uses Framer Motion for animations
-- Auto-scrolls target elements into view
-- Phase tracking stored in localStorage
-- Tutorial completion flag persisted in Redux and backend
-
-### Phase progression
-
-| Phase | Triggers |
-|-------|---------|
-| intro | First login |
-| dashboard | After intro modal |
-| categories | Navigate to categories |
-| habits-dashboard | Return to dashboard |
-| habits | Navigate to habits |
-| routines-dashboard | Return to dashboard |
-| routines | Navigate to routines |
-| config-dashboard | Return to dashboard |
-| config | Navigate to configuration |
-| done | All phases complete |
-
-Each page has a dedicated hook (useDashboardTutorial, useCategoriesTutorial, etc.) that manages its tutorial steps and phase transitions.
+- Every interactive element is a real button or link; icon tiles included. The icon picker's tiles were the last `<span onClick>` holdouts and are buttons with aria-labels now.
+- Toasts are capped at three, positioned per device class, with custom close and icon components.
+- One-shot invitations (like the empty-widgets nudge) dismiss through a shared localStorage-flag hook rather than ad-hoc state.
+- Drag-and-drop uses react-beautiful-dnd behind a StrictMode shim.

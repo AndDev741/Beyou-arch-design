@@ -1,241 +1,78 @@
 ---
 title: "Security in the UI"
-summary: "How the React frontend handles authentication, token management, route protection, and secure API communication."
+summary: "The client side of the trust boundary: in-memory tokens, the silent-refresh boot, an admin gate that refuses to trust the client, PII-aware persistence, and the headers nginx serves in front of it all."
 ---
 
-This document explains the frontend-side security architecture: how tokens are stored and refreshed, how routes are protected, how the Axios interceptor works, and how Google OAuth integrates.
+This document explains what the web frontend does about security, and just as importantly what it refuses to do: the browser is untrusted territory, so every real decision belongs to the backend, and the frontend's job is to not undermine it.
 
-## Security Overview
-
-```mermaid
-flowchart TD
-  subgraph "Token Storage"
-    JWT["🔑 JWT Access Token<br/>Axios default header<br/>(in-memory)"]
-    REF["🍪 Refresh Token<br/>HttpOnly cookie<br/>(browser-managed)"]
-  end
-
-  subgraph "Route Protection"
-    GUARD["🛡️ useAuthGuard<br/>per-page hook"]
-    VERIFY["GET /auth/verify"]
-  end
-
-  subgraph "Auto-Refresh"
-    INT["🔄 Axios Interceptor<br/>401 → refresh → retry"]
-  end
-
-  JWT --> API["📡 API Requests"]
-  REF --> INT
-  GUARD --> VERIFY
-  INT --> JWT
-```
-
-**Key design decisions:**
-
-- JWT stored in Axios defaults (memory) — not localStorage, not sessionStorage
-- Refresh token in HttpOnly cookie — invisible to JavaScript, immune to XSS
-- No route-level guards in the router config — each page guards itself via hook
-- Automatic token refresh transparent to the user
-
-## Token Storage
-
-| Token | Where | How | Why |
-|-------|-------|-----|-----|
-| **Access JWT** | Axios default headers | Set after login: axios.defaults.headers.common.Authorization | In-memory only — cleared on page refresh, but restored via refresh token |
-| **Refresh Token** | HttpOnly cookie | Set by backend via Set-Cookie header | JavaScript cannot access it — prevents XSS theft |
-
-### What happens on page refresh
-
-1. Axios default header is lost (memory cleared)
-2. Page calls useAuthGuard → GET /auth/verify
-3. Request fails with 401 (no JWT)
-4. Axios interceptor catches 401, sends POST /auth/refresh (cookie sent automatically)
-5. Backend returns new JWT in response header
-6. Interceptor sets new JWT in Axios defaults
-7. Original request retries with new JWT
-
-The user sees none of this — the page loads normally.
-
-## Route Protection
-
-### useAuthGuard Hook
-
-Every protected page calls this hook at the top of the component:
+## Token handling
 
 ```mermaid
-flowchart TD
-  PAGE["📄 Protected Page"] --> GUARD["🛡️ useAuthGuard()"]
-  GUARD --> VERIFY["GET /auth/verify"]
-  VERIFY --> OK{"200 OK?"}
-  OK -->|Yes| RENDER["✅ Render page"]
-  OK -->|No| REDIRECT["🔄 Navigate to /"]
+flowchart LR
+  BE["🍃 Backend"] -->|"X-Access-Token header"| MEM["🔑 JWT in memory<br/>axios default header only"]
+  BE -->|"Set-Cookie httpOnly"| CK["🍪 Refresh cookie<br/>invisible to JS"]
+  MEM -->|"Authorization: Bearer"| API["📡 Every request"]
+  CK -->|"sent automatically"| REF["POST /auth/refresh"]
+  REF -->|"one shared promise"| MEM
 ```
 
-The hook runs on mount. If the verification fails (and the interceptor's refresh also fails), the user is redirected to the login page.
+The access token exists in exactly one place: the axios default Authorization header, in memory. It is never written to localStorage, sessionStorage, or a cookie, and it arrives only in the `X-Access-Token` response header. The refresh token is an httpOnly cookie the JavaScript never reads.
 
-**Applied to:** Dashboard, Categories, Habits, Goals, Tasks, Routines, Configuration — all 7 protected pages.
+A page reload therefore loses the access token by design, and `useSilentRefresh` runs before the router mounts: it trades the cookie for a fresh token, re-fetches the profile, and holds the whole app in a checking state meanwhile, so protected pages never flash or fire unauthorized requests during boot. Concurrent 401s share one refresh through a module-level promise, and when the refresh itself fails the app reports the failure, hard-navigates to login, and rejects with the original 401 so an expired session is not misfiled as an unknown fault.
 
-**Not applied to:** Login, Register, Forgot Password, Reset Password — public pages.
+## Route guards, honestly labeled
 
-## Axios Interceptor
+- **ProtectedRoute** wraps every authenticated page as a layout route. It admits a user when the boot check succeeded or when a runtime token exists; the second condition matters because the boot state is computed once, and a fresh login sets the token without re-running it.
+- **useAuthGuard** remains as a per-page second opinion, probing the session endpoint and bouncing to login on failure.
+- **AdminRoute** is the interesting one, and its own comments insist on the honest framing: it is ergonomics, not security. The profile payload deliberately carries no role, because a role the client could read is a role the client could lie about. The gate instead probes the cheapest admin-only endpoint and treats any failure as denial. The real boundary is the backend's role rule; this component just spares non-admins a broken page, and it is lazy-loaded so they never even download it.
 
-The interceptor is the core of the auto-refresh system. It intercepts every 401 response and attempts to refresh the token before giving up.
+## Persistence and teardown
 
-```mermaid
-sequenceDiagram
-  participant UI as Component
-  participant AX as Axios
-  participant INT as Interceptor
-  participant BE as Backend
+Redux state persists to localStorage with three slices blacklisted: the profile (name, e-mail, photo are PII), snapshots (history is PII by accumulation), and the celebration queue (transient). The cost is re-hydrating the profile from the API on every boot, and the app pays it knowingly.
 
-  UI->>AX: GET /habit (expired JWT)
-  AX->>BE: Request
-  BE-->>AX: 401 Unauthorized
+Logout purges the persistor and hard-navigates, which discards the in-memory token and store together. Account deletion goes further, in a sequence whose details all exist because of past bugs:
 
-  rect rgba(59, 130, 246, 0.25)
-  INT->>INT: Check: is this a retry? No.
-  INT->>INT: Check: is this an auth endpoint? No.
-  INT->>BE: POST /auth/refresh (HttpOnly cookie)
-  BE-->>INT: New JWT (accesstoken header) + new cookie
-  INT->>AX: Set new default Authorization header
-  INT->>AX: Retry original request with new JWT
-  AX->>BE: GET /habit (new JWT)
-  BE-->>AX: 200 OK + habits data
-  end
+1. Purge the persistor, in its own try block.
+2. Sweep localStorage by the app's key prefix rather than a hardcoded list (a list is correct the day it is written and silently wrong the first time someone adds a key), collecting keys before deleting (removing during the walk skips every second key), preserving only the theme, which is a machine setting rather than account data. Then clear sessionStorage.
+3. Hard-navigate away, unconditionally, so even a storage-disabled browser cannot strand someone inside a deleted account.
 
-  AX-->>UI: habits data
-```
+The two storage steps are deliberately not chained: a rejected purge previously jumped to the catch and skipped the sweep, which was the worst pairing, since the persisted blob is the one key the prefix sweep cannot catch.
 
-### Interceptor rules
+## Google OAuth on the client
 
-| Condition | Action |
-|-----------|--------|
-| Response is 401 AND request has not been retried | Attempt refresh, then retry |
-| Response is 401 AND request was already retried | Redirect to login |
-| Request URL is /auth/refresh, /auth/login, or /auth/google | Skip interceptor (prevent infinite loop) |
-| Refresh fails | Redirect to login (window.location.href = "/") |
-| Any other error | Pass through normally |
+The login button generates a random state value, stashes it in sessionStorage, and sends it along. The callback reads the stored value and removes it before comparing, so it is single-use on every outcome, and bails loudly on a mismatch. The authorization code is exchanged once (a flag prevents re-runs) and then scrubbed from the URL, keeping it out of history and referrers. The button renders nothing at all when the client id is not configured.
 
-### Credentials configuration
+## Input validation
 
-Axios is configured with withCredentials: true, which means:
+All form schemas live in the shared validation package. The password policy is enforced where it matters twice: registration and reset require 12+ characters with at least 2 of 4 character classes, mirrored by live hints in the UI, while the login schema deliberately checks only presence, because accounts predating the policy must still be able to sign in.
 
-- Cookies are included in every cross-origin request
-- The refresh token cookie is automatically sent with POST /auth/refresh
-- No manual cookie handling needed in frontend code
+## The XSS surface
 
-## Login Flow
+- Application code contains zero uses of dangerouslySetInnerHTML.
+- The one place user-influenced rich text renders, the agent chat, goes through react-markdown, which ignores raw HTML by default; no raw-HTML plugin is installed. Links get a custom renderer: internal paths go through the router, external ones open in a new tab with noopener.
+- i18next's escaping is off only because React's own escaping covers every interpolation path.
+- Admin attachment images are fetched through the authenticated client into object URLs rather than pointing an image tag at a URL the backend would refuse.
 
-### Email + Password
+## Environment and build hygiene
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant FE as Login Page
-  participant AX as Axios
-  participant BE as Backend
-  participant RDX as Redux
+The bundle reads six environment values, all public by nature: the API base, the app URL, the Google client id, a support address, and the telemetry DSN. Build-time secrets (the source-map upload credentials) are read only in the Vite config from the process environment and can never reach the bundle. Redux DevTools are off in production via Redux Toolkit's default, though nothing asserts it explicitly.
 
-  U->>FE: Enter email + password
-  FE->>AX: POST /auth/login
-  AX->>BE: Credentials
-  BE-->>AX: User data + accesstoken header + Set-Cookie (refresh)
-  AX-->>FE: Response
+Source maps get three independent guards: the build emits hidden maps (no sourceMappingURL comment for a browser to follow), the upload plugin deletes them from the image after pushing them to the error tracker, and nginx returns 404 for map files anyway, with that rule placed before the static-asset rule that would otherwise match.
 
-  FE->>FE: Extract accesstoken from headers
-  FE->>AX: Set Authorization default header
-  FE->>RDX: dispatch(nameEnter, emailEnter, themeInUseEnter, ...)
-  Note right of RDX: 15+ actions populate perfil slice
-  FE->>FE: navigate("/dashboard")
-```
+Telemetry is dormant without a DSN and configured to never send default PII. One specific scrubber earns its mention: the request URL is stripped of query strings before sending, because two screens carry live single-use credentials in theirs (the reset and verification tokens), which would otherwise sit in the error tracker for its whole retention window.
 
-### Google OAuth
+## The headers nginx serves
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant FE as Login Page
-  participant GO as Google
-  participant BE as Backend
-  participant RDX as Redux
+The web container's nginx sets, on every response including errors: frame denial, nosniff, strict-origin referrer policy, a permissions policy denying camera, microphone, and geolocation, and HSTS for a year without preload (preload is a one-way door that belongs to whoever owns the domain, not to a container config).
 
-  U->>FE: Click "Login with Google"
-  FE->>GO: Redirect to Google authorization
-  GO-->>FE: Redirect back with ?code=...
+The CSP ships as Report-Only for now, with the enforcing move blocked on one known problem: the telemetry collector's host is baked in at build time, and a CSP that forgets it fails silently, since error reporting just stops. The plan is boring on purpose: collect violations, add the real hosts, rename the header. One nginx trap is handled and worth remembering: add_header inside a location block replaces the inherited set, so the static-asset block re-declares what it needs.
 
-  rect rgba(234, 88, 12, 0.25)
-  FE->>FE: useGoogleLogin hook extracts code
-  FE->>BE: googleRequest(code)
-  BE->>GO: Exchange code for access token
-  GO-->>BE: User profile
-  BE-->>FE: User data + JWT + cookie
-  end
+## What the frontend never does
 
-  alt New user
-    FE->>RDX: dispatch(successRegisterEnter(true))
-    FE->>FE: Show registration success
-  else Existing user
-    FE->>RDX: dispatch(all perfil actions)
-    FE->>FE: navigate("/dashboard")
-  end
-
-  FE->>FE: Clean URL (remove ?code= param)
-```
-
-The useGoogleLogin hook:
-
-- Runs once on mount (codeUsed flag prevents re-execution)
-- Extracts authorization code from URL query params
-- Calls backend to exchange code for user data
-- Cleans the URL with history.replaceState to remove the code parameter
-- Handles both new user registration and existing user login
-
-## Password Reset (Frontend Side)
-
-```mermaid
-flowchart TD
-  FORGOT["/forgot-password<br/>Enter email"] -->|"POST /auth/forgot-password"| SENT["Email sent<br/>(always shows success)"]
-  LINK["User clicks email link"] --> RESET["/reset-password?token=..."]
-  RESET -->|"GET /auth/reset-password/validate"| VALID{"Token valid?"}
-  VALID -->|Yes| FORM["Show new password form"]
-  VALID -->|No| ERR["Show error message"]
-  FORM -->|"POST /auth/reset-password"| DONE["Password updated<br/>Redirect to login"]
-```
-
-The frontend handles:
-
-- Forgot password form with email input
-- Extracting the token from URL query params
-- Validating the token before showing the form
-- Submitting the new password
-- Redirecting to login on success
-
-## What the Frontend Does NOT Do
-
-Understanding what is handled server-side vs client-side:
-
-| Security Concern | Frontend | Backend |
-|-----------------|----------|---------|
-| Password hashing | Never — sends plaintext over HTTPS | BCrypt hashing |
-| Token creation | Never | JWT generation + refresh token creation |
-| Token validation | Never — relies on 401 responses | HMAC256 signature + expiry check |
-| Refresh token storage | Never touches it | HttpOnly cookie management |
-| CORS | Sends withCredentials: true | Validates origin pattern |
-| Rate limiting | None | None (improvement opportunity) |
-
-## Security Strengths
-
-- **XSS resistance** — refresh token in HttpOnly cookie cannot be read by JavaScript. Even if an XSS attack injects code, it cannot extract the refresh token.
-- **No persistent JWT** — access token lives only in Axios defaults (memory). Page refresh clears it. No localStorage or sessionStorage exposure.
-- **Automatic refresh** — users never see token expiration. The interceptor handles it invisibly.
-- **Clean URL after OAuth** — authorization code is removed from the URL via replaceState, preventing code leakage in browser history or referrer headers.
-
-## Security Considerations
-
-| Area | Current State | Note |
-|------|--------------|------|
-| JWT in memory | Cleared on refresh, restored via interceptor | Best practice for SPAs |
-| HttpOnly cookie | Backend-managed, JS cannot access | Immune to XSS token theft |
-| withCredentials | Enabled globally | Required for cookie-based auth |
-| Base URL | Hardcoded IP in axiosConfig | Should be environment variable for production |
-| Error messages | Generic errors shown to user | Prevents information disclosure |
-| Google OAuth code | Cleaned from URL after use | Prevents replay from browser history |
+| Concern | Where it lives |
+|---------|----------------|
+| Password hashing | Backend only; the client sends plaintext over TLS |
+| Token creation and validation | Backend; the client reacts to 401s |
+| Role decisions | Backend path rules; the client holds no role at all |
+| Rate limiting | Backend tiers; the client just renders the 429 toast |
+| Ownership checks | Backend services; the client cannot even express another user's id |

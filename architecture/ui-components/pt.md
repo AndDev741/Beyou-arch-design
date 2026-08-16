@@ -1,253 +1,105 @@
 ---
-title: "Componentes UI e Estrutura de Páginas"
-summary: "Como o frontend React é organizado — layout, páginas, componentes compartilhados, padrões de features, dashboard e sistema de tutorial."
+title: "Componentes de UI e Estrutura de Páginas"
+summary: "Como o web app se organiza dentro do monorepo: o shell compartilhado, o quarteto de componentes por entidade, o sistema de widgets, o tutorial em duas partes e o code-splitting que mantém o primeiro carregamento pequeno."
 ---
 
-Este documento mapeia toda a arquitetura de componentes do frontend: como as páginas são estruturadas, quais componentes compartilhados existem, os padrões usados nas páginas de features e como o dashboard e o sistema de tutorial funcionam.
+Este documento mapeia o frontend web: como páginas e componentes se organizam, os padrões que toda feature segue, como os widgets do dashboard e o tutorial funcionam e como o bundle é dividido. O web app vive em `apps/web` do monorepo e consome os pacotes compartilhados (state, theme, i18n, validation, icons, api) como código-fonte através de aliases do Vite.
 
-## Estrutura de Páginas
-
-Toda página segue o mesmo esqueleto: o App router envolve tudo em um ThemeProvider, e cada página protegida chama useAuthGuard antes de renderizar.
+## Rotas e o shell
 
 ```mermaid
 flowchart TD
-  APP["⚛️ App.tsx<br/>ThemeProvider + BrowserRouter"]
-  APP --> PUBLIC["Rotas Públicas"]
-  APP --> PROTECTED["Rotas Protegidas"]
-
-  PUBLIC --> LOGIN["/ → Login"]
-  PUBLIC --> REG["/register → Register"]
-  PUBLIC --> FORGOT["/forgot-password"]
-  PUBLIC --> RESET["/reset-password"]
-
-  PROTECTED --> DASH["/dashboard"]
-  PROTECTED --> CAT["/categories"]
-  PROTECTED --> HAB["/habits"]
-  PROTECTED --> GOAL["/goals"]
-  PROTECTED --> TASK["/tasks"]
-  PROTECTED --> RTN["/routines"]
-  PROTECTED --> CFG["/configuration"]
+  APP["⚛️ App.tsx<br/>ThemeProvider + Router + ErrorBoundary"]
+  APP --> PUB["Rotas públicas<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
+  APP --> PROT["ProtectedRoute (rota de layout)"]
+  PROT --> SHELL["Shell, montado uma vez:<br/>Sidebar · BottomNav · AgentWidget"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals<br/>/tasks · /routines · /configuration · /feedback"]
+  PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
-### Configuração de rotas
+Todo componente de rota é lazy, incluindo o próprio AdminRoute, então usuários comuns nunca baixam o portão de admin nem suas chamadas de API. Um único Suspense com spinner de tela cheia envolve a tabela de rotas. No boot, o `useSilentRefresh` segura o app em um estado de "checando" até o cookie de refresh ser trocado por um token, e é isso que evita um flash de 401s ou um pulo para o login no reload.
 
-| Rota | Página | Auth Necessário |
-|------|--------|----------------|
-| / | Login | Não |
-| /register | Register | Não |
-| /forgot-password | ForgotPassword | Não |
-| /reset-password | ResetPassword | Não |
-| /dashboard | Dashboard | Sim |
-| /categories | Categories | Sim |
-| /habits | Habits | Sim |
-| /goals | Goals | Sim |
-| /tasks | Tasks | Sim |
-| /routines | Routines | Sim |
-| /configuration | Configuration | Sim |
+O shell monta uma vez dentro da rota de layout protegida: a Sidebar colapsável do desktop (ordem: Hoje, Categorias, Hábitos, Tarefas, Rotinas, Metas, com Feedback e Config no rodapé), o BottomNav do celular (Hoje, Rotinas, o Assistente no slot central como única entrada do agente, Hábitos e uma folha de Mais) e o AgentWidget flutuante. Páginas não renderizam header próprio; um PageHeader compartilhado é o bloco de título. Itens de navegação carregam âncoras `data-tutorial-id` para o spotlight do tutorial.
 
-## Componentes de Layout
+As páginas de autenticação evitam o registro de ícones de propósito, mantendo os chunks de ícones e emojis fora do primeiro carregamento sem login.
 
-### Header
+## Organização de componentes
 
-Presente em toda página protegida. Altura fixa de 60px com cor de fundo primária.
-
-- Exibe título da página traduzido
-- Link de retorno ao dashboard (lado esquerdo)
-- Botão de logout (lado direito, opcional)
-- Tamanho de texto responsivo
-
-### Modal
-
-Componente de overlay baseado em Portal usado para formulários de criação, confirmações de deleção e seleção de categorias.
-
-- Backdrop escuro (bg-black/40)
-- Clique fora para fechar
-- Altura máx 90vh com overflow scroll
-- Acessível: role="dialog", aria-modal
-
-## Componentes Compartilhados
-
-| Componente | Propósito | Props |
-|-----------|---------|-------|
-| **Button** | Botão de ação principal | text, size (big/medium/small), mode (cancel/create/default), icon |
-| **SmallButton** | Ação compacta | text, disabled, onClick |
-| **ErrorNotice** | Exibir erros da API | error (ApiErrorPayload) |
-| **ProgressRing** | Progresso circular SVG | progress (0-100), size (sm/md/lg) |
-| **DeleteModal** | Confirmar deleção | objectId, name, deletePhrase, mode |
-| **SortFilterBar** | Controles de ordenação | options, value, onChange, quickValues |
-
-## Componentes de Input
-
-Todos os inputs seguem o mesmo padrão: valor controlado, callback onChange, exibição de mensagem de erro e dimensionamento responsivo.
-
-| Componente | Propósito | Características |
-|-----------|---------|----------------|
-| **GenericInput** | Campo de texto padrão | Label, borda de erro, larguras responsivas |
-| **DescriptionInput** | Textarea | Altura mínima dinâmica por tamanho de tela |
-| **ChooseInput** | Grupo de radio buttons | Comportamento toggle, cor na seleção |
-| **SelectorInput** | Dropdown select | Mapeamento de objetos, exibição de erro |
-| **ExperienceInput** | Seletor de nível XP | Beginner/Intermediary/Advanced |
-| **IconsBox** | Seletor de ícones | Busca, 13 categorias, recentes, suporte a emoji |
-| **ChooseCategories** | Multi-select de categorias | Busca categorias, criar inline, seleção pendente |
-
-### Sistema de Ícones
-
-O seletor de ícones é um dos componentes compartilhados mais complexos:
-
-```mermaid
-flowchart LR
-  SEARCH["🔍 Campo de Busca"] --> INDEX["Índice de Busca<br/>keywords + locale"]
-  INDEX --> GRID["📦 Grid de Ícones<br/>react-icons + emoji"]
-  CATS["📂 Botões de Categoria<br/>13 categorias"] --> INDEX
-  REC["⏱️ Recentes<br/>localStorage"] --> GRID
-  GRID --> SELECT["✅ Ícone Selecionado<br/>iconId armazenado"]
+```
+src/
+  pages/        uma pasta por rota, testes ao lado
+  components/   pastas por domínio (agent, categories, dashboard, goals,
+                habits, routines, tasks, tutorial, widgets, ...)
+  ui/           primitivos do design system, sem conhecimento de domínio
+  hooks/  context/  lib/  services/  redux/  utils/
 ```
 
-- Ícones vindos de react-icons (Material Design, Font Awesome, Ant Design) e emoji-datasource
-- Busca suporta palavras-chave em inglês e português
-- 13 categorias: all, recents, icons, emoji, smileys, people, nature, food, travel, activities, objects, symbols, flags
-- Ícones recentes rastreados no localStorage (máx 6)
+A camada `ui/` guarda os primitivos: Card, Chip, Ring, XpBar, XpSparkline, StatTile, SegmentedControl, IconButton, IconTile, CheckStrip, GhostAdd, BeyouIcon, PageHeader. Componentes de domínio compõem esses. O Modal compartilhado é um portal com focus trap de verdade: ciclo de Tab, restauração de foco ao fechar, Escape e aria-labelledby, e todo diálogo do app renderiza por ele.
 
-## Padrão de Página de Feature
+### O quarteto por entidade
 
-Toda feature (hábitos, tarefas, metas, categorias, rotinas) segue o mesmo padrão **Create/Edit/Render/Box**:
+Toda entidade de domínio (categoria, hábito, tarefa, meta, rotina) segue o mesmo padrão de quatro partes:
 
-```mermaid
-flowchart TD
-  PAGE["📄 Página da Feature"]
-  PAGE --> GUARD["🛡️ useAuthGuard()"]
-  PAGE --> HEADER["📌 Header"]
-  PAGE --> SORT["🔽 SortFilterBar"]
-  PAGE --> CREATE["➕ Seção de Criação<br/>FeatureForm mode=create"]
-  PAGE --> RENDER["📦 Grid de Renderização<br/>renderFeatures.tsx"]
-  PAGE --> EDIT["✏️ Overlay de Edição<br/>FeatureForm mode=edit<br/>(condicional)"]
-  PAGE --> TUT["📖 SpotlightTutorial<br/>(condicional)"]
+| Parte | Papel |
+|-------|-------|
+| createX / editX | Invólucros finos de modal que escolhem o modo do formulário |
+| XForm | O formulário react-hook-form compartilhado, um por entidade |
+| xBox | O card expansível de um item, com ações de editar e apagar |
+| renderXs | A grade responsiva que mapeia a lista |
 
-  RENDER --> BOX1["featureBox"]
-  RENDER --> BOX2["featureBox"]
-  RENDER --> BOX3["featureBox"]
+Os formulários validam por schemas zod que vivem no pacote compartilhado de validação, escritos como fábricas que recebem a função de tradução, então toda mensagem de validação é bilíngue por construção. As regras de rotina entre campos (seções com horários sobrepostos, faixas atravessando a meia-noite) moram ao lado como funções puras que o formulário e o builder de rotina chamam.
+
+## Dashboard e widgets
+
+O dashboard compõe um card de perfil, atalhos, a rotina de hoje com seu fluxo de check-in, um trilho de metas e a área configurável de widgets.
+
+A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada.
+
+A seleção mora na Configuração: uma lista com arrastar-para-reordenar que salva sozinha a cada mudança, empurrando a nova ordem para o backend e o Redux juntos, e sem gravar nada no Redux quando o servidor recusa. No celular, o dashboard renderiza os widgets em um carrossel de snap-scroll, um por tela, para widgets novos nunca empurrarem a rotina de hoje para baixo da dobra.
+
+## O tutorial, em dois sistemas
+
+O onboarding é uma máquina de fases persistida em localStorage, com valores validados por whitelist na leitura:
+
+```
+intro → ai-onboarding → dashboard → categories → habits-dashboard → habits
+→ routines-dashboard → routines → routines-summary → config-dashboard → config → done
 ```
 
-### Componente de formulário (FeatureForm)
+Dois sistemas distintos andam sobre essa máquina:
 
-Cada feature tem um formulário compartilhado que lida com modos de criação e edição:
+- **O modal de introdução**: quatro cards de conceito (categorias, hábitos, tarefas, rotinas) e depois uma bifurcação: seguir o assistente de onboarding com IA ou o tour manual.
+- **O tour de spotlight**: cada passo nomeia um seletor CSS, uma posição e uma ação (clicar ou observar). O localizador pega o primeiro alvo visível, o que permite que a sidebar do desktop e a folha de Mais do celular dividam as mesmas definições de passos, e o tooltip se prende à viewport. Cada página tem um hook dono dos seus passos e transições de fase.
 
-- react-hook-form com wrappers Controller para cada input
-- Validação com schema Zod com mensagens de erro bilíngues (schema recebe a função t)
-- Valores padrão por modo (vazio para criação, preenchido do Redux para edição)
-- Chamada API no submit (createX ou editX)
-- No sucesso: refetch lista, reset form, toast
-- No erro: parse ApiErrorPayload, exibir ErrorNotice
+O assistente de IA percorre cinco passos (categorias, hábitos e tarefas, rotina, metas, resumo), buscando sugestões tipadas do backend e criando entidades reais passo a passo pelos endpoints REST comuns. O progresso persiste em localStorage só como passo-mais-referências-criadas; as sugestões em si deliberadamente não persistem, então um reload rebusca em vez de criar em dobro.
 
-### Componente de card (featureBox)
+## Feedback de gamificação
 
-Card expandível para exibir itens individuais:
+Três peças transformam um check de rotina em progresso visível:
 
-- Colapsado: ícone, nome, info básica
-- Expandido: detalhes completos (descrição, categorias, métricas)
-- Botão editar: dispatch para Redux edit slice, abre formulário de edição
-- Botão deletar: abre DeleteModal
-- Dificuldade/importância com código de cores via hook useColors
+- **XpFloat**: um chip de "+N XP" que sobe sobre o item marcado por um segundo, guiado pelo xpGenerated real da resposta do check. Com movimento reduzido, ele só esmaece no lugar.
+- **CelebrationOverlay**: um overlay global drenando uma fila FIFO de celebrações (level-ups e marcos de streak), fechando sozinho em quatro segundos, dispensável por clique ou Escape.
+- **O fluxo RefreshUI**: respostas de check carregam um payload RefreshUI, e uma função compartilhada de aplicação atualiza os slices de perfil, categorias, hábito e rotina em uma passada, decidindo no caminho se uma celebração entra na fila. Os detalhes vivem no [tópico de Redux e dados](/architecture/redux-data).
 
-### Componente de renderização (renderFeatures)
+A frescura dos dados fica com uma política compartilhada de auto-refresh com três gatilhos: voltar para a aba, o dia local virar e um intervalo de cinco minutos enquanto visível. Voo único, silenciosa em falha e totalmente pausada com a aba escondida ou uma animação de check no meio.
 
-Grid usando CSS auto-fit com mínimos de coluna responsivos:
+## Code splitting
 
-- Mobile: colunas mín 100px
-- Tablet: colunas mín 170px
-- Desktop: colunas mín 220px
+Laziness por rota mais cinco chunks manuais, em uma ordem que importa:
 
-### Ordenação/filtro
+| Chunk | Conteúdo | Por quê |
+|-------|----------|---------|
+| icons-base | react-icons | O peso opcional mais pesado |
+| telemetry | SDK do Sentry | Precisa casar antes da regra de forms: o SDK traz um arquivo com "zod" no caminho. Some por completo em builds sem DSN |
+| motion | framer-motion | Só necessário depois do login |
+| forms | react-hook-form, resolvers, zod | Só páginas cheias de formulário |
+| vendor | react, router, família redux | A base estável |
 
-- SortFilterBar no topo de cada página
-- Preferência de ordenação armazenada no Redux viewFiltersSlice
-- Ordenação feita client-side com useMemo
-- Opções: nome, level, xp, importância, dificuldade, data (varia por feature)
+O servidor de dev pré-empacota as dependências das rotas lazy, porque descobri-las no meio da sessão disparava uma re-otimização e um reload completo com o app em uso.
 
-## Dashboard
+## Convenções que valem manter
 
-O dashboard é uma página composta com múltiplas áreas de widgets:
-
-```mermaid
-flowchart TD
-  DASH["📊 Dashboard"]
-  DASH --> PROF["👤 Card de Perfil<br/>foto, nome, constância, frase"]
-  DASH --> SHORT["🔗 Atalhos<br/>6 links de navegação rápida"]
-  DASH --> RTN["📋 Rotina do Dia<br/>seções + checks de hoje"]
-  DASH --> GOALS["🎯 Visão de Metas<br/>drag-scroll + filtros por tempo"]
-  DASH --> WIDG["📈 Widgets<br/>cards configuráveis"]
-```
-
-### Card de Perfil (perfil.tsx)
-
-- Mostra foto do usuário, saudação e streak de constância
-- Exibição de hora (atualiza a cada 30 segundos)
-- Frase motivacional (itálico)
-- Responsivo: full-width mobile, layout card desktop
-
-### Atalhos
-
-Navegação rápida para todas as 6 features principais (Categorias, Hábitos, Tarefas, Rotinas, Metas, Configuração). Efeitos hover com scale e transições de cor.
-
-### Rotina do Dia
-
-Exibe a rotina agendada para hoje com seções. Cada seção mostra grupos de hábitos/tarefas que podem ser marcados como feitos ou pulados.
-
-### Visão de Metas
-
-Container com drag-scroll horizontal e abas de filtro por tempo (Esta Semana, Este Mês, Este Ano, Futuro, Passado). Usa hook useDragScroll para suporte a swipe mobile.
-
-### Widgets
-
-Cards configuráveis do dashboard na pasta widgets:
-
-| Widget | Conteúdo |
-|--------|----------|
-| Constance | Contador de dias de streak |
-| Daily Progress | Gráfico donut (Chart.js) |
-| Level Progress | Visualização de barra de XP |
-| Better Area | Categoria com melhor desempenho |
-| Worst Area | Categoria que precisa de atenção |
-| Fast Tips | Dicas rápidas de produtividade |
-
-Visibilidade dos widgets é configurada na página de Configuração e armazenada no Redux (perfil.widgetsIdsInUse).
-
-## Sistema de Tutorial
-
-Um sistema de onboarding interativo que guia novos usuários pelo app usando destaques spotlight.
-
-```mermaid
-flowchart LR
-  INTRO["🎬 Modal de Onboarding"] --> DASH_T["📊 Tour do Dashboard"]
-  DASH_T --> CAT_T["📂 Tour de Categorias"]
-  CAT_T --> HAB_T["💪 Tour de Hábitos"]
-  HAB_T --> RTN_T["📋 Tour de Rotinas"]
-  RTN_T --> CFG_T["⚙️ Tour de Configuração"]
-  CFG_T --> DONE["✅ Tutorial Completo"]
-```
-
-### Como funciona
-
-- Componente **SpotlightTutorial** alvo elementos via CSS selectors (atributos data-tutorial-id)
-- Cada passo tem título, descrição, posição (auto-calculada) e tipo de ação (click/observe)
-- Usa Framer Motion para animações
-- Auto-scroll dos elementos alvo para a viewport
-- Rastreamento de fase armazenado no localStorage
-- Flag de conclusão do tutorial persistida no Redux e backend
-
-### Progressão de fases
-
-| Fase | Gatilho |
-|------|---------|
-| intro | Primeiro login |
-| dashboard | Após modal de intro |
-| categories | Navegar para categorias |
-| habits-dashboard | Retornar ao dashboard |
-| habits | Navegar para hábitos |
-| routines-dashboard | Retornar ao dashboard |
-| routines | Navegar para rotinas |
-| config-dashboard | Retornar ao dashboard |
-| config | Navegar para configuração |
-| done | Todas as fases completas |
-
-Cada página tem um hook dedicado (useDashboardTutorial, useCategoriesTutorial, etc.) que gerencia seus passos de tutorial e transições de fase.
+- Todo elemento interativo é um botão ou link de verdade, tiles de ícone incluídos. Os tiles do seletor de ícones eram os últimos `<span onClick>` e hoje são botões com aria-label.
+- Toasts têm teto de três, posição por classe de dispositivo, com componentes próprios de fechar e ícone.
+- Convites de uma vez só (como o aceno de widgets vazios) são dispensados por um hook compartilhado de flag em localStorage, sem estado improvisado.
+- Arrastar e soltar usa react-beautiful-dnd atrás de um shim para o StrictMode.

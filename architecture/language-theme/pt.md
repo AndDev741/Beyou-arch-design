@@ -1,187 +1,78 @@
 ---
 title: "Idioma e Tema"
-summary: "Como o sistema bilíngue (EN/PT) e o sistema de 9 temas funcionam — da seleção do usuário às variáveis CSS à persistência no backend."
+summary: "Dois idiomas e um sistema de tema com duas bases e cinco acentos: pacotes de tokens compartilhados, uma string de preferência mode:pack, acompanhamento vivo do sistema operacional e a migração que aposentou os nove temas antigos."
 ---
 
-Este documento cobre os dois sistemas de personalização no frontend Beyou: idioma (i18n com inglês e português) e tema visual (9 temas de cores com injeção de variáveis CSS).
+Este documento cobre os dois sistemas de personalização: idioma (inglês e português via i18next) e o tema visual. Os dois vivem em pacotes compartilhados, então web e mobile leem as mesmas fontes, e os dois sincronizam com o backend para as preferências seguirem a conta.
 
-## Sistema de Idioma (i18n)
+## Idioma
 
-### Arquitetura
+### Montagem
 
-```mermaid
-flowchart TD
-  DET["🌐 Detecção de Idioma do Browser<br/>i18next-browser-languagedetector"]
-  DET --> I18N["i18next<br/>fallback: Inglês"]
-  I18N --> EN["🇺🇸 en/translation.json<br/>500+ chaves"]
-  I18N --> PT["🇧🇷 pt/translation.json<br/>500+ chaves"]
+i18next com o detector de idioma do navegador, exatamente dois idiomas (en, pt), inglês como fallback. Os JSONs de tradução vivem no compartilhado `packages/i18n`; a pasta local de traduções do web guarda só o arquivo de inicialização. O seletor de ícones mantém arquivos de idioma próprios no pacote de ícones, já que palavras-chave de busca de ícone são uma preocupação separada do texto da UI.
 
-  USER["👤 Usuário muda idioma"] --> HOOK["hook useChangeLanguage"]
-  HOOK --> I18N
-  HOOK --> RDX["Redux<br/>perfil.languageInUse"]
-  HOOK --> API["API Backend<br/>persistir preferência"]
-```
+O escape de interpolação fica desligado, o que é seguro aqui por uma razão específica: toda string traduzida chega ao DOM pela renderização do React, e o app não tem pontos de injeção de HTML cru por onde elas vazariam.
 
-### Configuração
-
-- **Biblioteca:** i18next + react-i18next
-- **Detecção:** i18next-browser-languagedetector (auto-detecta do browser)
-- **Fallback:** Inglês se detecção falhar ou idioma não suportado
-- **Idiomas:** Inglês (en) e Português (pt, pt-BR)
-- **Interpolação:** escapeValue desabilitado (React trata XSS)
-
-### Estrutura do arquivo de tradução
-
-Ambos en/translation.json e pt/translation.json usam estrutura de chave flat com 500+ chaves:
-
-| Categoria | Exemplos de Chaves |
-|-----------|-------------------|
-| Auth | Login, Register, ForgotPasswordTitle, PasswordMismatch |
-| Validação | YupNameRequired, YupMinimumName, YupMaxName |
-| Páginas | YourCategories, YourHabits, Your Goals |
-| Ações | created successfully, edited successfully, Logout |
-| Erros | WrongPassOrEmailError, GoogleLoginError, UnexpectedError |
-| Temas | beYou, beYouDark, Sunset, Amethyst, Midnight, Cyberpunk |
-| Saudações | GoodMorning, GoodAfternoon, GoodEvening |
-
-Nomes de temas nas chaves de tradução devem corresponder aos valores theme.mode para que o seletor de tema exiba o nome localizado correto.
-
-### Fluxo de mudança de idioma
+### O fluxo de troca, e um no-op deliberado
 
 ```mermaid
 sequenceDiagram
   participant U as Usuário
-  participant BTN as TranslationButton
-  participant HOOK as useChangeLanguage
-  participant I18N as i18next
-  participant RDX as Redux
+  participant H as useChangeLanguage
+  participant I as i18next
   participant BE as Backend
+  participant ST as Store
 
-  U->>BTN: Clica botão PT
-  BTN->>HOOK: setLng("pt")
-  HOOK->>I18N: i18n.changeLanguage("pt")
-  Note right of I18N: Todos os hooks useTranslation()<br/>re-renderizam com novo idioma
-  HOOK->>BE: editUser({ language: "pt" })
-  HOOK->>RDX: dispatch(languageInUserEnter("pt"))
+  U->>H: escolhe PT
+  H->>BE: editUser({language: "pt"})
+  H->>ST: languageInUserEnter("pt")
+  H->>I: changeLanguage("pt")
+  Note over I: todo useTranslation re-renderiza
 ```
 
-Três sistemas são atualizados em paralelo:
+O hook tem uma regra que vale conhecer: idioma vazio é um no-op. Uma conta recém-criada carrega languageInUse vazio, e passar essa string vazia ao i18next resetaria a UI para o fallback, atropelando o que o usuário escolheu na tela de login antes de a conta existir. Então o valor da conta vence quando presente, e a escolha cacheada pelo detector sobrevive quando não. O dashboard aplica o idioma da conta em modo leitura ao carregar; o seletor de idioma é o único escritor, atualizando backend, store e i18next juntos.
 
-1. **i18next** — update imediato da UI, todas as strings traduzidas re-renderizam
-2. **Backend** — persiste preferência para sobreviver entre dispositivos
-3. **Redux** — persiste localmente via redux-persist para sobreviver a refreshes de página
+## Tema
 
-### Restauração de idioma no login
+### O modelo: duas bases, cinco pacotes de acento
 
-Quando o usuário faz login, o backend retorna o languageInUse salvo. O frontend dispara para o Redux, e o hook useChangeLanguage do dashboard aplica ao i18next. Isso garante que o app imediatamente mude para o idioma preferido do usuário.
+O sistema antigo era nove temas independentes, cada um dono de todas as cores. O modelo atual divide a decisão em duas:
 
-## Sistema de Tema
+- **Base**: light ou dark (mais "system", que resolve contra o sistema operacional e o acompanha ao vivo por um listener de media query).
+- **Pacote de acento**: beyou (o azul padrão), amethyst, sunset, forest, cyber. Um pacote redefine só os quatro tokens de acento; neutros e superfícies pertencem à base.
 
-### Arquitetura
+A preferência guardada é a string `mode:pack` ("dark:cyber", "system:beyou"), e essa string exata é o que o backend mantém em themeInUse. Existem dez combinações concretas para telas que as percorrem.
 
-```mermaid
-flowchart TD
-  USER["👤 Usuário seleciona tema"]
-  USER --> SEL["🎨 ThemeSelector"]
-  SEL --> API["API Backend<br/>editUser({ theme: mode })"]
-  SEL --> RDX["Redux<br/>dispatch(themeInUseEnter(theme))"]
-  SEL --> CTX["ThemeContext<br/>setTheme(theme)"]
+Os nove nomes antigos ainda resolvem por um mapa de migração (beYou para light:beyou, Midnight para dark:beyou, Cyberpunk para dark:cyber, e assim por diante), e qualquer coisa não reconhecida cai para system:beyou em vez de lançar erro, então uma conta que escolheu tema pela última vez no mundo antigo pousa em um lugar razoável.
 
-  CTX --> EFFECT["useEffect"]
-  EFFECT --> CSS["Atualizar variáveis CSS :root"]
-  CSS --> BG["--background"]
-  CSS --> PRI["--primary"]
-  CSS --> SEC["--secondary"]
-  CSS --> DESC["--description"]
-  CSS --> ICO["--icon"]
-  CSS --> PH["--placeholder"]
-  CSS --> SUC["--success"]
-  CSS --> ERR["--error"]
-```
+### Tokens e variáveis CSS
 
-### Temas disponíveis
+Um único mapa de tokens (fundo, superfícies, bordas, três níveis de texto, os pares de xp e chama, sucesso, perigo, sombra e os quatro tokens de acento) é o contrato. Uma função compartilhada transforma um tema em variáveis CSS, e ela emite cada cor duas vezes: como hex e como canais RGB crus. Os canais não são decoração; o Tailwind precisa deles para gerar variantes de opacidade, e sem eles classes como `bg-accent/10` simplesmente nunca existem. O Tailwind do web mapeia cada token por essas variáveis de canal; os nomes do modelo antigo (background, primary, description) sobrevivem como aliases enquanto a migração termina.
 
-Beyou tem 9 temas, cada um definindo 8 variáveis de cor:
-
-| Tema | Mode | Background | Primary | Estilo |
-|------|------|-----------|---------|--------|
-| **beYou** | beYou | #FFFFFF | #0082E1 | Azul claro no branco |
-| **beYou Dark** | beYouDark | #18181B | #0082E1 | Azul no cinza escuro |
-| **Sunset** | Sunset | #FFF3E0 | #FB923C | Laranja quente claro |
-| **Amethyst** | Amethyst | #F5F3FF | #8B5CF6 | Roxo claro |
-| **Midnight** | Midnight | #0F172A | #60A5FA | Azul no navy |
-| **Cyberpunk** | Cyberpunk | #0D0C1D | #D946EF | Rosa no escuro |
-| **Mocha** | Mocha | #FAF3E0 | #B45309 | Marrom quente claro |
-| **Polar** | Polar | #1E293B | #0EA5E9 | Ciano no slate |
-| **Late Latte** | Late Latte | #2C1E1E | #947347 | Dourado no marrom escuro |
-
-### ThemeContext
-
-O ThemeContext é um React context que envolve todo o app via ThemeProvider:
-
-1. Lê o tema salvo do usuário do Redux (perfil.themeInUse)
-2. Se não há tema salvo, verifica preferência do OS via matchMedia("(prefers-color-scheme: dark)")
-3. Fallback para defaultLight
-4. A cada mudança de tema, atualiza propriedades CSS customizadas no :root
-
-**Prioridade:** Preferência do usuário > Dark mode do OS > defaultLight
-
-### Integração com variáveis CSS
-
-Todos os componentes usam classes Tailwind CSS que referenciam variáveis CSS:
-
-| Variável | Usado por | Classe Tailwind |
-|----------|---------|----------------|
-| --background | Fundos de página, cards | bg-background |
-| --primary | Botões, links, acentos | bg-primary, text-primary |
-| --secondary | Texto, títulos | text-secondary |
-| --description | Texto mutado | text-description |
-| --icon | Cores de ícone | text-icon |
-| --success | Estados de sucesso | text-success |
-| --error | Estados de erro, validação | text-error, border-error |
-
-Tailwind é configurado com essas variáveis CSS no tailwind.config.js, então toda classe relacionada a cor se adapta automaticamente ao tema ativo.
-
-### Fluxo de mudança de tema
-
-```mermaid
-sequenceDiagram
-  participant U as Usuário
-  participant SEL as ThemeSelector
-  participant BE as Backend
-  participant RDX as Redux
-  participant CTX as ThemeContext
-  participant DOM as :root CSS
-
-  U->>SEL: Clica tema Midnight
-  SEL->>BE: editUser({ theme: "Midnight" })
-  SEL->>RDX: dispatch(themeInUseEnter(midnightTheme))
-  SEL->>CTX: setTheme(midnightTheme)
-  CTX->>DOM: --background: #0F172A
-  CTX->>DOM: --primary: #60A5FA
-  CTX->>DOM: --secondary: #E2E8F0
-  Note right of DOM: Todos os componentes refletem<br/>instantaneamente as novas cores
-```
-
-### UI do seletor de tema
-
-O ThemeSelector renderiza uma grid de previews de temas. Cada preview é um retângulo dividido mostrando o background do tema (metade esquerda) e cor primária (metade direita), com borda na cor primária. Clicar em um preview dispara a sincronização tripla (API + Redux + Context).
-
-## Como Funcionam Juntos
-
-Ambos os sistemas seguem o mesmo padrão de sincronização tripla:
+### A troca
 
 ```mermaid
 flowchart LR
-  CHANGE["Usuário muda<br/>idioma ou tema"]
-  CHANGE --> I["1. Framework UI<br/>i18next ou ThemeContext<br/>(update visual imediato)"]
-  CHANGE --> R["2. Redux<br/>(persistência local<br/>via redux-persist)"]
-  CHANGE --> A["3. API Backend<br/>(persistência no servidor<br/>entre dispositivos)"]
+  SEL["🎨 ThemeSelector"] -->|"otimista"| CTX["ThemeContext"]
+  CTX --> VARS["Variáveis CSS no :root"]
+  CTX --> DATA["data-theme + color-scheme"]
+  SEL -->|"PUT do tema"| BE["Backend"]
+  BE -->|"em erro"| ROLLBACK["Desfaz store + local"]
+  OS["🖥️ Mudança de esquema do SO"] -->|"só no modo system"| CTX
 ```
 
-Isso garante:
+A troca escreve as variáveis na raiz do documento, define um atributo `data-theme` (para CSS puro, como barra de rolagem e seleção, poder reagir) e define o `color-scheme` nativo para os controles embutidos acompanharem. Não há alternância de classe; a configuração de classe de modo escuro do Tailwind é vestigial.
 
-- **Resposta UI instantânea** — sem estado de loading ao trocar
-- **Sobrevive refresh de página** — redux-persist restaura do localStorage
-- **Sobrevive troca de dispositivo** — backend armazena a preferência
-- **Funciona offline** — redux-persist aplica mesmo sem conexão com API
+O caminho de escrita é otimista com rollback de verdade: a UI aplica na hora, o PUT ao backend segue, e um erro do servidor desfaz a store e a preferência local com um toast. O rollback existe porque o comportamento anterior, manter o tema novo na tela enquanto a conta guardava o antigo em silêncio, fazia o próximo boot desfazer a escolha do usuário sem explicação.
+
+### Persistência e precedência
+
+A preferência local vive em uma chave própria do localStorage, deliberadamente fora do redux-persist, porque o slice de perfil está na blacklist como PII e o tema precisa sobreviver sem ele. O papel dela é ser o fallback abaixo da conta: um tema escolhido na tela de login carrega para uma sessão nova e até para uma conta nova. Quando o perfil carrega, o tema da conta vence; quando a conta não tem nenhum, a escolha local fica em vez de resetar para o padrão do sistema. A varredura de storage da exclusão de conta preserva explicitamente essa chave, tratando o tema como configuração da máquina, não dado da conta.
+
+### Movimento reduzido
+
+Duas camadas: uma regra CSS global colapsa todas as durações de animação e transição sob prefers-reduced-motion, e os componentes de framer-motion (celebrações, XP float, tutorial, assistente de onboarding, painel do agente) ainda trocam transformações por fades pelo hook useReducedMotion.
+
+### Mobile
+
+O app mobile importa o mesmo pacote de tema: mesmos tokens, mesma string de preferência, mesma migração de legado. Só o mecanismo de aplicação difere; em vez de variáveis CSS no documento, os tokens alimentam o sistema de variáveis do NativeWind na view raiz, com o esquema do sistema resolvido pelo hook do próprio React Native.

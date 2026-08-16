@@ -1,15 +1,26 @@
-sequenceDiagram
-  participant U as User
-  participant FE as React App
-  participant AX as Axios Interceptor
-  participant BE as Backend
+flowchart TD
+  subgraph boot["Boot"]
+    SR["useSilentRefresh<br/>cookie → X-Access-Token → hydrate perfil"]
+  end
 
-  U->>FE: Navigate to /dashboard
-  FE->>FE: useAuthGuard()
-  FE->>BE: GET /auth/verify
-  BE-->>FE: 401 Unauthorized
-  AX->>BE: POST /auth/refresh (cookie)
-  BE-->>AX: New JWT + new cookie
-  AX->>BE: Retry GET /auth/verify
-  BE-->>FE: 200 OK
-  FE->>FE: Render protected page
+  subgraph runtime["Runtime"]
+    MEM["🔑 JWT in memory only<br/>axios default header"]
+    INT["🔄 401 interceptor<br/>one shared refresh promise"]
+    PR["🛡️ ProtectedRoute (layout)"]
+    AR["🚪 AdminRoute<br/>probes an admin endpoint,<br/>trusts no client-side role"]
+  end
+
+  subgraph storage["Storage discipline"]
+    BL["redux-persist blacklist<br/>perfil · snapshot · celebration"]
+    TD["Account teardown<br/>purge → prefix sweep → hard nav"]
+  end
+
+  subgraph edge["nginx in front"]
+    HDR["HSTS · nosniff · frame deny<br/>CSP (report-only) · .map → 404"]
+  end
+
+  SR --> MEM
+  MEM --> INT
+  PR --> AR
+  INT -.->|"refresh failed"| LOGIN["→ login"]
+  BL --> TD
