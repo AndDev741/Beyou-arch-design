@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: Onboarding suggestions
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /onboarding/suggestions:
+    post:
+      tags:
+      - onboarding-controller
+      operationId: suggest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingSuggestionRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/OnboardingSuggestions'
+components:
+  schemas:
+    CategorySuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+    GoalSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        categoryName:
+          type: string
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        motivation:
+          type: string
+        term:
+          type: string
+        durationDays:
+          type: integer
+          format: int32
+    HabitSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        motivationalPhrase:
+          type: string
+        iconId:
+          type: string
+        categoryName:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        difficulty:
+          type: integer
+          format: int32
+    ItemPlacement:
+      type: object
+      properties:
+        name:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+    ItemRef:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 256
+          minLength: 0
+        categoryName:
+          type: string
+          maxLength: 256
+          minLength: 0
+    OnboardingContext:
+      type: object
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+            minLength: 0
+          maxItems: 30
+          minItems: 0
+        habits:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemRef'
+          maxItems: 60
+          minItems: 0
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemRef'
+          maxItems: 60
+          minItems: 0
+        freeTexts:
+          type: array
+          items:
+            type: string
+            maxLength: 300
+            minLength: 0
+          maxItems: 10
+          minItems: 0
+        feedback:
+          type: string
+          maxLength: 500
+          minLength: 0
+    OnboardingSuggestionRequest:
+      type: object
+      properties:
+        step:
+          type: string
+          enum:
+          - CATEGORIES
+          - HABITS_TASKS
+          - ROUTINE
+          - GOALS
+        categoryNames:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+            minLength: 0
+          maxItems: 30
+          minItems: 0
+        context:
+          $ref: '#/components/schemas/OnboardingContext'
+        newRequest:
+          type: string
+          maxLength: 300
+          minLength: 0
+      required:
+      - step
+    OnboardingSuggestions:
+      type: object
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategorySuggestion'
+        habits:
+          type: array
+          items:
+            $ref: '#/components/schemas/HabitSuggestion'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSuggestion'
+        routine:
+          $ref: '#/components/schemas/RoutineSuggestion'
+        goals:
+          type: array
+          items:
+            $ref: '#/components/schemas/GoalSuggestion'
+    RoutineSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        iconId:
+          type: string
+        scheduleDays:
+          type: array
+          items:
+            type: string
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectionSuggestion'
+        newHabits:
+          type: array
+          items:
+            $ref: '#/components/schemas/HabitSuggestion'
+        newTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSuggestion'
+    SectionSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        iconId:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        habits:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemPlacement'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemPlacement'
+    TaskSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        iconId:
+          type: string
+        categoryName:
+          type: string
+        importance:
+          type: integer
+          format: int32
+        difficulty:
+          type: integer
+          format: int32

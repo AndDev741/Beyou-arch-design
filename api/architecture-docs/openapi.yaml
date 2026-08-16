@@ -1,16 +1,16 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Architecture docs
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /docs/architecture/topics:
     get:
       tags:
       - architecture-docs-controller
-      operationId: getTopics_1
+      operationId: getTopics_2
       parameters:
       - name: locale
         in: query
@@ -30,7 +30,7 @@ paths:
     get:
       tags:
       - architecture-docs-controller
-      operationId: getTopic_1
+      operationId: getTopic_2
       parameters:
       - name: key
         in: path
@@ -51,6 +51,26 @@ paths:
                 $ref: '#/components/schemas/ArchitectureTopicDetailDTO'
 components:
   schemas:
+    ArchitectureTopicDetailDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        diagramMermaid:
+          type: string
+        docMarkdown:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        tags:
+          type: string
+        projectKey:
+          type: string
     ArchitectureTopicListItemDTO:
       type: object
       properties:
@@ -66,17 +86,9 @@ components:
         updatedAt:
           type: string
           format: date-time
-    ArchitectureTopicDetailDTO:
-      type: object
-      properties:
-        key:
+        status:
           type: string
-        title:
+        tags:
           type: string
-        diagramMermaid:
+        projectKey:
           type: string
-        docMarkdown:
-          type: string
-        updatedAt:
-          type: string
-          format: date-time

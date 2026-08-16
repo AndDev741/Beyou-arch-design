@@ -1,0 +1,21 @@
+openapi: 3.1.0
+info:
+  title: User export
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /user/export:
+    get:
+      tags:
+      - user-export-controller
+      operationId: exportUserData
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties: {}

@@ -1,74 +1,34 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Feedback
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /feedback:
     post:
       tags:
       - feedback-controller
-      summary: Submit user feedback
-      description: |
-        Authenticated. Rate limited to 10 submissions per hour per user; over
-        budget the request is rejected with 429 and a Retry-After header.
-        The response deliberately omits `status` — triage state is internal.
-      operationId: createFeedback
+      operationId: submitFeedback
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateFeedbackRequest'
+              $ref: '#/components/schemas/CreateFeedbackRequestDTO'
         required: true
       responses:
         '201':
-          description: Feedback stored.
+          description: Created
           content:
             '*/*':
               schema:
-                $ref: '#/components/schemas/FeedbackResponse'
-        '400':
-          description: Validation failure.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
-        '429':
-          description: Rate limit exceeded — `errorKey` is `RATE_LIMIT_EXCEEDED`.
-          headers:
-            Retry-After:
-              description: Seconds until the rate-limit window resets.
-              schema:
-                type: integer
-                format: int32
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
+                $ref: '#/components/schemas/FeedbackResponseDTO'
   /feedback/{feedbackId}/attachments:
     post:
       tags:
       - feedback-controller
-      summary: Attach one image to a feedback submission
-      description: |
-        Authenticated, owner only. One image per request, sent as
-        `multipart/form-data` in a part named `file`. Accepted upload types are
-        `image/jpeg`, `image/png`, `image/webp` and `image/gif`. Ceilings:
-        5 MB, 25 MP pre-decode, and 5 attachments per submission. Stored images
-        are always re-encoded to JPEG and capped at 1920 px on the longest edge,
-        so the returned `contentType` is always `image/jpeg` and
-        `width`/`height` are the stored, post-downscale dimensions.
-
-        Error keys: `FEEDBACK_ATTACHMENT_NO_FILE`,
-        `FEEDBACK_ATTACHMENT_INVALID_TYPE`, `FEEDBACK_ATTACHMENT_TOO_LARGE`,
-        `FEEDBACK_ATTACHMENT_CORRUPT`, `FEEDBACK_ATTACHMENT_STORE_FAILED`,
-        `FEEDBACK_ATTACHMENT_LIMIT_REACHED`, `FEEDBACK_ATTACHMENT_NOT_FOUND`,
-        `FEEDBACK_NOT_OWNED`, `FEEDBACK_NOT_FOUND`.
-      operationId: uploadFeedbackAttachment
+      operationId: addAttachment
       parameters:
       - name: feedbackId
         in: path
@@ -78,34 +38,27 @@ paths:
           format: uuid
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              $ref: '#/components/schemas/FeedbackAttachmentUploadRequest'
-        required: true
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
       responses:
         '201':
-          description: Attachment stored.
+          description: Created
           content:
             '*/*':
               schema:
-                $ref: '#/components/schemas/FeedbackAttachment'
-        '400':
-          description: Upload rejected — see `errorKey`.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
+                $ref: '#/components/schemas/FeedbackAttachmentDTO'
   /feedback/{feedbackId}/attachments/{attachmentId}:
     get:
       tags:
       - feedback-controller
-      summary: Download a stored attachment
-      description: |
-        Authenticated. Readable by the feedback owner or by an admin. The body
-        is the raw stored JPEG.
-      operationId: getFeedbackAttachment
+      operationId: serveAttachment
       parameters:
       - name: feedbackId
         in: path
@@ -121,304 +74,33 @@ paths:
           format: uuid
       responses:
         '200':
-          description: Stored JPEG bytes.
-          headers:
-            Cache-Control:
-              description: Always `private, max-age=3600`.
-              schema:
-                type: string
+          description: OK
           content:
-            image/jpeg:
+            '*/*':
               schema:
                 type: string
                 format: binary
-        '400':
-          description: Unknown or non-owned attachment — see `errorKey`.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
-  /feedback/admin/items:
-    get:
-      tags:
-      - feedback-admin-controller
-      summary: List feedback for triage
-      description: |
-        ROLE_ADMIN only. Filters are AND-ed; results are sorted by `createdAt`
-        descending. Totals describe the filtered set. Rows carry no attachment
-        or reply counts — fetch the detail endpoint for those.
-      operationId: getFeedbackItems
-      parameters:
-      - name: status
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - OPEN
-          - TAKING_CARE
-          - CLOSED
-      - name: category
-        in: query
-        required: false
-        schema:
+components:
+  schemas:
+    CreateFeedbackRequestDTO:
+      type: object
+      properties:
+        category:
           type: string
           enum:
           - BUG
           - FEATURE_REQUEST
           - OTHER
-      - name: page
-        in: query
-        required: false
-        schema:
-          type: integer
-          format: int32
-          default: 0
-          minimum: 0
-      - name: size
-        in: query
-        required: false
-        schema:
-          type: integer
-          format: int32
-          default: 20
-          maximum: 100
-          minimum: 1
-      responses:
-        '200':
-          description: OK
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/FeedbackAdminPage'
-        '401':
-          description: Not authenticated.
-        '403':
-          description: Authenticated but not an admin.
-  /feedback/admin/counts:
-    get:
-      tags:
-      - feedback-admin-controller
-      summary: Unfiltered triage counters
-      description: ROLE_ADMIN only. Takes no parameters and ignores any filter.
-      operationId: getFeedbackCounts
-      responses:
-        '200':
-          description: OK
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/FeedbackCounts'
-        '401':
-          description: Not authenticated.
-        '403':
-          description: Authenticated but not an admin.
-  /feedback/admin/items/{feedbackId}:
-    get:
-      tags:
-      - feedback-admin-controller
-      summary: Full feedback detail
-      description: |
-        ROLE_ADMIN only. Attachments and replies are both ordered oldest first.
-        An unknown id returns 400 with `errorKey` `FEEDBACK_NOT_FOUND`.
-      operationId: getFeedbackItem
-      parameters:
-      - name: feedbackId
-        in: path
-        required: true
-        schema:
+        body:
           type: string
-          format: uuid
-      responses:
-        '200':
-          description: OK
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/FeedbackAdminDetail'
-        '400':
-          description: Unknown feedback — `errorKey` is `FEEDBACK_NOT_FOUND`.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
-        '403':
-          description: Authenticated but not an admin.
-  /feedback/admin/items/{feedbackId}/status:
-    put:
-      tags:
-      - feedback-admin-controller
-      summary: Move a feedback item through triage
-      description: ROLE_ADMIN only. Sends no notification to the submitter.
-      operationId: updateFeedbackStatus
-      parameters:
-      - name: feedbackId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateFeedbackStatusRequest'
-        required: true
-      responses:
-        '200':
-          description: The updated row.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/FeedbackAdminItem'
-        '400':
-          description: Validation failure or unknown feedback.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
-        '403':
-          description: Authenticated but not an admin.
-  /feedback/admin/items/{feedbackId}/replies:
-    post:
-      tags:
-      - feedback-admin-controller
-      summary: Reply to a feedback item
-      description: |
-        ROLE_ADMIN only. The author is always the authenticated admin — it is
-        never read from the request body. A storage failure returns 400 with
-        `errorKey` `FEEDBACK_REPLY_FAILED`.
-      operationId: createFeedbackReply
-      parameters:
-      - name: feedbackId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateFeedbackReplyRequest'
-        required: true
-      responses:
-        '201':
-          description: Reply stored.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/FeedbackReply'
-        '400':
-          description: Validation failure, unknown feedback, or `FEEDBACK_REPLY_FAILED`.
-          content:
-            '*/*':
-              schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '401':
-          description: Not authenticated.
-        '403':
-          description: Authenticated but not an admin.
-components:
-  schemas:
-    ApiErrorResponse:
-      type: object
-      description: Shape produced by the global exception handler.
-      properties:
-        errorKey:
-          type: string
-          description: Stable machine-readable key the clients translate.
-        message:
-          type: string
-        errors:
-          type: object
-          description: Optional per-field validation detail.
-          additionalProperties: true
-    FeedbackContext:
-      type: object
-      description: |
-        Client-supplied capture context. Every field is optional on the way in
-        and null on the way out when it was not supplied.
-      properties:
-        screen:
-          maxLength: 200
+          maxLength: 4000
           minLength: 0
-          type: string
-        appVersion:
-          maxLength: 40
-          minLength: 0
-          type: string
-        platform:
-          maxLength: 40
-          minLength: 0
-          type: string
-        language:
-          maxLength: 20
-          minLength: 0
-          type: string
-        theme:
-          maxLength: 40
-          minLength: 0
-          type: string
-    CreateFeedbackRequest:
+        context:
+          $ref: '#/components/schemas/FeedbackContextDTO'
       required:
       - body
       - category
-      type: object
-      properties:
-        category:
-          type: string
-          enum:
-          - BUG
-          - FEATURE_REQUEST
-          - OTHER
-        body:
-          maxLength: 4000
-          minLength: 1
-          type: string
-        context:
-          $ref: '#/components/schemas/FeedbackContext'
-    FeedbackResponse:
-      type: object
-      description: |
-        What the submitter gets back. `status` is deliberately absent — it is
-        internal triage state.
-      properties:
-        id:
-          type: string
-          format: uuid
-        category:
-          type: string
-          enum:
-          - BUG
-          - FEATURE_REQUEST
-          - OTHER
-        body:
-          type: string
-        context:
-          $ref: '#/components/schemas/FeedbackContext'
-        createdAt:
-          type: string
-          format: date-time
-          description: Local date-time, no zone offset.
-    FeedbackAttachmentUploadRequest:
-      required:
-      - file
-      type: object
-      properties:
-        file:
-          type: string
-          format: binary
-          description: |
-            One image, max 5 MB and 25 MP pre-decode. Accepted types are
-            image/jpeg, image/png, image/webp and image/gif.
-    FeedbackAttachment:
+    FeedbackAttachmentDTO:
       type: object
       properties:
         id:
@@ -429,52 +111,44 @@ components:
           format: uuid
         url:
           type: string
-          description: Always `/feedback/{feedbackId}/attachments/{id}`.
         contentType:
           type: string
-          description: Always `image/jpeg` — everything is re-encoded.
         width:
           type: integer
           format: int32
-          description: Stored, post-downscale width.
         height:
           type: integer
           format: int32
-          description: Stored, post-downscale height.
         sizeBytes:
           type: integer
           format: int64
         createdAt:
           type: string
           format: date-time
-    FeedbackReply:
+    FeedbackContextDTO:
       type: object
       properties:
-        id:
+        screen:
           type: string
-          format: uuid
-        feedbackId:
+          maxLength: 200
+          minLength: 0
+        appVersion:
           type: string
-          format: uuid
-        body:
+          maxLength: 40
+          minLength: 0
+        platform:
           type: string
-        authorName:
+          maxLength: 40
+          minLength: 0
+        language:
           type: string
-          nullable: true
-        createdAt:
+          maxLength: 20
+          minLength: 0
+        theme:
           type: string
-          format: date-time
-    FeedbackSubmitter:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        email:
-          type: string
-    FeedbackAdminItem:
+          maxLength: 40
+          minLength: 0
+    FeedbackResponseDTO:
       type: object
       properties:
         id:
@@ -486,118 +160,10 @@ components:
           - BUG
           - FEATURE_REQUEST
           - OTHER
-        status:
-          type: string
-          enum:
-          - OPEN
-          - TAKING_CARE
-          - CLOSED
         body:
           type: string
         context:
-          $ref: '#/components/schemas/FeedbackContext'
-        submitter:
-          $ref: '#/components/schemas/FeedbackSubmitter'
+          $ref: '#/components/schemas/FeedbackContextDTO'
         createdAt:
           type: string
           format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-    FeedbackAdminDetail:
-      type: object
-      description: Every FeedbackAdminItem field plus attachments and replies.
-      properties:
-        id:
-          type: string
-          format: uuid
-        category:
-          type: string
-          enum:
-          - BUG
-          - FEATURE_REQUEST
-          - OTHER
-        status:
-          type: string
-          enum:
-          - OPEN
-          - TAKING_CARE
-          - CLOSED
-        body:
-          type: string
-        context:
-          $ref: '#/components/schemas/FeedbackContext'
-        submitter:
-          $ref: '#/components/schemas/FeedbackSubmitter'
-        attachments:
-          type: array
-          description: Oldest first.
-          items:
-            $ref: '#/components/schemas/FeedbackAttachment'
-        replies:
-          type: array
-          description: Oldest first.
-          items:
-            $ref: '#/components/schemas/FeedbackReply'
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-    FeedbackAdminPage:
-      type: object
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/FeedbackAdminItem'
-        page:
-          type: integer
-          format: int32
-        size:
-          type: integer
-          format: int32
-        totalItems:
-          type: integer
-          format: int64
-          description: Size of the filtered set, not of the whole table.
-        totalPages:
-          type: integer
-          format: int32
-    FeedbackCounts:
-      type: object
-      description: Unfiltered counters. Every field is present, `0` rather than absent.
-      properties:
-        open:
-          type: integer
-          format: int64
-        takingCare:
-          type: integer
-          format: int64
-        closed:
-          type: integer
-          format: int64
-        total:
-          type: integer
-          format: int64
-    UpdateFeedbackStatusRequest:
-      required:
-      - status
-      type: object
-      properties:
-        status:
-          type: string
-          enum:
-          - OPEN
-          - TAKING_CARE
-          - CLOSED
-    CreateFeedbackReplyRequest:
-      required:
-      - body
-      type: object
-      properties:
-        body:
-          maxLength: 4000
-          minLength: 1
-          type: string

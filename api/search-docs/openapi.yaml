@@ -1,0 +1,86 @@
+openapi: 3.1.0
+info:
+  title: Docs search
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /docs/search:
+    get:
+      tags:
+      - search-docs-controller
+      operationId: search
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: all
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 10
+          maximum: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResultDTO'
+components:
+  schemas:
+    SearchHighlightDTO:
+      type: object
+      properties:
+        title:
+          type: array
+          items:
+            type: string
+        summary:
+          type: array
+          items:
+            type: string
+    SearchResultDTO:
+      type: object
+      properties:
+        type:
+          type: string
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        score:
+          type: number
+          format: double
+        highlight:
+          $ref: '#/components/schemas/SearchHighlightDTO'

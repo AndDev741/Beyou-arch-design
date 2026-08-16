@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Schedules
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /schedule:
@@ -19,7 +19,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Schedule'
+                  $ref: '#/components/schemas/ScheduleResponseDTO'
     put:
       tags:
       - schedule-controller
@@ -71,14 +71,10 @@ paths:
           description: OK
 components:
   schemas:
-    UpdateScheduleDTO:
+    CreateScheduleDTO:
       type: object
       properties:
-        scheduleId:
-          type: string
-          format: uuid
         days:
-          uniqueItems: true
           type: array
           items:
             type: string
@@ -90,9 +86,14 @@ components:
             - Friday
             - Saturday
             - Sunday
+          minItems: 1
+          uniqueItems: true
         routineId:
           type: string
           format: uuid
+      required:
+      - days
+      - routineId
     Schedule:
       type: object
       properties:
@@ -100,7 +101,6 @@ components:
           type: string
           format: uuid
         days:
-          uniqueItems: true
           type: array
           items:
             type: string
@@ -112,14 +112,14 @@ components:
             - Friday
             - Saturday
             - Sunday
-    CreateScheduleDTO:
-      required:
-      - days
-      - routineId
+          uniqueItems: true
+    ScheduleResponseDTO:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
         days:
-          uniqueItems: true
           type: array
           items:
             type: string
@@ -131,6 +131,26 @@ components:
             - Friday
             - Saturday
             - Sunday
+          uniqueItems: true
+    UpdateScheduleDTO:
+      type: object
+      properties:
+        scheduleId:
+          type: string
+          format: uuid
+        days:
+          type: array
+          items:
+            type: string
+            enum:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+          uniqueItems: true
         routineId:
           type: string
           format: uuid

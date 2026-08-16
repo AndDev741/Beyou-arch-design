@@ -1,0 +1,84 @@
+openapi: 3.1.0
+info:
+  title: Check history
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /check-history:
+    get:
+      tags:
+      - check-history-controller
+      operationId: getCheckHistory
+      parameters:
+      - name: ownerType
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: ownerId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CheckDayResponseDTO'
+components:
+  schemas:
+    CheckDayResponseDTO:
+      type: object
+      properties:
+        ownerType:
+          type: string
+          enum:
+          - HABIT
+          - TASK
+          - ROUTINE
+          - USER
+        ownerId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/Day'
+    Day:
+      type: object
+      properties:
+        day:
+          type: string
+          format: date
+        outcome:
+          type: string
+          enum:
+          - DONE
+          - SKIPPED
+          - MISSED
+          - NOT_SCHEDULED
+          - NOT_IN_ROUTINE
+          - UNKNOWN

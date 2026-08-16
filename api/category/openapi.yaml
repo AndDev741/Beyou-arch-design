@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Categories
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /category:
@@ -37,8 +37,7 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
     post:
       tags:
       - category-controller
@@ -56,8 +55,7 @@ paths:
             '*/*':
               schema:
                 type: object
-                additionalProperties:
-                  type: object
+                additionalProperties: {}
   /category/{categoryId}:
     delete:
       tags:
@@ -85,36 +83,44 @@ components:
       properties:
         categoryId:
           type: string
+          minLength: 1
         name:
           type: string
+          maxLength: 256
+          minLength: 2
         icon:
           type: string
+          minLength: 1
         description:
           type: string
-    CategoryRequestDTO:
+          maxLength: 1024
+          minLength: 0
       required:
+      - categoryId
       - icon
       - name
-      - experience
+    CategoryRequestDTO:
       type: object
       properties:
         name:
+          type: string
           maxLength: 256
           minLength: 2
-          type: string
         icon:
           type: string
+          minLength: 1
         description:
           type: string
         experience:
-          $ref: '#/components/schemas/ExperienceLevel'
-    ExperienceLevel:
-      type: string
-      description: Starting experience tier. Server resolves to actual xp/level values.
-      enum:
-      - BEGINNER
-      - INTERMEDIARY
-      - ADVANCED
+          type: string
+          enum:
+          - BEGINNER
+          - INTERMEDIARY
+          - ADVANCED
+      required:
+      - experience
+      - icon
+      - name
     CategoryResponseDTO:
       type: object
       properties:

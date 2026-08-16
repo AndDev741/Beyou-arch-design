@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: API docs
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /docs/api/controllers:
@@ -51,6 +51,20 @@ paths:
                 $ref: '#/components/schemas/ApiControllerDetailDTO'
 components:
   schemas:
+    ApiControllerDetailDTO:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        apiCatalog:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
     ApiControllerListItemDTO:
       type: object
       properties:
@@ -63,20 +77,6 @@ components:
         orderIndex:
           type: integer
           format: int32
-        updatedAt:
-          type: string
-          format: date-time
-    ApiControllerDetailDTO:
-      type: object
-      properties:
-        key:
-          type: string
-        title:
-          type: string
-        summary:
-          type: string
-        apiCatalog:
-          type: string
         updatedAt:
           type: string
           format: date-time

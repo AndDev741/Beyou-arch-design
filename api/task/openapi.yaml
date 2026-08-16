@@ -1,9 +1,9 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
-  title: OpenAPI definition
+  title: Tasks
   version: v0
 servers:
-- url: http://localhost:8099
+- url: http://localhost:8099/api/v1
   description: Generated server url
 paths:
   /task:
@@ -81,6 +81,49 @@ paths:
                   type: string
 components:
   schemas:
+    CategoryMiniDTO:
+      type: object
+      properties:
+        name:
+          type: string
+        iconId:
+          type: string
+    CreateTaskRequestDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 256
+          minLength: 2
+        description:
+          type: string
+          maxLength: 1000
+          minLength: 0
+        iconId:
+          type: string
+          minLength: 1
+        importance:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        difficulty:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+        oneTimeTask:
+          type: boolean
+      required:
+      - difficulty
+      - iconId
+      - importance
+      - name
     EditTaskRequestDTO:
       type: object
       properties:
@@ -96,9 +139,13 @@ components:
         importance:
           type: integer
           format: int32
+          maximum: 5
+          minimum: 1
         difficulty:
           type: integer
           format: int32
+          maximum: 5
+          minimum: 1
         categoriesId:
           type: array
           items:
@@ -106,40 +153,9 @@ components:
             format: uuid
         oneTimeTask:
           type: boolean
-    CategoryMiniDTO:
-      type: object
-      properties:
-        name:
-          type: string
-        iconId:
-          type: string
-    CreateTaskRequestDTO:
       required:
-      - iconId
-      - name
-      type: object
-      properties:
-        name:
-          maxLength: 256
-          minLength: 2
-          type: string
-        description:
-          type: string
-        iconId:
-          type: string
-        importance:
-          type: integer
-          format: int32
-        difficulty:
-          type: integer
-          format: int32
-        categoriesId:
-          type: array
-          items:
-            type: string
-            format: uuid
-        oneTimeTask:
-          type: boolean
+      - difficulty
+      - importance
     TaskResponseDTO:
       type: object
       properties:
@@ -163,6 +179,20 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/CategoryMiniDTO'
         oneTimeTask:
+          type: boolean
+        currentStreak:
+          type: integer
+          format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        totalCheckIns:
+          type: integer
+          format: int32
+        firstCheckInDate:
+          type: string
+          format: date
+        streakDormant:
           type: boolean
         markedToDelete:
           type: string
