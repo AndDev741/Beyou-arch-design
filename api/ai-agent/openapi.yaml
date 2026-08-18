@@ -31,32 +31,6 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/ChatResponseDTO'
-    post:
-      tags:
-      - ai-agent-controller
-      operationId: processMessage
-      parameters:
-      - name: chatId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AiAgentRequest'
-        required: true
-      responses:
-        '200':
-          description: OK
-          content:
-            '*/*':
-              schema:
-                type: object
-                additionalProperties:
-                  type: string
     delete:
       tags:
       - ai-agent-controller

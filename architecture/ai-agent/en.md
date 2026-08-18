@@ -93,5 +93,5 @@ The web widget mounts once inside the protected shell, lazy-loads the panel on f
 | All five providers fail | Metric incremented, last exception surfaces as an error event; the client rolls back the optimistic bubble and restores the typed text into the composer |
 | Third concurrent stream | A short-lived emitter answers TOO_MANY_STREAMS without opening an LLM call (cap: 2 per user) |
 | Transcript persistence fails | The client gets TRANSCRIPT_PERSIST_FAILED instead of a false done |
-| Rate limit | 30 streams per hour per user (onboarding has its own separate 30) |
+| Rate limit | 30 model calls per hour per user, one bucket for every POST on a chat (onboarding has its own separate 30) |
 | Dead client mid-pause | The 15-second heartbeat is the detector; its failure tears down the stream and frees the slot |
