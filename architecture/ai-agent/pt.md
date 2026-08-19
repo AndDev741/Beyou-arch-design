@@ -93,5 +93,5 @@ O widget web monta uma vez dentro do shell protegido, carrega o painel de forma 
 | Os cinco provedores falham | Métrica incrementada, a última exceção vira um evento de erro; o cliente desfaz a bolha otimista e devolve o texto digitado ao compositor |
 | Terceiro stream simultâneo | Um emissor de vida curta responde TOO_MANY_STREAMS sem abrir chamada de LLM (teto: 2 por usuário) |
 | Persistência do transcript falha | O cliente recebe TRANSCRIPT_PERSIST_FAILED em vez de um done falso |
-| Rate limit | 30 streams por hora por usuário (o onboarding tem seus próprios 30, separados) |
+| Rate limit | 30 chamadas ao modelo por hora por usuário, um balde para todo POST em um chat (o onboarding tem seus próprios 30, separados) |
 | Cliente morto em pausa silenciosa | O heartbeat de 15 segundos é o detector; sua falha derruba o stream e libera a vaga |
