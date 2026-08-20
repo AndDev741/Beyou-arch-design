@@ -191,7 +191,7 @@ Excluir a conta é a única ação onde uma sessão logada deliberadamente não 
 1. `POST /user/deletion/code` envia por e-mail um código de seis dígitos. Hash BCrypt em repouso, TTL de 15 minutos, cooldown de 60 segundos entre pedidos, e cada código novo invalida os anteriores.
 2. `POST /user/deletion/confirm` checa, nesta ordem: já usado, expirado, tentativas demais (5) e então a comparação do hash. O contador de tentativas incrementa na própria transação REQUIRES_NEW, porque a exceção que segue um palpite errado desfaz a transação externa, e contar inline deixaria o teto inalcançável.
 3. Gastar o código apaga sua linha na mesma transação, o que dobra como lock: um segundo confirm em corrida bloqueia, perde e recebe um erro chaveado.
-4. A exclusão em si remove refresh tokens e tokens de reset explicitamente, as seis coleções possuídas pelo cascade do JPA (categorias, hábitos, tarefas, metas, rotinas, snapshots), os chats com a memória de IA, e as linhas de histórico por cascades no nível do banco. Os arquivos de anexo em disco são purgados depois do commit, em melhor esforço.
+4. A exclusão em si remove refresh tokens e tokens de reset explicitamente, as seis coleções possuídas pelo cascade do JPA (categorias, hábitos, tarefas, metas, rotinas, snapshots), os chats com a memória de IA, e as linhas de histórico por cascades no nível do banco. Os arquivos em disco são purgados depois do commit, em melhor esforço: os anexos de feedback e a foto de perfil. A foto passou batido no começo — linhas cascateiam, bytes não, então o JPEG sobrevivia à conta com um nome de arquivo que ainda era o id do usuário apagado.
 5. O cookie de refresh só é limpo após o sucesso, então um código recusado deixa a sessão intacta.
 
 ## Posse: o modelo de autorização
@@ -208,7 +208,26 @@ Os dois caminhos de upload (foto de perfil, anexos de feedback) dividem a mesma 
 - Guarda contra bomba de descompressão: as dimensões da imagem são lidas do cabeçalho e rejeitadas acima de 25 megapixels antes de qualquer buffer de pixels ser alocado.
 - Toda imagem é re-encodada para JPEG opaco e reduzida (512px para fotos, 1920px para anexos), então nada que o usuário envia é servido byte a byte.
 - Os caminhos de armazenamento derivam só de UUIDs do servidor; nenhum nome de arquivo do cliente toca o filesystem. A escrita vai para um arquivo temporário e pousa com um move atômico.
-- Feedback aceita no máximo 5 anexos. Fotos de perfil são legíveis publicamente pelo UUID do usuário (limitadas a 120/min por IP), um tradeoff deliberado de simplicidade anotado na avaliação.
+- Feedback aceita no máximo 5 anexos.
+
+### Servindo uma foto de perfil
+
+Ler a foto de volta é o único lugar deste código onde a autorização não viaja num header, e a razão é quem chama: uma `<img src>` na web e uma `<Image uri>` no celular. Nenhuma das duas manda header. Então `GET /user/photo/{userId}` ficava aberto para qualquer um que soubesse citar um id de usuário — enumerável, e o tipo de frase que trava uma revisão da Play Store.
+
+A URL carrega a própria prova:
+
+```
+/api/v1/user/photo/{userId}?v={mtime}&exp={epoch}&sig={HMAC-SHA256(userId|exp)}
+```
+
+- A chave de assinatura é **derivada** do segredo do JWT, `HMAC(TOKEN_SECRET, "beyou-photo-url-v1")`, então não existe um segundo segredo para implantar e uma assinatura de foto não serve como token em nenhum outro lugar.
+- A URL é cunhada num lugar só: o `UserMapper`, respondendo `GET /user`. É a única resposta que ninguém além do dono consegue ler. O login deliberadamente não cunha nenhuma — mapeia o usuário sem a versão da foto — então quem quer a URL assinada precisa pedir o perfil.
+- O `exp` está dentro da assinatura, então o prazo não pode ser estendido editando a query string. O TTL padrão é 12 horas (`PHOTO_URL_TTL_MINUTES`): longo o suficiente para uma aba esquecida a noite inteira ainda desenhar o avatar, curto o suficiente para uma URL capturada num log de proxy parar de funcionar no mesmo dia.
+- A comparação é de tempo constante (`MessageDigest.isEqual`); um palpite parcial não revela quanto dele estava certo.
+- Assinatura ausente, forjada, expirada ou apontada para outro id responde **403, nunca 404**. Essa assimetria é o ponto: um 404 transformaria o endpoint num oráculo de quais contas têm foto, respondendo uma pergunta para quem não tem nada na mão.
+- O `Cache-Control` é `private`, não `public`. A URL agora é uma capability, e um cache compartilhado guardando os bytes continuaria servindo eles depois da assinatura expirar.
+
+O tradeoff aceito aqui é que a URL **é** uma credencial ao portador enquanto vale: quem receber ela encaminhada consegue carregar aquela foto até o `exp`. Esse é o preço de funcionar dentro de uma tag `<img>`, e está limitado a uma única imagem que quem repassou já tinha.
 
 ## Guarda-corpos do agente de IA
 

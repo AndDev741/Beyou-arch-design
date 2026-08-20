@@ -191,7 +191,7 @@ Deleting an account is the one action where a logged-in session is deliberately 
 1. `POST /user/deletion/code` mails a six-digit code. BCrypt-hashed at rest, 15-minute TTL, 60-second cooldown between requests, and each new code invalidates the previous ones.
 2. `POST /user/deletion/confirm` checks, in order: already used, expired, too many attempts (5), then the hash comparison. The attempts counter increments in its own REQUIRES_NEW transaction, because the exception that follows a wrong guess rolls the outer transaction back, and counting inline would have left the cap unreachable.
 3. Spending the code deletes its row inside the same transaction, which doubles as a lock: a racing second confirm blocks, loses, and gets a keyed error.
-4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, and history rows through database-level cascades. Attachment files on disk are purged after commit, best-effort.
+4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, and history rows through database-level cascades. Files on disk are purged after commit, best-effort: feedback attachments, and the profile photo. The photo was missed at first — rows cascade, bytes do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
 5. The refresh cookie is cleared only after success, so a refused code leaves the session intact.
 
 ## Ownership: the authorization model
@@ -208,7 +208,26 @@ The two upload paths (profile photo, feedback attachments) share the same defens
 - A decompression-bomb guard: image dimensions are read from the header and rejected above 25 megapixels before any pixel buffer is allocated.
 - Every image is re-encoded to an opaque JPEG and downscaled (512px for photos, 1920px for attachments), so nothing a user uploads is ever served byte-for-byte.
 - Storage paths are derived only from server-side UUIDs; no client-supplied filename ever touches the filesystem. Writes go to a temp file and land with an atomic move.
-- Feedback allows at most 5 attachments each. Profile photos are publicly readable by user UUID (throttled at 120/min per IP), a deliberate simplicity tradeoff noted in the assessment.
+- Feedback allows at most 5 attachments each.
+
+### Serving a profile photo
+
+Reading a photo back is the one place in this codebase where authorization does not ride in a header, and the reason is the caller: an `<img src>` on the web and an `<Image uri>` on the phone. Neither can send one. `GET /user/photo/{userId}` was therefore open to anyone who could name a user id — enumerable, and the kind of sentence that stops a Play Store review.
+
+The URL carries its own proof instead:
+
+```
+/api/v1/user/photo/{userId}?v={mtime}&exp={epoch}&sig={HMAC-SHA256(userId|exp)}
+```
+
+- The signing key is **derived** from the JWT secret, `HMAC(TOKEN_SECRET, "beyou-photo-url-v1")`, so there is no second secret to deploy and a photo signature is useless as a token anywhere else.
+- The URL is minted in exactly one place: `UserMapper`, answering `GET /user`. That is a response nobody but the owner can read. Login deliberately does not mint one — it maps the user without a photo version — so a client wanting the signed URL has to ask for the profile.
+- `exp` is inside the signature, so the deadline cannot be extended by editing the query string. Default TTL is 12 hours (`PHOTO_URL_TTL_MINUTES`): long enough that a tab left open overnight still renders an avatar, short enough that a URL captured in a proxy log stops working the same day.
+- Comparison is constant-time (`MessageDigest.isEqual`); a partial guess leaks nothing about how much of it was right.
+- A missing, forged, expired or re-pointed signature answers **403, never 404**. That asymmetry is the point: a 404 would turn the endpoint into an oracle for which accounts have a photo, answering a question to a caller holding nothing.
+- `Cache-Control` is `private`, not `public`. The URL is a capability now, and a shared cache holding the bytes would keep serving them after the signature expired.
+
+The trade-off this accepts is that the URL *is* a bearer credential for the duration: anyone it is forwarded to can load that one photo until `exp`. That is the price of working inside an `<img>` tag, and it is bounded to a single image the sharer already had.
 
 ## AI agent guardrails
 

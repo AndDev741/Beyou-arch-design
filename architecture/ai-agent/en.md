@@ -1,9 +1,9 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 33 real tools, streamed over SSE, running on a five-provider LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 33 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
 ---
 
-This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how five free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
+This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
 
 ## The shape of it
 
@@ -41,7 +41,7 @@ Beyou runs on free-tier LLMs, and free tiers fail: rate limits, quota resets, pr
 | 4 | NVIDIA | meta/llama-3.3-70b-instruct |
 | 5 | DeepSeek | deepseek-v4-flash |
 
-The table shows the shipped defaults, and the lineup is configuration, not code: production currently runs four links, because NVIDIA proved too slow in real use and left the chain through an environment variable.
+The table shows the shipped defaults, and the lineup is configuration, not code. **Production runs two links, `mistral,gemini`**, and the reason is legal rather than technical — see below. NVIDIA had already left the chain earlier for an ordinary reason: it proved too slow in real use, and a fallback that makes the user wait longer than an error would is not a fallback.
 
 The chain's rules, each there for a reason:
 
@@ -49,7 +49,28 @@ The chain's rules, each there for a reason:
 - **Failed providers cool down**: 300 seconds after a rate limit, 30 after other errors, so the chain stops paying latency for a provider that just said no. Rate limits are recognized by type where the SDK offers one and by message sniffing where it does not, since five providers surface quota errors five ways.
 - **The last link never skips.** Even mid-cooldown, the final provider always runs, so the chain ends in a real answer or a real exception, never in silence.
 - A provider with no API key is skipped at boot, which is how dev environments run DeepSeek-only without configuration ceremony.
+- **A blocked provider is dropped before any other check.** `ai.llm-chain.blocked` is a second list, separate from the order, and it wins over it. The separation is the point: an order can be widened by anyone editing an environment variable, and this records that leaving a provider out was a decision rather than an omission. An empty result is not tolerated — `FallbackChatModel` refuses to construct with no links, so a misconfiguration is a failed boot instead of a silently dead assistant.
 - Every call, fallback, and exhaustion increments a metric (beyou.ai.llm.*), and the Grafana AI dashboard is built on exactly these.
+
+## What leaves for the provider, and where it goes
+
+Every other subsystem here keeps user data inside Beyou's own database. The agent is the exception: answering a message means sending it to a company that is not Beyou, along with whatever the model reads to answer. That makes the provider lineup a data-protection decision, not only a reliability one.
+
+What crosses the boundary on a turn: the message, the earlier messages in that conversation, the two memory notes (global and per-chat), the user's display name, and the names and descriptions of whatever the tools looked up — habits, tasks, goals, routines, categories. Not the email address, not the password hash, not another user's anything.
+
+Beyou's controller is established in Portugal, so a request reaching a provider outside the EEA is a transfer and needs a lawful route:
+
+| Provider | Established | Route |
+|----------|-------------|-------|
+| Mistral AI | France | Inside the EEA |
+| Google Gemini | United States | EU-US Data Privacy Framework |
+| NVIDIA | United States | EU-US Data Privacy Framework |
+| Z.ai (GLM) | China | None — no adequacy decision |
+| DeepSeek | China | None — no adequacy decision |
+
+So production runs `order: mistral,gemini` with `blocked: glm,deepseek`, both pinned in `application-prod.yaml`. The two Chinese providers stay configured and usable in development, where the data is invented, and cannot join the chain in production even if someone widens the order. The published privacy policy states this, which is the other half of why the blocklist exists: a promise made to users should not depend on remembering why an environment variable was narrow.
+
+The assistant is also optional end to end. A user who never opens it sends nothing to any provider, and the chat history and both memory notes are deletable from inside the app and included in the data export.
 
 ## The tools
 
@@ -90,7 +111,7 @@ The web widget mounts once inside the protected shell, lazy-loads the panel on f
 
 | Failure | Behavior |
 |---------|----------|
-| All five providers fail | Metric incremented, last exception surfaces as an error event; the client rolls back the optimistic bubble and restores the typed text into the composer |
+| Every link in the chain fails | Metric incremented, last exception surfaces as an error event; the client rolls back the optimistic bubble and restores the typed text into the composer |
 | Third concurrent stream | A short-lived emitter answers TOO_MANY_STREAMS without opening an LLM call (cap: 2 per user) |
 | Transcript persistence fails | The client gets TRANSCRIPT_PERSIST_FAILED instead of a false done |
 | Rate limit | 30 streams per hour per user (onboarding has its own separate 30) |

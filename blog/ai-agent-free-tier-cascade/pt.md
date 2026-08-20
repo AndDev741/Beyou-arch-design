@@ -25,8 +25,8 @@ A outra restrição moldou a infraestrutura: eu não quero gastar uma moeda nest
 flowchart LR
   U["💬 Mensagem do usuário"] --> M["1 · Mistral<br/>melhor free tier, melhor modelo"]
   M -->|"rate limit / erro"| G["2 · Gemini<br/>bom tier, modelo mais fraco"]
-  G -->|"rate limit / erro"| Z["3 · GLM<br/>gratuito mas ocupado"]
-  Z -->|"rate limit / erro"| D["4 · DeepSeek<br/>pago, barato, nunca pulado"]
+  G -.->|"só em dev"| Z["3 · GLM<br/>gratuito mas ocupado"]
+  Z -.-> D["4 · DeepSeek<br/>pago, barato"]
 ```
 
 A escalação veio de realmente testá-los:
@@ -38,13 +38,17 @@ A escalação veio de realmente testá-los:
 
 Já existiu um quinto elo: o endpoint gratuito da NVIDIA ficou na cadeia por um tempo, e o uso real o removeu. As respostas eram simplesmente lentas demais, e um fallback que faz o usuário esperar mais do que um erro esperaria não é um fallback. A ordem da cadeia é configuração, não código, então ele saiu por uma variável de ambiente.
 
+Depois a cadeia encurtou por um motivo que não tinha nada a ver com qualidade. Publicar na Google Play significou escrever uma política de privacidade, e escrever uma política de privacidade significou nomear cada empresa que recebe a mensagem do usuário. Duas delas estão estabelecidas na China, país sem decisão de adequação da Comissão Europeia — e eu sou um controlador estabelecido em Portugal, então aquelas requisições são transferências sem base legal. A Z.ai e a DeepSeek saíram. A produção roda Mistral e Gemini, o que faz do Gemini o elo que nunca pula agora.
+
+Perder a rede de segurança paga custou menos do que eu esperava, porque os dois tiers restantes já absorviam tudo. O que custou foi o conforto de ter um último recurso, então a configuração ganhou uma segunda lista ao lado da ordem: uma blocklist onde esses dois nomes ficam. A ordem é uma variável de ambiente que qualquer um pode alargar, e eu não queria que uma promessa impressa numa política de privacidade dependesse de eu lembrar por que a ordem estava estreita. GLM e DeepSeek continuam rodando em desenvolvimento, onde todo hábito e toda meta são inventados.
+
 ## As regras que a fazem parecer um único modelo
 
 Uma cadeia de provedores instáveis só parece confiável se a lógica de failover for rígida em algumas coisas:
 
 - **O failover só dispara enquanto um provedor não produziu nada.** Depois do primeiro token, um erro propaga em vez de tentar de novo, porque metade de uma resposta de um modelo colada à metade de outro é pior que uma falha honesta. Ferramentas nunca rodam de novo no failover, então um "criar hábito" não executa duas vezes.
 - **Provedores que falharam entram em cooldown**: 300 segundos depois de um rate limit, 30 depois de outros erros. Não faz sentido pagar latência para perguntar a um provedor que acabou de dizer não.
-- **O último elo nunca pula.** Mesmo em cooldown, o DeepSeek sempre roda. A cadeia termina em uma resposta real ou uma exceção real, nunca em silêncio.
+- **O último elo nunca pula.** Mesmo em cooldown, o provedor que estiver por último sempre roda. A cadeia termina em uma resposta real ou uma exceção real, nunca em silêncio.
 - **Erros de cota são reconhecidos do jeito feio.** Cinco provedores expõem rate limits em cinco formatos de SDK diferentes, então além das exceções tipadas a cadeia fareja mensagens atrás dos sinais clássicos (429, quota, payment_required). Não é elegante. Funciona.
 
 Cada chamada, fallback e esgotamento completo incrementa uma métrica, e um dashboard no Grafana mostra qual provedor está de fato servindo, com que frequência a cadeia pula e o uso de tokens por modelo. Quando um free tier degrada em silêncio, os gráficos avisam antes dos usuários.

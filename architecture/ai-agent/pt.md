@@ -1,9 +1,9 @@
 ---
 title: "Agente de IA"
-summary: "Um agente de chat com 33 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de cinco provedores de LLM, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
+summary: "Um agente de chat com 33 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de LLMs configurável, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
 ---
 
-Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, como cinco LLMs de camada gratuita são encadeados em um modelo confiável e o que acontece em cada ponto de falha.
+Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, como LLMs de camada gratuita são encadeados em um modelo confiável e o que acontece em cada ponto de falha.
 
 ## A forma da coisa
 
@@ -41,7 +41,7 @@ O Beyou roda em LLMs de camada gratuita, e camadas gratuitas falham: rate limits
 | 4 | NVIDIA | meta/llama-3.3-70b-instruct |
 | 5 | DeepSeek | deepseek-v4-flash |
 
-A tabela mostra os padrões de fábrica, e a escalação é configuração, não código: a produção roda quatro elos hoje, porque a NVIDIA se mostrou lenta demais no uso real e saiu da cadeia por uma variável de ambiente.
+A tabela mostra os padrões de fábrica, e a escalação é configuração, não código. **A produção roda dois elos, `mistral,gemini`**, e a razão é jurídica, não técnica — veja abaixo. A NVIDIA já havia saído da cadeia antes por um motivo comum: se mostrou lenta demais no uso real, e um fallback que faz o usuário esperar mais que um erro não é fallback.
 
 As regras da cadeia, cada uma com sua razão:
 
@@ -49,7 +49,28 @@ As regras da cadeia, cada uma com sua razão:
 - **Provedores que falharam entram em cooldown**: 300 segundos depois de um rate limit, 30 depois de outros erros, para a cadeia parar de pagar latência a um provedor que acabou de dizer não. Rate limits são reconhecidos por tipo onde o SDK oferece um e por farejamento de mensagem onde não, já que cinco provedores expõem erros de cota de cinco jeitos.
 - **O último elo nunca pula.** Mesmo em cooldown, o provedor final sempre roda, então a cadeia termina em uma resposta real ou uma exceção real, nunca em silêncio.
 - Um provedor sem chave de API é pulado no boot, e é assim que ambientes de dev rodam só com DeepSeek sem cerimônia de configuração.
+- **Um provedor bloqueado é descartado antes de qualquer outra checagem.** `ai.llm-chain.blocked` é uma segunda lista, separada da ordem, e vence ela. A separação é o ponto: uma ordem pode ser alargada por qualquer um editando uma variável de ambiente, e isso registra que deixar um provedor de fora foi uma decisão, não um esquecimento. Resultado vazio não é tolerado — o `FallbackChatModel` se recusa a ser construído sem elos, então uma configuração errada é um boot que falha em vez de um assistente morto em silêncio.
 - Cada chamada, fallback e esgotamento incrementa uma métrica (beyou.ai.llm.*), e o dashboard de IA do Grafana é construído exatamente sobre elas.
+
+## O que sai para o provedor, e para onde vai
+
+Todo outro subsistema aqui mantém os dados do usuário dentro do banco do próprio Beyou. O agente é a exceção: responder uma mensagem significa mandar ela para uma empresa que não é o Beyou, junto com o que o modelo lê para responder. Isso faz da escalação de provedores uma decisão de proteção de dados, não só de confiabilidade.
+
+O que atravessa a fronteira num turno: a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram — hábitos, tarefas, metas, rotinas, categorias. Não o email, não o hash da senha, nada de outro usuário.
+
+O controlador do Beyou está estabelecido em Portugal, então uma requisição que chega a um provedor fora do EEE é uma transferência e precisa de uma base legal:
+
+| Provedor | Estabelecido em | Base |
+|----------|-----------------|------|
+| Mistral AI | França | Dentro do EEE |
+| Google Gemini | Estados Unidos | EU-US Data Privacy Framework |
+| NVIDIA | Estados Unidos | EU-US Data Privacy Framework |
+| Z.ai (GLM) | China | Nenhuma — sem decisão de adequação |
+| DeepSeek | China | Nenhuma — sem decisão de adequação |
+
+Por isso a produção roda `order: mistral,gemini` com `blocked: glm,deepseek`, os dois fixados no `application-prod.yaml`. Os dois provedores chineses seguem configurados e utilizáveis em desenvolvimento, onde os dados são inventados, e não conseguem entrar na cadeia em produção mesmo que alguém alargue a ordem. A política de privacidade publicada afirma isso, o que é a outra metade da razão de existir a blocklist: uma promessa feita ao usuário não deveria depender de alguém lembrar por que uma variável de ambiente estava estreita.
+
+O assistente também é opcional de ponta a ponta. Quem nunca abre ele não manda nada para nenhum provedor, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados.
 
 ## As ferramentas
 
@@ -90,7 +111,7 @@ O widget web monta uma vez dentro do shell protegido, carrega o painel de forma 
 
 | Falha | Comportamento |
 |-------|---------------|
-| Os cinco provedores falham | Métrica incrementada, a última exceção vira um evento de erro; o cliente desfaz a bolha otimista e devolve o texto digitado ao compositor |
+| Todos os elos da cadeia falham | Métrica incrementada, a última exceção vira um evento de erro; o cliente desfaz a bolha otimista e devolve o texto digitado ao compositor |
 | Terceiro stream simultâneo | Um emissor de vida curta responde TOO_MANY_STREAMS sem abrir chamada de LLM (teto: 2 por usuário) |
 | Persistência do transcript falha | O cliente recebe TRANSCRIPT_PERSIST_FAILED em vez de um done falso |
 | Rate limit | 30 streams por hora por usuário (o onboarding tem seus próprios 30, separados) |
