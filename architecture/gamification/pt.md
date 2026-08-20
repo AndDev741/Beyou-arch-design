@@ -1,6 +1,6 @@
 ---
 title: "Gamificação"
-summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento e o livro-razão diário assinado que torna cada número auditável."
+summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento, o livro-razão diário assinado que torna cada número auditável, e como o fuso da própria conta decide em que dia tudo isso cai."
 ---
 
 Tudo na gamificação do Beyou serve a um comportamento: aparecer todo dia. Este documento explica a mecânica exata, fórmula por fórmula, incluindo de onde os números vêm e o que deliberadamente não existe.
@@ -55,6 +55,28 @@ Dois sistemas paralelos dividem essa caminhada. Cada hábito, tarefa e rotina te
 **O job de fechamento do dia** é o que transforma ausência em desfecho. Um scheduler de hora em hora, por timezone, fecha o dia de ontem numa janela de tolerância de madrugada (janela, e não hora exata, porque o horário de verão uma vez pulou a hora de fechamento e deixou um dia aberto para sempre). Ele escreve uma linha para cada dono que não tem nenhuma, só inserção, então um check real chegando durante a corrida nunca é sobrescrito por uma ausência. Rotinas ficam deliberadamente fora do fechamento: não existe escritor de presença para elas, então toda linha de rotina seria uma falta falsa.
 
 **A dormência** suaviza pausas longas: um streak sem nada agendado nem completado por 14 dias aparece como dormente em vez de quebrado, e a UI mostra uma pausa em vez de um zero. Marcar qualquer coisa a limpa na hora.
+
+## A que dia pertence um check
+
+Todo número acima depende de uma pergunta que o código precisa responder antes de fazer qualquer coisa: que dia é hoje, para esta pessoa? Um resolvedor responde, o `UserDateResolver`, e onze pontos de chamada passam por ele — os caminhos de check, a caminhada do streak, o livro-razão de XP, a hora do snapshot, a hora do fechamento do dia. Ele lê o fuso guardado na conta, nunca o do servidor.
+
+Isso faz do fuso guardado a string mais carregada de consequência numa linha de usuário. Erre e o limite do dia fica no lugar errado: um check-in da noite é arquivado no dia seguinte, o snapshot fotografa um dia que ainda está correndo, e o fechamento estampa uma falta num dia que ninguém faltou. Nada disso volta depois: `entity_check_day` e `entity_xp_day` guardam uma data e nenhum horário, então uma linha escrita no dia errado é indistinguível de uma escrita certo, e o fechamento é só inserção por desenho.
+
+Por muito tempo nada definia esse valor. A coluna vinha com `UTC` por padrão e nenhum caminho de cadastro sobrescrevia, então toda conta rodava no calendário UTC onde quer que o dono estivesse. O obstáculo para corrigir não era detectar, que é uma chamada de uma linha no navegador, mas consentimento: `UTC` era ao mesmo tempo o padrão e uma resposta perfeitamente válida, então nada distinguia uma conta intocada de alguém que escolheu UTC de propósito, e uma correção cega passaria por cima do segundo grupo.
+
+O `timezone_source` separa os dois, e cada valor carrega uma permissão diferente:
+
+| Valor | Significado – O que pode mudar |
+|---|---|
+| `DEFAULT` – ninguém nunca respondeu | Um fuso detectado pelo cliente entra por cima, calado, uma vez |
+| `DETECTED` – um cliente reportou o fuso do aparelho | Nada automático. Uma divergência vira sugestão |
+| `EXPLICIT` – uma pessoa escolheu | Nada além de outra escolha explícita |
+
+`DETECTED` deliberadamente não é readotado. Senão um notebook aberto em outro país move o limite do dia de quem está viajando, e toda data que aquela conta já escreveu é resolvida contra esse limite. Oferecer como pergunta é a forma honesta; decidir não é.
+
+A regra fica no servidor, no único método que escreve a coluna, e não nos dois clientes. Assim um cliente com bug não sobrescreve uma resposta real, e web e mobile não divergem sobre quando um dia começa.
+
+O cadastro agora carrega o fuso detectado nos quatro caminhos, então conta nova nasce certa. As que vieram antes são corrigidas no próximo boot, uma vez, enquanto ainda estão em `DEFAULT`.
 
 ## Check-ins atrasados e decaimento
 

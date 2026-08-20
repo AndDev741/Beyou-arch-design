@@ -31,7 +31,7 @@ flowchart LR
 
 | Slice | Holds |
 |-------|-------|
-| perfil | The user: name, e-mail, photo, phrase, XP/level, streaks and dormancy, widgets, theme, language, timezone, XP decay strategy, tutorial flag, checkRevision |
+| perfil | The user: name, e-mail, photo, phrase, XP/level, streaks and dormancy, widgets, theme, language, timezone and its source, XP decay strategy, tutorial flag, checkRevision |
 | categories / habits / tasks / goals / routines | The entity lists, each with its enter action and targeted refresh actions where checks update them in place |
 | editCategory / editHabit / editTask / editGoal / editRoutine | Edit-mode drafts, populated field by field when a card's edit button is clicked |
 | todayRoutine | Today's scheduled routine, with refreshItemGroup applying a check result without a refetch |

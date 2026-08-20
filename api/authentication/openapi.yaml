@@ -168,6 +168,14 @@ paths:
         required: true
         schema:
           type: string
+      - name: timezone
+        in: query
+        required: false
+        description: >-
+          The IANA zone the browser detected. Applied only when this callback
+          CREATES the account; an existing one keeps what it has.
+        schema:
+          type: string
       responses:
         '200':
           description: OK
@@ -194,6 +202,12 @@ components:
         idToken:
           type: string
           minLength: 1
+        timezone:
+          type: string
+          description: >-
+            The device's IANA zone. Sent alongside the token because a verified
+            Google ID token carries no such claim. Applied only when this
+            sign-in CREATES the account; an existing one keeps what it has.
       required:
       - idToken
     ResetPasswordRequestDTO:
@@ -236,6 +250,14 @@ components:
         password:
           type: string
           minLength: 1
+        timezone:
+          type: string
+          description: >-
+            The IANA zone the client detected on the device, e.g.
+            `Europe/Lisbon`. Optional: an older client that omits it still
+            registers, and the account falls back to `UTC` with a
+            `timezoneSource` of `DEFAULT`. A value the server cannot parse is
+            dropped rather than refusing the registration.
       required:
       - email
       - name

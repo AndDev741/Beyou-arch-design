@@ -117,6 +117,16 @@ components:
           type: boolean
         timezone:
           type: string
+        timezoneSource:
+          type: string
+          description: >-
+            How the accompanying `timezone` was arrived at. Only `DETECTED` is
+            meaningful from a client, and it is a request rather than an
+            instruction: the server honours it only while the account is still
+            `DEFAULT`. Omit it for a zone the PERSON picked — that is read as
+            explicit and becomes permanent. `DEFAULT` is rejected.
+          enum:
+          - DETECTED
         xpDecayStrategy:
           type: string
           enum:
@@ -177,6 +187,20 @@ components:
           type: string
         timezone:
           type: string
+        timezoneSource:
+          type: string
+          description: >-
+            Whether `timezone` was ever actually chosen. `DEFAULT` means nobody
+            has answered and a client-detected zone may be adopted over it, once.
+            `DETECTED` means a client already reported one; a mismatch is
+            surfaced as a suggestion rather than adopted, so a device opened in
+            another country cannot move a travelling user's day boundary.
+            `EXPLICIT` means a person picked it and nothing changes it
+            automatically.
+          enum:
+          - DEFAULT
+          - DETECTED
+          - EXPLICIT
         xpDecayStrategy:
           type: string
           enum:

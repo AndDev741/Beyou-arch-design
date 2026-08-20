@@ -1,6 +1,6 @@
 ---
 title: "Gamification"
-summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, and the signed daily ledger that makes every number auditable."
+summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, the signed daily ledger that makes every number auditable, and how the account's own timezone decides which day any of it lands on."
 ---
 
 Everything in Beyou's gamification serves one behavior: showing up daily. This document explains the exact mechanics, formula by formula, including where the numbers come from and what deliberately does not exist.
@@ -55,6 +55,28 @@ Two parallel systems share that walk. Each habit, task, and routine has its own 
 **The day-close job** is what turns absence into outcomes. An hourly scheduler, working per timezone, closes yesterday during a grace window in the small hours (a window rather than an exact hour, because daylight-saving jumps once skipped the closing hour entirely and left a day permanently open). It writes one row for each owner that has none, insert-only, so a real check landing during the race can never be overwritten by an absence. Routines are deliberately excluded from day-close: no presence writer exists for them, so every routine row would be a false miss.
 
 **Dormancy** softens long gaps: a streak with nothing scheduled or completed for 14 days reports as dormant rather than broken, and the UI shows a pause instead of a zero. Checking anything clears it instantly.
+
+## Which day a check belongs to
+
+Every number above depends on a question the code has to answer before it can do anything: what day is it, for this person? One resolver answers it, `UserDateResolver`, and eleven call sites go through it — the check paths, the streak walk, the XP ledger, the snapshot hour, the day-close hour. It reads the timezone stored on the account, never the server's.
+
+That makes the stored zone the single most load-bearing string on a user row. Get it wrong and the day boundary sits in the wrong place, so an evening check-in is filed under tomorrow, the snapshot photographs a day that is still running, and the day-close stamps a miss on a day nobody missed. None of it is recoverable afterwards: `entity_check_day` and `entity_xp_day` carry a date and no clock time, so a row written on the wrong day is indistinguishable from one written correctly, and the day-close is insert-only by design.
+
+For a long time nothing set it. The column defaulted to `UTC` and no signup path overrode it, so every account ran on the UTC calendar wherever its owner was. The obstacle to fixing that was not detection, which is a one-line browser call, but consent: `UTC` was simultaneously the default and a perfectly valid answer, so nothing could tell an untouched account from someone who had chosen UTC on purpose, and a blind correction would have overwritten the second group.
+
+`timezone_source` separates the two, and each value carries a different permission:
+
+| Value | Meaning – What may change it |
+|---|---|
+| `DEFAULT` – nobody has ever answered | A client-detected zone adopts over it, silently, once |
+| `DETECTED` – a client reported the device's zone | Nothing automatic. A mismatch surfaces as a suggestion |
+| `EXPLICIT` – a person picked it | Nothing but another explicit pick |
+
+`DETECTED` is deliberately not re-adopted. A laptop opened in another country would otherwise move a travelling user's day boundary under them, and every date that account has ever written is resolved against that boundary. Offering it as a question is the honest form; deciding it is not.
+
+The rule lives on the server, in the one method that writes the column, rather than in the two clients. A buggy client cannot overwrite a real answer that way, and web and mobile cannot drift into disagreeing about when a day starts.
+
+Signup now carries the detected zone on all four paths, so new accounts are right from creation. Accounts that predate that are corrected on their next boot, once, while they are still `DEFAULT`.
 
 ## Late check-ins and decay
 
