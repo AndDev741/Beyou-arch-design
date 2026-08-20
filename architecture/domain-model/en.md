@@ -55,7 +55,8 @@ flowchart TD
 | perfilPhrase / perfilPhraseAuthor | String | Optional motivational quote |
 | perfilPhoto | String (512) | Path to the stored photo file; bytes live on disk, not in the database |
 | themeInUse / languageInUse | String | Preferences |
-| timezone | String | Required, defaults to UTC. Drives snapshot dates and daily history |
+| timezone | String | Required. The account's IANA zone, taken from the client at signup and falling back to UTC. Every date the app ever writes is resolved against it |
+| timezoneSource | TimezoneSource enum | DEFAULT, DETECTED or EXPLICIT: whether the zone above was ever actually chosen. Only DEFAULT may be corrected automatically |
 | widgetsIdInUse | List of String | Active dashboard widget IDs |
 | isTutorialCompleted | boolean | Onboarding flag |
 | userContext | String (2000) | The AI agent's global memory about this user |

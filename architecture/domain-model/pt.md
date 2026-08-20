@@ -55,7 +55,8 @@ flowchart TD
 | perfilPhrase / perfilPhraseAuthor | String | Citação motivacional opcional |
 | perfilPhoto | String (512) | Caminho do arquivo da foto; os bytes vivem em disco, fora do banco |
 | themeInUse / languageInUse | String | Preferências |
-| timezone | String | Obrigatório, padrão UTC. Guia os snapshots e o histórico diário |
+| timezone | String | Obrigatório. O fuso IANA da conta, vindo do cliente no cadastro e caindo em UTC quando não vem. Toda data que o app escreve é resolvida contra ele |
+| timezoneSource | enum TimezoneSource | DEFAULT, DETECTED ou EXPLICIT: se o fuso acima chegou a ser escolhido por alguém. Só DEFAULT pode ser corrigido automaticamente |
 | widgetsIdInUse | Lista de String | IDs dos widgets ativos do dashboard |
 | isTutorialCompleted | boolean | Flag do onboarding |
 | userContext | String (2000) | A memória global do agente de IA sobre este usuário |

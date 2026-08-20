@@ -31,7 +31,7 @@ flowchart LR
 
 | Slice | Guarda |
 |-------|--------|
-| perfil | O usuário: nome, e-mail, foto, frase, XP/level, streaks e dormência, widgets, tema, idioma, timezone, estratégia de decaimento de XP, flag do tutorial, checkRevision |
+| perfil | O usuário: nome, e-mail, foto, frase, XP/level, streaks e dormência, widgets, tema, idioma, timezone e sua origem, estratégia de decaimento de XP, flag do tutorial, checkRevision |
 | categories / habits / tasks / goals / routines | As listas de entidades, cada uma com sua action de entrada e actions de refresh dirigido onde os checks as atualizam no lugar |
 | editCategory / editHabit / editTask / editGoal / editRoutine | Rascunhos do modo de edição, populados campo a campo quando o botão de editar de um card é clicado |
 | todayRoutine | A rotina agendada de hoje, com refreshItemGroup aplicando o resultado de um check sem rebuscar |
