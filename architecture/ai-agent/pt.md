@@ -41,7 +41,7 @@ O Beyou roda em LLMs de camada gratuita, e camadas gratuitas falham: rate limits
 | 4 | NVIDIA | meta/llama-3.3-70b-instruct |
 | 5 | DeepSeek | deepseek-v4-flash |
 
-A tabela mostra os padrões de fábrica, e a escalação é configuração, não código. **A produção roda dois elos, `mistral,gemini`**, e a razão é jurídica, não técnica — veja abaixo. A NVIDIA já havia saído da cadeia antes por um motivo comum: se mostrou lenta demais no uso real, e um fallback que faz o usuário esperar mais que um erro não é fallback.
+A tabela mostra os padrões de fábrica, e a escalação é configuração, não código. A produção roda dois elos, `mistral,gemini`, pela razão jurídica descrita abaixo. A NVIDIA tinha saído antes por um motivo comum: se mostrou lenta demais no uso real, e deixou a cadeia por uma variável de ambiente.
 
 As regras da cadeia, cada uma com sua razão:
 
@@ -49,14 +49,14 @@ As regras da cadeia, cada uma com sua razão:
 - **Provedores que falharam entram em cooldown**: 300 segundos depois de um rate limit, 30 depois de outros erros, para a cadeia parar de pagar latência a um provedor que acabou de dizer não. Rate limits são reconhecidos por tipo onde o SDK oferece um e por farejamento de mensagem onde não, já que cinco provedores expõem erros de cota de cinco jeitos.
 - **O último elo nunca pula.** Mesmo em cooldown, o provedor final sempre roda, então a cadeia termina em uma resposta real ou uma exceção real, nunca em silêncio.
 - Um provedor sem chave de API é pulado no boot, e é assim que ambientes de dev rodam só com DeepSeek sem cerimônia de configuração.
-- **Um provedor bloqueado é descartado antes de qualquer outra checagem.** `ai.llm-chain.blocked` é uma segunda lista, separada da ordem, e vence ela. A separação é o ponto: uma ordem pode ser alargada por qualquer um editando uma variável de ambiente, e isso registra que deixar um provedor de fora foi uma decisão, não um esquecimento. Resultado vazio não é tolerado — o `FallbackChatModel` se recusa a ser construído sem elos, então uma configuração errada é um boot que falha em vez de um assistente morto em silêncio.
+- **Um provedor bloqueado nunca entra na cadeia.** `ai.llm-chain.blocked` é uma segunda lista que vence a ordem, checada antes de qualquer outra coisa. Uma ordem é uma variável de ambiente que qualquer um pode alargar, então é aqui que deixar um provedor de fora fica registrado como decisão. Se as duas listas não deixarem nada, o `FallbackChatModel` se recusa a ser construído e a aplicação falha no boot em vez de servir um assistente morto.
 - Cada chamada, fallback e esgotamento incrementa uma métrica (beyou.ai.llm.*), e o dashboard de IA do Grafana é construído exatamente sobre elas.
 
-## O que sai para o provedor, e para onde vai
+## O que o provedor recebe
 
-Todo outro subsistema aqui mantém os dados do usuário dentro do banco do próprio Beyou. O agente é a exceção: responder uma mensagem significa mandar ela para uma empresa que não é o Beyou, junto com o que o modelo lê para responder. Isso faz da escalação de provedores uma decisão de proteção de dados, não só de confiabilidade.
+Todo outro subsistema daqui mantém os dados do usuário no banco do próprio Beyou. Responder uma mensagem do agente significa mandar ela para uma empresa que não é o Beyou, junto com o que o modelo lê no caminho até a resposta, o que faz da escalação de provedores uma decisão de proteção de dados tanto quanto de confiabilidade.
 
-O que atravessa a fronteira num turno: a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram — hábitos, tarefas, metas, rotinas, categorias. Não o email, não o hash da senha, nada de outro usuário.
+Um turno leva a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram: hábitos, tarefas, metas, rotinas, categorias. Não leva o email, o hash da senha, nem nada que pertença a outro usuário.
 
 O controlador do Beyou está estabelecido em Portugal, então uma requisição que chega a um provedor fora do EEE é uma transferência e precisa de uma base legal:
 
@@ -65,12 +65,12 @@ O controlador do Beyou está estabelecido em Portugal, então uma requisição q
 | Mistral AI | França | Dentro do EEE |
 | Google Gemini | Estados Unidos | EU-US Data Privacy Framework |
 | NVIDIA | Estados Unidos | EU-US Data Privacy Framework |
-| Z.ai (GLM) | China | Nenhuma — sem decisão de adequação |
-| DeepSeek | China | Nenhuma — sem decisão de adequação |
+| Z.ai (GLM) | China | Sem decisão de adequação |
+| DeepSeek | China | Sem decisão de adequação |
 
-Por isso a produção roda `order: mistral,gemini` com `blocked: glm,deepseek`, os dois fixados no `application-prod.yaml`. Os dois provedores chineses seguem configurados e utilizáveis em desenvolvimento, onde os dados são inventados, e não conseguem entrar na cadeia em produção mesmo que alguém alargue a ordem. A política de privacidade publicada afirma isso, o que é a outra metade da razão de existir a blocklist: uma promessa feita ao usuário não deveria depender de alguém lembrar por que uma variável de ambiente estava estreita.
+Por isso a produção roda `order: mistral,gemini` com `blocked: glm,deepseek`, os dois fixados no `application-prod.yaml`. GLM e DeepSeek seguem configurados e utilizáveis em desenvolvimento, onde os dados são inventados, e não conseguem entrar na cadeia em produção mesmo que alguém alargue a ordem. A política de privacidade publicada conta isso ao usuário, e essa é a segunda razão da blocklist existir: uma promessa impressa lá não deveria depender de alguém lembrar por que a ordem estava estreita.
 
-O assistente também é opcional de ponta a ponta. Quem nunca abre ele não manda nada para nenhum provedor, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados.
+O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados.
 
 ## As ferramentas
 
