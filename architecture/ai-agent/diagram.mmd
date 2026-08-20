@@ -6,10 +6,10 @@ flowchart TD
   SVC --> CHAIN["⛓️ Fallback chain"]
 
   subgraph CHAIN["⛓️ LLM fallback chain"]
-    P1["Mistral"] -->|"fail before first chunk"| P2["Gemini"]
-    P2 --> P3["GLM"]
-    P3 --> P4["NVIDIA"]
-    P4 --> P5["DeepSeek<br/>never skipped"]
+    P1["Mistral"] -->|"fail before first chunk"| P2["Gemini<br/>last link in prod · never skipped"]
+    P2 -.->|"dev only"| P3["GLM<br/>blocked in prod · CN"]
+    P3 -.-> P4["NVIDIA<br/>out of the order · too slow"]
+    P4 -.-> P5["DeepSeek<br/>blocked in prod · CN"]
   end
 
   CHAIN --> TOOLS["🛠️ 33 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]

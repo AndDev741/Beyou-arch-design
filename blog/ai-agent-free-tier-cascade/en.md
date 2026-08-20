@@ -25,8 +25,8 @@ The other constraint shaped the infrastructure: I don't want to spend a coin on 
 flowchart LR
   U["💬 User message"] --> M["1 · Mistral<br/>best free tier, best model"]
   M -->|"rate limit / error"| G["2 · Gemini<br/>good tier, weaker model"]
-  G -->|"rate limit / error"| Z["3 · GLM<br/>free but often busy"]
-  Z -->|"rate limit / error"| D["4 · DeepSeek<br/>paid, cheap, never skipped"]
+  G -.->|"dev only"| Z["3 · GLM<br/>free but often busy"]
+  Z -.-> D["4 · DeepSeek<br/>paid, cheap"]
 ```
 
 The lineup came from actually trying them:
@@ -38,13 +38,17 @@ The lineup came from actually trying them:
 
 There used to be a fifth link: NVIDIA's free endpoint sat in the chain for a while, and real usage removed it. The answers were just too slow, and a fallback that makes the user wait longer than an error would is not a fallback. The chain order is configuration, not code, so it left through an environment variable.
 
+Then the chain got shorter for a reason that had nothing to do with quality. Publishing on Google Play meant writing a privacy policy, and a privacy policy means naming every company that receives a user's message. Two of mine are established in China, which has no adequacy decision from the European Commission, and I am a controller established in Portugal. Those requests are transfers with no lawful route, so Z.ai and DeepSeek came out. Production runs Mistral and Gemini now, which makes Gemini the link that never skips.
+
+Losing the paid safety net cost less than I expected, because the two free tiers left were already absorbing everything anyway. It did cost me the comfort of a last resort. So the config grew a second list next to the order, a blocklist with those two names on it: the order is an environment variable anybody can widen, and I did not want a promise printed in a privacy policy resting on me remembering why the order was narrow. GLM and DeepSeek still run in development, where every habit and goal is invented.
+
 ## The rules that make it behave like one model
 
 A chain of flaky providers only feels reliable if the failover logic is strict about a few things:
 
 - **Failover only fires while a provider has produced nothing.** Once the first token streams, an error propagates instead of retrying, because half an answer from one model glued to half from another is worse than an honest failure. Tools are never re-run on failover, so a "create habit" can't execute twice.
 - **Failed providers cool down**: 300 seconds after a rate limit, 30 after other errors. There's no point paying latency to ask a provider that just said no.
-- **The last link never skips.** Even mid-cooldown, DeepSeek always runs. The chain ends in a real answer or a real exception, never in silence.
+- **The last link never skips.** Even mid-cooldown, whichever provider is last always runs. The chain ends in a real answer or a real exception, never in silence.
 - **Quota errors are recognized the ugly way.** Five providers surface rate limits through five different SDK shapes, so beyond the typed exceptions the chain sniffs messages for the telltale signs (429, quota, payment_required). Not elegant. Effective.
 
 Every call, fallback, and full exhaustion increments a metric, and a Grafana dashboard shows which provider is actually serving, how often the chain hops, and token usage per model. When a free tier quietly degrades, the graphs say so before users do.

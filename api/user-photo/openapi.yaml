@@ -43,6 +43,16 @@ paths:
         schema:
           type: string
           format: uuid
+      - name: exp
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: sig
+        in: query
+        required: false
+        schema:
+          type: string
       responses:
         '200':
           description: OK
