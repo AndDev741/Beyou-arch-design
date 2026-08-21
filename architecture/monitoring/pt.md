@@ -46,6 +46,8 @@ Os datasources são provisionados somente-leitura, e o Loki só é alcançável 
 
 O Alloy descobre containers pelo socket do Docker e mantém só os que têm projeto Compose casando com o prefixo beyou, e então etiqueta cada stream apenas com o nome do serviço e do projeto: sem ids de container, sem tags de imagem, porque cada combinação distinta de labels é um stream separado. A configuração não tem pipeline de processamento algum; o Loki detecta níveis de log no servidor (JSON, logfmt e palavras-chave de texto puro com um único detector), e as linhas cruas continuam grep-áveis. A retenção é de 30 dias, imposta pelo compactor, casando com a retenção do rastreador de erros no dia.
 
+As linhas do backend carregam o id de quem chamou como um campo `[userId=…]`, e ele continua sendo campo. Promovê-lo a label de stream criaria um stream por conta, que é justamente a cardinalidade que encarece uma instalação do Loki, então as consultas o extraem na leitura, com `pattern`.
+
 O modo de falha conhecido está escrito na própria configuração: o filtro de projeto deriva do nome do diretório do checkout, então implantar de um diretório que não começa com "beyou" para todo o fluxo de logs em silêncio.
 
 Logs de navegador deliberadamente não são coletados. Esse é o trabalho do GlitchTip, e a documentação avisa explicitamente contra fechar a lacuna expondo um endpoint de push do Loki à internet.

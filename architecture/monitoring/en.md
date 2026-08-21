@@ -46,6 +46,8 @@ Datasources are provisioned read-only, and Loki is reachable only through Grafan
 
 Alloy discovers containers through the Docker socket and keeps only those whose Compose project matches the beyou prefix, then labels each stream with just the service and project names: no container ids, no image tags, because every distinct label combination is a separate stream. The config has no processing pipeline at all; Loki detects log levels server-side (JSON, logfmt, and plain-text keywords with one detector), and raw lines stay grep-able. Retention is 30 days, enforced by the compactor, matching the error tracker's retention to the day.
 
+Backend lines carry the caller's user id as a `[userId=…]` field, and it stays a field. Promoting it to a stream label would mint one stream per account, which is exactly the cardinality that makes a Loki install expensive, so queries extract it at read time with `pattern` instead.
+
 The known failure mode is written into the config itself: the project filter derives from the checkout directory name, so deploying from a directory that does not start with "beyou" silently stops all log flow.
 
 Browser logs are deliberately not collected. That is GlitchTip's job, and the documentation warns explicitly against closing the gap by exposing a Loki push endpoint to the internet.

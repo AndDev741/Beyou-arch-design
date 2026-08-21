@@ -1,13 +1,13 @@
 ---
 title: "Logging Orientado a Aspectos (AOP)"
-summary: "Dois aspectos dão a cada controller e service logging, medição de tempo e roteamento de erros consistentes, calibrados para erros de cliente ficarem quietos e falhas reais ficarem barulhentas."
+summary: "Dois aspectos dão a cada controller e service logging, medição de tempo e roteamento de erros consistentes, calibrados para erros de cliente ficarem quietos e falhas reais ficarem barulhentas, e cada linha estampada com o id do usuário a quem ela pertence."
 ---
 
 Este documento explica como o Beyou usa Spring AOP para observabilidade: o que os dois aspectos registram, como erros esperados de cliente ficam fora do canal de erro e como a saída dos aspectos alimenta (e deliberadamente fica fora do) rastreador de erros GlitchTip.
 
 ## O que o AOP cobre aqui, e o que não cobre
 
-O pacote de AOP tem exatamente dois aspectos, e ambos fazem logging. Toda outra preocupação transversal vive em outro lugar: rate limiting e validação de JWT são filtros servlet, cache são as anotações `@Cacheable` do Spring, transações são `@Transactional`. Uma consequência que vale conhecer: rejeições por rate limit acontecem antes de o controller ser invocado, então um 429 nunca produz linha de log de aspecto.
+O pacote de AOP tem exatamente dois aspectos, e ambos fazem logging. Toda outra preocupação transversal vive em outro lugar: rate limiting e validação de JWT são filtros servlet, cache são as anotações `@Cacheable` do Spring, transações são `@Transactional`. Uma consequência que vale conhecer: rejeições por rate limit acontecem antes de o controller ser invocado, então um 429 nunca produz linha de log de aspecto. A identidade na linha também não é um aspecto: um filtro servlet coloca o id do usuário no MDC e o padrão de log o imprime, então as linhas dos aspectos o carregam sem saber que ele existe.
 
 ```mermaid
 flowchart LR
@@ -80,11 +80,25 @@ O Spring AOP é baseado em proxy (CGLIB), o que traz o alerta clássico: um mét
 
 Esses prefixos são o que as consultas do Loki e o dashboard Beyou Logs filtram.
 
+## De quem é cada linha
+
+Cada linha carrega o id do usuário para quem a requisição era:
+
+```
+2026-08-21T08:31:33.536Z  INFO 1 --- [backend] [mcat-handler-61] [userId=3f1c9a2e-…] b.b.backend.AOP.ServiceMethodsLogging : [PERFORMANCE] Method history exectued in 12 ms
+```
+
+O valor vem do MDC, preenchido durante toda a requisição pelo `UserContextLogFilter`, e é impresso pelo `logging.pattern.correlation`, o espaço que o próprio Spring Boot reserva para identidade por requisição dentro dos seus padrões default de console e arquivo. O filtro é um filtro servlet comum, não um elo da cadeia de segurança, ordenado depois do `FilterChainProxy` do Spring Security para o principal já existir, e antes do filtro de rate limit para que uma rejeição 429 seja atribuível mesmo que nenhum aspecto a veja. Linhas sem usuário em contexto, entre elas as de inicialização e as do scheduler de snapshots, imprimem `anonymous` em vez de um campo vazio, então uma consulta de log tem um único formato de linha para interpretar, não dois.
+
+O id é uma chave substituta, e nada que o usuário escreveu viaja com ele. É isso que o torna seguro num canal onde os aspectos se recusam a registrar argumentos de propósito: o id diz qual conta, o banco diz quem. A integração Logback do Sentry copia o MDC para breadcrumbs e eventos, então o mesmo id chega ao GlitchTip e responde se um incidente é uma conta ou todas elas.
+
+Dois tipos de linha ainda aparecem como `anonymous` numa requisição autenticada, ambos porque não existe id para anexar naquele ponto, e não por esquecimento. O `TokenService.validateToken` é registrado pelo aspecto de service de dentro do `SecurityFilter`, antes de o token ter sido transformado em usuário. O stream SSE do agente retoma numa thread do reactor onde nenhum filtro de requisição roda, e é por isso que o `AiAgentService` recebe o id do usuário e o registra ele mesmo.
+
 ## Lacunas honestas
 
 | Área | Estado atual | Nota |
 |------|--------------|------|
-| IDs de correlação | Nenhum | Sem MDC, sem request id; correlacionar as linhas de uma requisição depende de identidade de thread e timestamps |
+| IDs de correlação | Id de usuário, sem request id | Cada linha carrega `[userId=…]`, então a atividade de um usuário é uma consulta só. Nada separa duas requisições simultâneas do mesmo usuário, o que ainda depende de nome de thread e timestamps |
 | Tempo de requisições falhas | [REQUEST] só no sucesso | Um endpoint que lança exceção não deixa registro de duração |
 | Higiene de mensagens de exceção | Registradas sem escape e sem limite | Um controller sanitiza suas mensagens na origem contra forja de log; o advice em si não, então o mesmo buraco existe para qualquer outra mensagem |
 | Cobertura de testes | Um teste de regressão de PII | O ControllerLogging tem um guarda provando que argumentos nunca vazam; o ServiceMethodsLogging e o roteamento WARN/ERROR não têm testes dedicados |
