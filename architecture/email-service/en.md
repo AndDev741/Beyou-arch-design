@@ -1,13 +1,13 @@
 ---
 title: "Email Service"
-summary: "Five transactional e-mails, one service class: how each mail decouples from its database transaction, what happens when SMTP fails, and the bilingual inline templates."
+summary: "Six transactional e-mails, one service class: how each mail decouples from its database transaction, what happens when SMTP fails, and the bilingual inline templates."
 ---
 
 This document covers the e-mail subsystem: which mails exist, how each one is kept transaction-safe, how failures are handled per flow, and how the templates are built and localized.
 
 ## What gets sent
 
-The system sends exactly five e-mails, all owned by one service class in the notification package:
+The system sends exactly six e-mails, all owned by one service class in the notification package:
 
 | # | Mail | Trigger | Contains |
 |---|------|---------|----------|
@@ -16,8 +16,11 @@ The system sends exactly five e-mails, all owned by one service class in the not
 | 3 | Account deletion code | Deletion requested | Six digits, deliberately no link and no button: a deletion must not be one click away from an inbox |
 | 4 | Feedback acknowledgement | User submits feedback | Echo of the category and the submitted text |
 | 5 | Feedback reply | Admin replies | The reply plus the original quoted back |
+| 6 | Feedback inbox alert | User submits feedback | A link to the admin console, and nothing else |
 
 Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google sign-ups get nothing (Google already verified the address), and nothing announces password-reset completion or the account's actual deletion.
+
+The inbox alert is the only mail addressed to the operator rather than to a user, and its emptiness is the design. It carries a link and no category, no submitter and none of the submitted text: feedback can be personal, and copying it into a mail provider to save one click is a bad trade. Who receives it is whoever holds ROLE_ADMIN at the moment of the submission, minus the submitter, so an admin writing feedback gets the ordinary receipt and no second mail about themselves. One submission therefore produces one receipt plus one message per admin, each addressed individually — a shared To: line would show every admin the others' addresses.
 
 ```mermaid
 flowchart LR
@@ -25,6 +28,7 @@ flowchart LR
   PR["🔑 Password reset"] --> ES
   DEL["🗑️ Deletion code"] --> ES
   FB["💬 Feedback ack + reply"] --> ES
+  FBA["🔔 Feedback inbox alert"] --> ES
   ES --> SMTP["📤 SMTP (StartTLS)"] --> INBOX["📬 Inbox"]
 ```
 
@@ -34,7 +38,7 @@ Every mail must wait for its database transaction to commit; a reset link pointi
 
 | Flow | Mechanism | Thread |
 |------|-----------|--------|
-| Feedback ack + reply | @Async listener on an AFTER_COMMIT transactional event | Background |
+| Feedback ack, reply and inbox alert | @Async listener on an AFTER_COMMIT transactional event | Background |
 | Password reset, deletion code | Hand-registered afterCommit synchronization | The request thread: the HTTP response waits on SMTP |
 | Registration verification | Plain @Async event listener, no transaction phase | Background |
 
@@ -48,7 +52,7 @@ Each flow answers the failure differently, and the differences are the design:
 
 - **Password reset**: the error is logged and the token row is deleted, so the 5-minute cooldown cannot strand a user waiting on a link that never left the building.
 - **Deletion code**: same idea, sharper edge. The code row is discarded through a REQUIRES_NEW helper, because the discard runs after commit where a plain repository call would join a dead transaction. Nobody got the code, so nobody should sit out the cooldown.
-- **Feedback mails**: logged and swallowed. The submission or reply survives; the receipt is best-effort.
+- **Feedback mails**: logged and swallowed. The submission or reply survives; the receipt is best-effort. The receipt and the inbox alert sit in separate try blocks on purpose, and the alert catches again per recipient, so one dead mailbox costs one message rather than hiding a submission from the console.
 - **Registration verification**: nothing catches it. The exception dies in the async handler's default logging, the user row and its token stay, and here is the real gap: login refuses unverified accounts with EMAIL_NOT_VERIFIED, and no resend endpoint exists. A lost verification mail strands the account.
 
 There is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
@@ -67,7 +71,7 @@ Mail is not optional. The four core values ship without defaults, and the from-a
 
 ## Templates and languages
 
-No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes ten hardcoded templates sharing the BeYou header, the brand blue, and the year-stamped footer.
+No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes eleven hardcoded templates sharing the same header, the brand blue, and the year-stamped footer — eleven and not twelve because the inbox alert is English only. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
 
 Language selection is a two-branch decision per mail: anything starting with "pt" gets Portuguese, everything else (including null) gets English. The interesting part is where each flow reads the language from:
 
@@ -91,7 +95,7 @@ One configuration nit carried here for honesty: the yaml default for the reset T
 
 ## Test coverage
 
-No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The one gap: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
+No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The one gap: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
 
 ## What could be improved
 
@@ -100,5 +104,5 @@ No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and 
 | Verification resend | No endpoint | The one failure mode that strands an account; the top candidate |
 | Retry | Single attempt everywhere | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
 | Reset/deletion sending thread | Request thread waits on SMTP | Moving to the async listener pattern the feedback flows use would cut response latency |
-| Templates | Ten inline HTML blocks | Extracting shared chrome would shrink the duplication; a template engine is still overkill |
+| Templates | Eleven inline HTML blocks | Extracting shared chrome would shrink the duplication; a template engine is still overkill |
 | Reset flow tests | None | The only mail flow without direct coverage |
