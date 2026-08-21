@@ -1,13 +1,13 @@
 ---
 title: "Aspect-Oriented Logging (AOP)"
-summary: "Two aspects give every controller and service consistent logging, timing, and error routing, tuned so client mistakes stay quiet and real faults stay loud."
+summary: "Two aspects give every controller and service consistent logging, timing, and error routing, tuned so client mistakes stay quiet and real faults stay loud, and every line stamped with the id of the user it belongs to."
 ---
 
 This document explains how Beyou uses Spring AOP for observability: what the two aspects log, how expected client errors are kept out of the error channel, and how the aspect output feeds (and deliberately stays out of) the GlitchTip error tracker.
 
 ## What AOP covers here, and what it doesn't
 
-The AOP package holds exactly two aspects, and both do logging. Every other cross-cutting concern lives elsewhere: rate limiting and JWT validation are servlet filters, caching is Spring's `@Cacheable` annotations, transactions are `@Transactional`. One consequence worth knowing: rate-limited rejections happen before the controller is ever invoked, so a 429 never produces an aspect log line.
+The AOP package holds exactly two aspects, and both do logging. Every other cross-cutting concern lives elsewhere: rate limiting and JWT validation are servlet filters, caching is Spring's `@Cacheable` annotations, transactions are `@Transactional`. One consequence worth knowing: rate-limited rejections happen before the controller is ever invoked, so a 429 never produces an aspect log line. Identity on the line is not an aspect either: a servlet filter puts the user id in the MDC and the log pattern prints it, so the aspects' lines carry it without knowing it exists.
 
 ```mermaid
 flowchart LR
@@ -80,11 +80,25 @@ Spring AOP is proxy-based (CGLIB), which brings the classic caveat: a method cal
 
 These prefixes are what the Loki queries and the Beyou Logs dashboard filter on.
 
+## Who a line belongs to
+
+Every line carries the id of the user the request was for:
+
+```
+2026-08-21T08:31:33.536Z  INFO 1 --- [backend] [mcat-handler-61] [userId=3f1c9a2e-…] b.b.backend.AOP.ServiceMethodsLogging : [PERFORMANCE] Method history exectued in 12 ms
+```
+
+The value comes from the MDC, filled for the length of a request by `UserContextLogFilter`, and is printed by `logging.pattern.correlation`, the slot Spring Boot reserves for per-request identity inside its own default console and file patterns. The filter is a plain servlet filter rather than a link in the security chain, ordered after Spring Security's `FilterChainProxy` so the principal already exists, and ahead of the rate-limit filter so a 429 rejection is attributable even though no aspect ever sees it. Lines with no user in scope, startup and the snapshot scheduler among them, print `anonymous` rather than an empty field, so a log query has one line shape to parse instead of two.
+
+The id is a surrogate key, and nothing a user wrote travels with it. That is what makes it safe in a channel where the aspects refuse to log arguments on purpose: the id says which account, the database says who. Sentry's Logback integration copies the MDC onto breadcrumbs and events, so the same id reaches GlitchTip and answers whether an incident is one account or every account.
+
+Two kinds of line still read `anonymous` on an authenticated request, both because no id exists to attach at that point rather than by omission. `TokenService.validateToken` is logged by the service aspect from inside `SecurityFilter`, before the token has been turned into a user. The agent's SSE stream resumes on a reactor thread that no request-scoped filter runs on, which is why `AiAgentService` is handed the user id and logs it itself.
+
 ## Honest gaps
 
 | Area | Current state | Note |
 |------|--------------|------|
-| Correlation IDs | None | No MDC, no request id; correlating a request's lines relies on thread identity and timestamps |
+| Correlation IDs | User id, no request id | Every line carries `[userId=…]`, so a user's activity is one query. Nothing separates two concurrent requests from the same user, which still relies on thread name and timestamps |
 | Failed-request timing | [REQUEST] only on success | A throwing endpoint leaves no duration record |
 | Exception-message hygiene | Logged unescaped and uncapped | One controller sanitizes its messages at the source against log forging; the advice itself does not, so the same hole exists for any other message |
 | Test coverage | One PII-regression test | ControllerLogging has a guard proving arguments never leak; ServiceMethodsLogging and the WARN/ERROR routing have no dedicated tests |
