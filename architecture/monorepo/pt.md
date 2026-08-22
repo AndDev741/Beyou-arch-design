@@ -46,7 +46,7 @@ O site de marketing fica na raiz do repositório, fora do glob do workspace de p
 | theme | O modelo de tokens, os pacotes de acento, o mapa tema-para-variáveis | Os dois provedores de tema |
 | i18n | Os JSONs de tradução en e pt | As duas inicializações do i18next |
 | validation | Schemas zod por formulário, como fábricas cientes de tradução | Todo formulário nas duas plataformas |
-| icons | Registro de ícones neutro de plataforma, busca, recentes | Cada app fornece só o renderizador |
+| icons | Registro de ícones neutro de plataforma, busca bilíngue, recentes | Cada app fornece só o renderizador |
 | contracts | Tipos gerados de um snapshot OpenAPI commitado | Ligado antes do uso; o CI guarda contra staleness |
 
 O pacote de contratos merece sua nota honesta: é andaime ligado antes dos consumidores. O CI regenera os tipos e compara com os commitados, o que pega uma regeneração esquecida mas não a deriva contra o backend vivo, já que o endpoint da spec fica atrás de autenticação. Levar os tipos gerados para dentro dos repositórios da api é a próxima fase nomeada.

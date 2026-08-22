@@ -80,7 +80,7 @@ The authority model is the important part:
 
 - **Identity rides in the ToolContext**, built server-side from the authenticated request. The model never supplies a user id, so it can only ever act as the person talking to it.
 - **Every write argument is re-validated** with the same Jakarta constraints the REST DTOs carry, and violations come back listing every failed field so the model can correct itself.
-- **Reads are capped** at 100 items per type, and icon ids pass through a curated catalog that silently substitutes a default for anything unknown, because the model drops or invents icon ids often enough to matter.
+- **Reads are capped** at 100 items per type, and icon ids pass through a curated catalog that silently substitutes a default for anything unknown, because the model drops or invents icon ids often enough to matter. The catalog is grouped by what a habit is about rather than by id space, and each group offers both line icons and emoji so the model can match the register of the habit. It is also the reason to keep the list disciplined: every entry is rendered into the system prompt, so the catalog costs tokens on every single call. It earns a new entry when a whole area of life is missing — faith was, and someone tracking prayer got a generic star — not when a synonym of something already listed is absent.
 - Each write tool declares which frontend domains it touched, and the finished event carries that list, so the client refetches exactly the slices that changed and nothing else.
 
 ## Three layers of memory

@@ -46,7 +46,7 @@ The marketing site sits at the repo root, outside the workspace glob on purpose:
 | theme | The token model, accent packs, the theme-to-variables map | Both theme providers |
 | i18n | The en and pt translation JSONs | Both i18next inits |
 | validation | Zod schemas per form, as translation-aware factories | Every form on both platforms |
-| icons | Platform-neutral icon registry, search, recents | Each app supplies only the renderer |
+| icons | Platform-neutral icon registry, bilingual search, recents | Each app supplies only the renderer |
 | contracts | Types generated from a committed OpenAPI snapshot | Wired ahead of use; CI guards staleness |
 
 The contracts package deserves its honest footnote: it is scaffolding wired before its consumers. CI regenerates the types and diffs them against the committed ones, which catches a stale regeneration but not drift against the live backend, since the spec endpoint sits behind authentication. Threading the generated types into the api repositories is the named next phase.

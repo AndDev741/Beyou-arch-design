@@ -11,6 +11,16 @@ Este documento cobre os dois sistemas de personalização: idioma (inglês e por
 
 i18next com o detector de idioma do navegador, exatamente dois idiomas (en, pt), inglês como fallback. Os JSONs de tradução vivem no compartilhado `packages/i18n`; a pasta local de traduções do web guarda só o arquivo de inicialização. O seletor de ícones mantém arquivos de idioma próprios no pacote de ícones, já que palavras-chave de busca de ícone são uma preocupação separada do texto da UI.
 
+### Buscar um ícone no seu próprio idioma
+
+A busca de ícones é traduzida separadamente do texto da UI, e em duas partes. `packages/icons/src/i18n/{en,pt}.json` guarda o que pertence a um idioma: os nomes das categorias, algumas palavras-chave por categoria e um conjunto pequeno de apelidos de busca. `packages/icons/src/data/curated.json` guarda o vocabulário em si — para cada ícone que as pessoas realmente procuram, as palavras que digitariam em qualquer um dos dois idiomas, em um só lugar em vez de dois arquivos que se afastam com o tempo.
+
+Os dois idiomas são buscados juntos. Quem usa a interface em português continua achando um ícone digitando a palavra em inglês, que é o que se faz quando o nome em inglês é o nome que se conhece.
+
+A correspondência é ancorada no início de um termo ou de uma palavra dentro dele, nunca no meio. Esse limite é a razão de a busca funcionar: `bolo` está dentro de `símbolo`, e enquanto a busca comparava substrings cruas contra um único bloco de texto por ícone, digitar isso devolvia todas as 3600 entradas em ordem alfabética. Os termos também são pontuados em camadas — o nome do próprio ícone, depois palavras isoladas de um nome mais longo, depois a categoria a que pertence — para que um acerto exato no ícone não empate com o grupo em volta dele.
+
+Ícones sem vocabulário curado continuam acessíveis pelo nome em inglês e pela categoria, então a cauda do catálogo é navegável em vez de invisível.
+
 O escape de interpolação fica desligado, o que é seguro aqui por uma razão específica: toda string traduzida chega ao DOM pela renderização do React, e o app não tem pontos de injeção de HTML cru por onde elas vazariam.
 
 ### O fluxo de troca, e um no-op deliberado
