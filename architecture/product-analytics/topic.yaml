@@ -1,0 +1,10 @@
+key: product-analytics
+orderIndex: 17
+status: ACTIVE
+tags:
+  - analytics
+  - posthog
+  - privacy
+  - product
+  - proxy
+projectKey: beyou-frontend

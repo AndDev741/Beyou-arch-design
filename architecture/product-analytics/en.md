@@ -1,0 +1,54 @@
+---
+title: "Product Analytics"
+summary: "PostHog across four surfaces behind one first-party proxy: what gets captured, what never leaves the browser, why identify carries a UUID and a name but never an email, and how adblockers shaped the transport."
+---
+
+The [monitoring topic](/architecture/monitoring) answers "how is the system doing"; this layer answers "what are people doing in it". The split is intentional: infrastructure metrics stay in Prometheus and Grafana, product behavior goes to PostHog Cloud (EU region), and the one metric that straddles the line, how many users are on right now, lives on the backend as a Micrometer gauge, because concurrency is a property of the server rather than of any one browser.
+
+```mermaid
+flowchart LR
+  APP["🖥️ Web app<br/><i>masked autocapture</i>"] --> PH
+  MOB["📱 Mobile app<br/><i>screens + touches</i>"] --> PH
+  LAND["🏠 Landing<br/><i>unmasked, public copy</i>"] --> PH
+  DOCS["📚 Docs<br/><i>unmasked, public copy</i>"] --> PH
+  PH["🔀 ph.beyouweb.com<br/><i>Cloudflare Worker</i>"] --> EU["🦔 PostHog EU"]
+  BE["⚙️ Backend"] -->|"beyou_active_users"| GF["📊 Grafana · Product"]
+```
+
+## One project, four surfaces
+
+Everything reports into a single PostHog project. The surfaces separate at query time, the three websites by `$host` and the mobile app by `$lib`, and four pinned dashboards (App, Landing, Docs, Mobile) plus the built-in Web Analytics page each lock onto one of them. One project instead of four because the interesting questions cross surfaces: the landing-to-app conversion funnel only works when both ends land in the same event stream. It works across subdomains because posthog-js sets its cookie on the registrable domain, so the anonymous visitor who read the landing is the same person who signs up a minute later.
+
+The SDK never appears in feature code. `@beyou/api` exposes an `Analytics` seam (`identify` / `reset` / `track`) mirroring the logger seam, with a no-op default. The web app wires posthog-js into it at boot, the mobile app wires posthog-react-native, and shared code calls the seam without knowing which platform it is on. Every client is dormant by construction: without `VITE_POSTHOG_KEY` or `EXPO_PUBLIC_POSTHOG_KEY` at build time, `init()` is never called and nothing is ever sent, the same posture the error telemetry takes with its DSNs. The key is a public ingest identifier (it appears in every visitor's page source by definition), so it travels as a repo variable into the image and bundle builds, never as a secret, and never via the server's runtime env. Vite and Metro inline it when the artifact is built.
+
+## Identity
+
+`identify()` carries exactly two things: the account's opaque UUID and the display name. The UUID was added to the profile payload for this purpose. Before it, the only stable identity the frontend possessed was the email, and shipping emails to an analytics vendor is the line this stack does not cross.
+
+The call sites follow the same single-funnel philosophy the codebase uses elsewhere. On web, identify lives inside `hydratePerfil`, the one function every user-loading path (login, Google login, silent refresh, agent refresh, profile screen) already passes through, so a sixth path added later cannot forget it. On mobile it is an `AnalyticsSync` component watching the auth slice, the same pattern as ThemeSync. `reset()` fires on logout and account teardown, because an identity left on the device would merge the next account on that browser into the one that left.
+
+## What never leaves the browser
+
+The app's autocapture runs with all element text and attributes masked, because the routine check-in control is labeled with the user's own habit name. One unmasked click event per check-in would ship user-written content, the same leak the error-telemetry breadcrumb scrubber closes on its side. Structure and coordinates survive, which is enough for heatmaps and per-element analysis; the words themselves stay on the device. The landing and docs run unmasked, because every string on those pages is public copy the site itself published, and element text is exactly what makes "which link do readers click" answerable.
+
+Query strings are stripped from every URL-bearing property by a `before_send` hook, and this one was earned in production: the Google OAuth callback landed on `/?state=…&code=…` and the pageview captured it verbatim, single-use authorization code included. Reset-password and verify-email tokens ride query strings too. No query string on the app carries analytics value, so all of them are removed rather than allowlisted. The scrub is pinned by tests on the produced event rather than on the configuration, because pinning config is how a previous scrubber passed its tests while still leaking.
+
+Session recording is not loaded on any surface. Heatmaps, web vitals, and dead-click capture are on; recordings are the easiest way to leak user content wholesale, and nothing asked so far needs them.
+
+## The proxy, or how adblockers shaped the transport
+
+The first real browsing session produced a puzzle: pageviews arrived, clicks never did. The browser was Brave, and privacy filter lists match on `*.posthog.com`. The first capture request slipped through and the batch endpoint everything else rides was blocked. Since 20 to 40% of web users run some blocker, that means a systematic undercount of exactly the engaged-user events that matter.
+
+Capture therefore rides `ph.beyouweb.com`, a Cloudflare Worker (PostHog's own recipe) that forwards to EU ingest and serves the SDK's static assets edge-cached. A first-party origin is on nobody's filter list. The change had a second benefit: the landing page's one remaining third-party script load disappeared, since `array.js` now comes through the same origin. Clients point at the proxy through the same build-time variables as the key, plus `ui_host` so the PostHog toolbar still finds its home.
+
+Two content-security-policy postures interact with this. The app's CSP is Report-Only and blocks nothing. The landing's is enforcing, with `default-src 'none'`, and it did exactly its job when analytics arrived: it silently killed both the SDK load and the capture requests until `script-src` and `connect-src` explicitly admitted the proxy origin. Anyone promoting the app's policy from Report-Only to enforcing must grant the same two directives, or the app goes exactly as silent as the landing did.
+
+## The server-side half
+
+Three product questions cannot be answered from a browser: how many users are on right now, the peak concurrency over a window, and login recency as ground truth independent of any vendor. The backend answers them with a Caffeine-backed sliding window feeding a `beyou_active_users` gauge, touched by the security filter on every authenticated request, so "active" means "made a real request in the last five minutes". Two database columns complete the picture: `last_login_at`, written at the single choke point every session-issuing path crosses, and `last_seen_at`, throttled to one write per user per window so read traffic does not become write traffic. The columns are left unmapped on the JPA entity on purpose. The User object is loaded on every request and saved by unrelated flows, and a mapped field would let a stale in-memory value overwrite a fresher one.
+
+Grafana's Product dashboard reads both, the gauge from Prometheus and the columns (plus check-ins, XP, and AI usage from the domain tables) through a provisioned Postgres datasource. The at-a-glance numbers sit next to the infrastructure dashboards, and the deep behavioral questions stay in PostHog, one link away.
+
+## Hygiene
+
+Two test accounts are excluded through the project's test-account filters, checked by default on every new insight, so dashboards measure users rather than the people building the product. The known blind spot is written down instead of papered over: bot detection is PostHog's own (it reads `navigator.webdriver` and the user-agent brands) and events from headless browsers are silently dropped. Mobile delivery shares the same gate as mobile error telemetry: the code is ready, but delivery counts as proven only when a release build on a physical device shows up in the project.
