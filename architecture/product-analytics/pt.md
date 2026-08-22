@@ -23,7 +23,7 @@ O SDK nunca aparece em código de feature. O `@beyou/api` expõe um seam `Analyt
 
 ## Identidade
 
-O `identify()` carrega exatamente duas coisas: o UUID opaco da conta e o nome de exibição. O UUID foi adicionado ao payload do perfil para isso. Antes dele, a única identidade estável que o frontend possuía era o email, e enviar emails para um vendor de analytics é a linha que esta stack não cruza. O nome é uma exceção aprovada pelo dono do produto, para que os perfis de pessoa sejam reconhecíveis na UI do PostHog; o email fica de fora em todos os lugares.
+O `identify()` carrega exatamente duas coisas: o UUID opaco da conta e o nome de exibição. O UUID foi adicionado ao payload do perfil para isso. Antes dele, a única identidade estável que o frontend possuía era o email, e enviar emails para um vendor de analytics é a linha que esta stack não cruza.
 
 Os pontos de chamada seguem a mesma filosofia de funil único que o código usa em outros lugares. Na web, o identify vive dentro do `hydratePerfil`, a única função por onde todo caminho de carregamento do usuário (login, login Google, refresh silencioso, refresh do agente, tela de perfil) já passa, então um sexto caminho adicionado depois não tem como esquecer. No mobile é um componente `AnalyticsSync` observando o slice de auth, o mesmo padrão do ThemeSync. O `reset()` dispara no logout e no teardown de conta, porque uma identidade deixada no dispositivo fundiria a próxima conta daquele browser com a que saiu.
 
