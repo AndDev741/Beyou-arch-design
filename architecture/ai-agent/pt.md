@@ -80,7 +80,7 @@ O modelo de autoridade é a parte importante:
 
 - **A identidade viaja no ToolContext**, montado no servidor a partir da requisição autenticada. O modelo nunca fornece um id de usuário, então só consegue agir como a pessoa falando com ele.
 - **Todo argumento de escrita é revalidado** com as mesmas constraints Jakarta dos DTOs REST, e violações voltam listando cada campo reprovado para o modelo se corrigir.
-- **Leituras têm teto** de 100 itens por tipo, e ids de ícone passam por um catálogo curado que substitui em silêncio qualquer desconhecido por um padrão, porque o modelo esquece ou inventa ids de ícone com frequência suficiente para importar.
+- **Leituras têm teto** de 100 itens por tipo, e ids de ícone passam por um catálogo curado que substitui em silêncio qualquer desconhecido por um padrão, porque o modelo esquece ou inventa ids de ícone com frequência suficiente para importar. O catálogo é agrupado pelo assunto do hábito em vez do espaço de ids, e cada grupo oferece ícones de linha e emojis para o modelo escolher o registro que combina com o hábito. É também o motivo de manter a lista disciplinada: toda entrada vai para o prompt do sistema, então o catálogo custa tokens em cada chamada. Uma entrada nova se justifica quando falta uma área inteira da vida — fé faltava, e quem acompanhava oração recebia uma estrela genérica — não quando falta um sinônimo de algo que já está lá.
 - Cada ferramenta de escrita declara quais domínios do frontend ela tocou, e o evento de conclusão carrega essa lista, então o cliente rebusca exatamente os slices que mudaram e nada mais.
 
 ## Três camadas de memória

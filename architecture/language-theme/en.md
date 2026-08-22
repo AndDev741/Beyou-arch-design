@@ -11,6 +11,16 @@ This document covers the two personalization systems: language (English and Port
 
 i18next with the browser language detector, exactly two languages (en, pt), English as fallback. The translation JSONs live in the shared `packages/i18n`; the web app's local translations folder holds only the init file. The icon picker keeps its own locale files in the icons package, since icon search keywords are a separate concern from UI copy.
 
+### Searching for an icon in your own language
+
+Icon search is translated separately from UI copy, and in two pieces. `packages/icons/src/i18n/{en,pt}.json` holds what belongs to a language: the category names, a few keywords per category, and a small set of query aliases. `packages/icons/src/data/curated.json` holds the vocabulary itself — for each icon that people actually reach for, the words they would type in either language, in one place rather than two files that drift apart.
+
+Both languages are searched at once. Someone with the interface in Portuguese still finds an icon by typing the English word, which is what people do when the English name is the one they know.
+
+Matching is anchored to the start of a term or of a word inside it, never the middle. That boundary is the whole reason the feature behaves: `bolo` (cake) is a substring of `símbolo`, and while search compared raw substrings against one blob of text per icon, typing it returned all 3600 entries in alphabetical order. Terms are also ranked in tiers — the icon's own name, then single words of a longer name, then the category it belongs to — so an exact hit on the icon cannot be tied by the group around it.
+
+Uncurated icons are still reachable by their English name and through their category, so the tail of the catalogue is browsable rather than invisible.
+
 Interpolation escaping is off, which is safe here for a specific reason: every translated string reaches the DOM through React's rendering, and the app contains no raw-HTML injection points for them to leak through.
 
 ### The change flow, and one deliberate no-op
