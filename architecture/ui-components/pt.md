@@ -71,7 +71,7 @@ Dois sistemas distintos andam sobre essa máquina:
 - **O modal de introdução**: quatro cards de conceito (categorias, hábitos, tarefas, rotinas) e depois uma bifurcação: seguir o assistente de onboarding com IA ou o tour manual.
 - **O tour de spotlight**: cada passo nomeia um seletor CSS, uma posição e uma ação (clicar ou observar). O localizador pega o primeiro alvo visível, o que permite que a sidebar do desktop e a folha de Mais do celular dividam as mesmas definições de passos, e o tooltip se prende à viewport. Cada página tem um hook dono dos seus passos e transições de fase.
 
-O assistente de IA percorre cinco passos (categorias, hábitos e tarefas, rotina, metas, resumo), buscando sugestões tipadas do backend e criando entidades reais passo a passo pelos endpoints REST comuns. O progresso persiste em localStorage só como passo-mais-referências-criadas; as sugestões em si deliberadamente não persistem, então um reload rebusca em vez de criar em dobro.
+O assistente de IA percorre cinco passos (categorias, hábitos e tarefas, rotina, metas, resumo), buscando sugestões tipadas do backend e criando entidades reais passo a passo pelos endpoints REST comuns. O progresso persiste em localStorage só como passo-mais-referências-criadas; as sugestões em si deliberadamente não persistem, então um reload rebusca em vez de criar em dobro. As criações consultam a conta antes e pulam um nome que já esteja lá, o que evita que o Tentar novamente do banner de erro some uma segunda cópia de tudo o que a tentativa falha já tinha conseguido criar.
 
 ## Feedback de gamificação
 
