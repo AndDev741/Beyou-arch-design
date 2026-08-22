@@ -1,0 +1,29 @@
+flowchart TD
+  subgraph clients["Four surfaces"]
+    APP["🖥️ Web app<br/>masked autocapture · identify"]
+    MOB["📱 Mobile app<br/>screens + touches · identify"]
+    LAND["🏠 Landing<br/>unmasked · anonymous"]
+    DOCS["📚 Docs<br/>unmasked · anonymous"]
+  end
+
+  subgraph transport["First-party transport"]
+    PX["🔀 ph.beyouweb.com<br/>Cloudflare Worker"]
+  end
+
+  subgraph analytics["Product analytics"]
+    EU["🦔 PostHog EU<br/>4 dashboards · Web Analytics<br/>heatmaps · web vitals"]
+  end
+
+  subgraph server["Server-side half"]
+    BE["🍃 Backend<br/>beyou_active_users gauge<br/>last_login_at · last_seen_at"]
+    GF["📊 Grafana<br/>Product dashboard"]
+  end
+
+  APP -->|"events via seam<br/>@beyou/api"| PX
+  MOB -->|"events via seam<br/>@beyou/api"| PX
+  LAND -->|"snippet"| PX
+  DOCS -->|"events"| PX
+  PX -->|"ingest + static assets"| EU
+  BE -->|"gauge via Prometheus"| GF
+  BE -->|"login columns via Postgres"| GF
+  GF -.->|"deep behavior, one link away"| EU
