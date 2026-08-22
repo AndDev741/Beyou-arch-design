@@ -166,10 +166,11 @@ components:
       properties:
         name:
           type: string
-          maxLength: 256
+          maxLength: 255
           minLength: 2
         description:
           type: string
+          maxLength: 255
         iconId:
           type: string
         targetValue:
@@ -177,6 +178,7 @@ components:
           format: double
         unit:
           type: string
+          maxLength: 255
           minLength: 1
         currentValue:
           type: number
@@ -188,7 +190,7 @@ components:
             format: uuid
         motivation:
           type: string
-          maxLength: 256
+          maxLength: 255
           minLength: 0
         startDate:
           type: string
@@ -226,17 +228,19 @@ components:
           format: uuid
         name:
           type: string
-          maxLength: 256
+          maxLength: 255
           minLength: 2
         iconId:
           type: string
         description:
           type: string
+          maxLength: 255
         targetValue:
           type: number
           format: double
         unit:
           type: string
+          maxLength: 255
           minLength: 1
         currentValue:
           type: number
@@ -250,7 +254,7 @@ components:
             format: uuid
         motivation:
           type: string
-          maxLength: 256
+          maxLength: 255
           minLength: 0
         startDate:
           type: string

@@ -93,11 +93,11 @@ components:
       properties:
         name:
           type: string
-          maxLength: 256
+          maxLength: 255
           minLength: 2
         description:
           type: string
-          maxLength: 1000
+          maxLength: 255
           minLength: 0
         iconId:
           type: string
@@ -132,8 +132,10 @@ components:
           format: uuid
         name:
           type: string
+          maxLength: 255
         description:
           type: string
+          maxLength: 255
         iconId:
           type: string
         importance:
