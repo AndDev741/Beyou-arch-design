@@ -170,7 +170,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 | write | qualquer outro POST/PUT/DELETE | 30 / min | usuário |
 | read | qualquer outro GET | 60 / min | usuário |
 
-Rejeições respondem 429 com header `Retry-After`; sucessos carregam `X-Rate-Limit-Remaining`.
+Rejeições respondem 429 com header `Retry-After`; sucessos carregam `X-Rate-Limit-Remaining`. Os dois estão citados no `Access-Control-Expose-Headers`, sem o que nenhum navegador consegue ler nenhum deles: nenhum está na safelist do CORS, então a espera ia no fio e era inalcançável para o cliente web.
 
 O IP do cliente vem do header `CF-Connecting-IP`, não do `X-Forwarded-For`, e a razão vale lembrar: o Cloudflare acrescenta ao X-Forwarded-For em vez de substituí-lo, então a entrada mais à esquerda é controlada pelo atacante, e honrá-la entregaria um balde de login novo por requisição. Quando o header falta, o filtro cai para o endereço do socket, que atrás de um túnel colapsa em um balde compartilhado. Esse caso degradado é exatamente o motivo de o lockout de login por conta existir como segunda camada independente.
 
