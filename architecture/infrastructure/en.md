@@ -50,7 +50,7 @@ This is a home machine, and the doc would be dishonest if it pretended otherwise
 
 - **Power or internet outage**: the app goes down and stays down until someone boots the laptop. There is no auto-recovery for the machine itself.
 - **After boot**: Docker's restart policies bring every container back on their own. Recovery is one power button.
-- **Backups**: there are none yet. This is the biggest known gap in the whole setup, and it belongs ahead of anything fancier on the roadmap.
+- **Backups**: nightly, offsite, encrypted. The database, the uploads volume and the `.env` file go to Cloudflare R2 through restic, and a weekly job restores the newest snapshot into a scratch database and compares row counts against the live one, because a backup nobody has restored is a guess. This was the biggest gap in the setup for a long time. It is closed for data loss and it does nothing for uptime: still one disk, one machine, no failover.
 - **Incidents so far**: exactly one category, and it is not in any postmortem template: family members unplugging the internet cable.
 
 ## Why a laptop in a bedroom
@@ -61,4 +61,4 @@ The turning point was discovering Cloudflare Tunnels and realizing how easy it h
 
 ## What's next
 
-For now it stays exactly as it is. The curiosity list for going deeper: backend replication, load balancing, and working out what a real failover story looks like on hardware like this. Backups come first, though.
+For now it stays exactly as it is. The curiosity list for going deeper: backend replication, load balancing, and working out what a real failover story looks like on hardware like this. Backups used to head that list. Now that they exist, what is left is the harder half — staying up, rather than merely not losing anything.

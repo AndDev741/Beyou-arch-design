@@ -15,7 +15,9 @@ This repository contains no application code. It is the orchestration layer: a b
 
 ## The scripts
 
-`up-dev.sh` and `up-prod.sh` (both accepting `--monitoring`), `down.sh`, the loud-failure `reset-db.sh`, and `bootstrap-glitchtip.sh`, which creates and reconciles the error tracker's organization, projects, twelve uptime monitors, the snapshot heartbeat, and the alert rules from code.
+`up-dev.sh` and `up-prod.sh` (both accepting `--monitoring`), `down.sh`, the loud-failure `reset-db.sh`, and `bootstrap-glitchtip.sh`, which creates and reconciles the error tracker's organization, projects, twelve uptime monitors, three heartbeats, and the alert rules from code.
+
+`backup.sh` and `restore-check.sh` are the pair that matter when the disk does. The first dumps the database, the uploads volume, and `.env` to an encrypted restic repository offsite plus a plain local copy; the second restores the newest snapshot into a scratch database and compares row counts against the live one, because an untested backup is a directory that makes you feel better. Both run from systemd timers, nightly and weekly.
 
 ## Deep dives
 
