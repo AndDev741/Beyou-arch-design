@@ -92,9 +92,9 @@ The axios instance policy, in order:
 |------|----------|
 | Base | VITE_API_URL, credentials on |
 | Refresh dedup | One module-level refresh promise: N concurrent 401s share a single refresh call, and the token is read from the X-Access-Token response header |
-| Skip list | /auth/refresh, /auth/login, /auth/google pass through: they legitimately 401 |
-| 429 | A translated rate-limit toast |
+| Skip list | /auth/refresh, /auth/login, /auth/google pass through: they legitimately 401, and the auth screens name a throttle themselves rather than take a second toast on top |
+| 429 | A translated rate-limit toast, for everything except the skip list and the agent stream, which do it at their own layer |
 | 401, first time | Mark the request, refresh, write the token to the axios defaults and the retried request, replay |
 | Refresh failed | Report the failure, hard-navigate to login, and reject with the original 401 rather than the refresh error, so an expired session is not misfiled as an unknown fault |
 
-On boot, `useSilentRefresh` runs before the router mounts: it trades the httpOnly cookie for an access token, then re-fetches the profile and hydrates the perfil slice, which is necessary precisely because perfil is blacklisted from persistence. The agent's SSE stream rides raw fetch (axios buffers streams) but is configured with the same base URL, live auth header, and the same shared refresh function, so a stream 401 cannot race a second refresh.
+On boot, `useSilentRefresh` runs before the router mounts: it trades the httpOnly cookie for an access token, then re-fetches the profile and hydrates the perfil slice, which is necessary precisely because perfil is blacklisted from persistence. The agent's SSE stream rides raw fetch (axios buffers streams) but is configured with the same base URL, live auth header, and the same shared refresh function, so a stream 401 cannot race a second refresh. Riding outside axios also means it misses the interceptor above, so it reads the error key off the failure body itself — which is how a throttled chat says it was throttled instead of reporting a status nobody translated.

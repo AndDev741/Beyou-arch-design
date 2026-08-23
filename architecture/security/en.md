@@ -170,7 +170,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 | write | any other POST/PUT/DELETE | 30 / min | user |
 | read | any other GET | 60 / min | user |
 
-Rejections answer 429 with a `Retry-After` header; successes carry `X-Rate-Limit-Remaining`.
+Rejections answer 429 with a `Retry-After` header; successes carry `X-Rate-Limit-Remaining`. Both are named in `Access-Control-Expose-Headers`, without which a browser cannot read either one: neither is on the CORS safelist, so the wait was on the wire and unreachable by the web client.
 
 The client IP comes from the `CF-Connecting-IP` header, not `X-Forwarded-For`, and the reason is worth remembering: Cloudflare appends to X-Forwarded-For rather than replacing it, so its leftmost entry is attacker-controlled, and honoring it would hand out a fresh login bucket per request. When the header is absent the filter falls back to the socket address, which behind a tunnel collapses into one shared bucket. That degraded case is precisely why the per-account login lockout exists as an independent second layer.
 

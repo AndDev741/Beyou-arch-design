@@ -92,9 +92,9 @@ A política da instância axios, em ordem:
 |-------|---------------|
 | Base | VITE_API_URL, credenciais ligadas |
 | Dedup de refresh | Uma promise de refresh no módulo: N 401s simultâneos dividem uma única chamada, e o token é lido do header de resposta X-Access-Token |
-| Lista de exceção | /auth/refresh, /auth/login, /auth/google passam direto: eles dão 401 legitimamente |
-| 429 | Um toast traduzido de limite de requisições |
+| Lista de exceção | /auth/refresh, /auth/login, /auth/google passam direto: eles dão 401 legitimamente, e as telas de auth nomeiam o limite por conta própria em vez de levar um segundo toast em cima |
+| 429 | Um toast traduzido de limite de requisições, para tudo fora da lista de exceção e do stream do agente, que fazem isso na própria camada |
 | 401, primeira vez | Marca a requisição, faz refresh, escreve o token nos defaults do axios e na requisição repetida, repete |
 | Refresh falhou | Reporta a falha, navega duro para o login e rejeita com o 401 original em vez do erro do refresh, para uma sessão expirada não ser arquivada como falha desconhecida |
 
-No boot, o `useSilentRefresh` roda antes de o router montar: troca o cookie httpOnly por um access token, depois rebusca o perfil e hidrata o slice perfil, o que é necessário justamente porque o perfil está na blacklist da persistência. O stream SSE do agente anda sobre fetch cru (o axios bufferiza streams), mas é configurado com a mesma URL base, o header de auth vivo e a mesma função compartilhada de refresh, então um 401 no stream não corre contra um segundo refresh.
+No boot, o `useSilentRefresh` roda antes de o router montar: troca o cookie httpOnly por um access token, depois rebusca o perfil e hidrata o slice perfil, o que é necessário justamente porque o perfil está na blacklist da persistência. O stream SSE do agente anda sobre fetch cru (o axios bufferiza streams), mas é configurado com a mesma URL base, o header de auth vivo e a mesma função compartilhada de refresh, então um 401 no stream não corre contra um segundo refresh. Andar fora do axios também significa perder o interceptor acima, então ele lê a chave de erro do próprio corpo da falha — é assim que um chat barrado por limite diz que foi barrado, em vez de reportar um status que ninguém traduziu.
