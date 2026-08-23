@@ -57,7 +57,7 @@ Each flow answers the failure differently, and the differences are the design:
 
 There is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
 
-One operational side effect: Spring's mail health indicator is on, so a dead SMTP server flips `/actuator/health` to DOWN.
+Two operational notes, both the result of a fix rather than a design choice. Spring's mail health indicator is off: it opened a real authenticated SMTP session on every hit of `/actuator/health`, uncached, which handed the uptime monitor's verdict to the mail provider. It was also redundant, since a failed send already logs at ERROR and every ERROR is already a GlitchTip event. And all three JavaMail timeouts are pinned at 5s, because the default is to wait forever: the reset and deletion sends run synchronously inside `afterCommit`, before the JDBC connection returns to the pool, so an unanswered SMTP session used to hold both the user's request and one of Hikari's ten connections indefinitely.
 
 ## SMTP configuration
 
