@@ -49,3 +49,11 @@ The reward is that feeling I started this post with. Opening your own app, on yo
 ## What's next
 
 The setup stays as it is for now. The curiosity list for going deeper: backend replication, load balancing, and figuring out what a real failover story looks like on hardware like this. Backups come first, though. I wrote that in the documentation, so now it's a promise.
+
+## Update, August 2026
+
+The promise is kept. Backups run nightly now: the database, the uploads volume and the `.env` file go to Cloudflare R2 through restic, encrypted before they leave the machine, and a weekly job restores the newest snapshot into a throwaway database and compares its row counts against the live one. That second job is the one I would argue for hardest. A backup nobody has restored is a guess, and I would rather find out on a Monday morning than on the worst day.
+
+Two things surprised me while building it. The first is that the most valuable thing on the box was never the database — it was the 5 KB `.env` file, the only place the OAuth secret, the mail password and every API key existed. Losing the database costs data; losing that file means reissuing every credential I own while the app is down. The second is that my first version quietly never deleted anything: restic groups snapshots by path when it applies a retention policy, and because I staged each run in a fresh temporary directory, every snapshot landed in a group of its own and "keep 7 daily" kept all of them forever. I only caught it because I ran the thing three times in a row and counted.
+
+What this does not fix is uptime. It is still one disk in one laptop with no failover, so this closes the data-loss half of the failure model and leaves the harder half exactly where it was.
