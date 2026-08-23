@@ -50,7 +50,7 @@ Esta é uma máquina de casa, e o documento seria desonesto se fingisse o contr�
 
 - **Queda de energia ou de internet**: o app cai e fica fora até alguém ligar o laptop. Não há auto-recuperação para a máquina em si.
 - **Depois do boot**: as políticas de restart do Docker trazem todos os containers de volta sozinhas. A recuperação é um botão de ligar.
-- **Backups**: ainda não existem. É a maior lacuna conhecida de todo o setup, e vem antes de qualquer coisa mais sofisticada no roadmap.
+- **Backups**: noturnos, fora da máquina, criptografados. O banco, o volume de uploads e o arquivo `.env` vão para o Cloudflare R2 via restic, e um job semanal restaura o snapshot mais recente num banco descartável e compara a contagem de linhas com o banco real, porque backup que ninguém restaurou é chute. Essa foi a maior lacuna do setup por muito tempo. Está fechada para perda de dados e não faz nada por disponibilidade: continua um disco, uma máquina, nenhum failover.
 - **Incidentes até agora**: exatamente uma categoria, que não está em nenhum template de postmortem: familiares desconectando o cabo de internet.
 
 ## Por que um laptop em um quarto
@@ -61,4 +61,4 @@ A virada foi descobrir os Cloudflare Tunnels e perceber como tinha ficado fácil
 
 ## O que vem depois
 
-Por enquanto fica exatamente como está. A lista de curiosidades para ir mais fundo: replicação do backend, load balancing e entender como seria uma história real de failover em um hardware desses. Mas backups vêm primeiro.
+Por enquanto fica exatamente como está. A lista de curiosidades para ir mais fundo: replicação do backend, load balancing e entender como seria uma história real de failover em um hardware desses. Backups lideravam essa lista. Agora que existem, sobrou a metade mais difícil — continuar de pé, e não apenas não perder nada.

@@ -49,3 +49,11 @@ A recompensa é aquela sensação com que abri este post. Abrir o seu próprio a
 ## O que vem depois
 
 A montagem fica como está por enquanto. A lista de curiosidades para ir mais fundo: replicação do backend, load balancing e entender como seria uma história real de failover em um hardware desses. Mas backups vêm primeiro. Escrevi isso na documentação, então agora é uma promessa.
+
+## Atualização, agosto de 2026
+
+A promessa foi cumprida. Os backups rodam toda noite: o banco, o volume de uploads e o arquivo `.env` vão para o Cloudflare R2 via restic, criptografados antes de sair da máquina, e um job semanal restaura o snapshot mais recente num banco descartável e compara a contagem de linhas com o banco real. Esse segundo job é o que eu defenderia com mais força. Backup que ninguém restaurou é chute, e eu prefiro descobrir isso numa segunda-feira de manhã do que no pior dia possível.
+
+O que me surpreendeu no caminho é que a minha primeira versão silenciosamente nunca apagava nada: o restic agrupa snapshots por caminho quando aplica a política de retenção e, como eu montava cada execução num diretório temporário novo, cada snapshot caía num grupo só dele e o "manter 7 diários" mantinha todos para sempre. Só peguei isso porque rodei a coisa três vezes seguidas e contei.
+
+O que isso não resolve é disponibilidade. Continua sendo um disco num laptop só, sem failover, então fecha a metade de perda de dados do modelo de falha e deixa a metade difícil exatamente onde estava.

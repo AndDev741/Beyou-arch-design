@@ -15,7 +15,9 @@ Este repositório não contém código de aplicação. É a camada de orquestra�
 
 ## Os scripts
 
-`up-dev.sh` e `up-prod.sh` (ambos aceitando `--monitoring`), `down.sh`, o `reset-db.sh` que falha alto, e o `bootstrap-glitchtip.sh`, que cria e reconcilia por código a organização do rastreador de erros, os projetos, doze monitores de uptime, o heartbeat de snapshots e as regras de alerta.
+`up-dev.sh` e `up-prod.sh` (ambos aceitando `--monitoring`), `down.sh`, o `reset-db.sh` que falha alto, e o `bootstrap-glitchtip.sh`, que cria e reconcilia por código a organização do rastreador de erros, os projetos, doze monitores de uptime, três heartbeats e as regras de alerta.
+
+`backup.sh` e `restore-check.sh` são a dupla que importa quando o disco resolve morrer. O primeiro manda o dump do banco, o volume de uploads e o `.env` para um repositório restic criptografado fora da máquina, mais uma cópia local em texto simples; o segundo restaura o snapshot mais recente num banco descartável e compara a contagem de linhas com o banco real, porque um backup que ninguém testou é só uma pasta que dá sensação de segurança. Os dois rodam por timers do systemd, um por noite e um por semana.
 
 ## Mergulhos profundos
 
