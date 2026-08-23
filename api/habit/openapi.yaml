@@ -116,11 +116,11 @@ components:
           minLength: 2
         description:
           type: string
-          maxLength: 1000
+          maxLength: 256
           minLength: 0
         motivationalPhrase:
           type: string
-          maxLength: 500
+          maxLength: 256
           minLength: 0
         iconId:
           type: string
@@ -162,10 +162,13 @@ components:
           format: uuid
         name:
           type: string
+          maxLength: 256
         description:
           type: string
+          maxLength: 256
         motivationalPhrase:
           type: string
+          maxLength: 256
         iconId:
           type: string
         importance:

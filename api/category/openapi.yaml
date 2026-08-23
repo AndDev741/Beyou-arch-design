@@ -93,7 +93,7 @@ components:
           minLength: 1
         description:
           type: string
-          maxLength: 1024
+          maxLength: 256
           minLength: 0
       required:
       - categoryId
@@ -111,6 +111,7 @@ components:
           minLength: 1
         description:
           type: string
+          maxLength: 256
         experience:
           type: string
           enum:
