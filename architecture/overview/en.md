@@ -119,7 +119,7 @@ sequenceDiagram
 
 - **Access token (JWT)**: 15 minutes, HMAC256. Requests carry it as `Authorization: Bearer`; the backend delivers a fresh one in the `X-Access-Token` response header.
 - **Refresh token**: 15 days, opaque hashed token in an HttpOnly cookie. The old token is revoked on every refresh.
-- **Email verification**: new accounts confirm their address by email before the first login.
+- **Email verification**: new accounts confirm their address by email before the first login, and can ask for another link if the first never arrives.
 - **Password reset**: secure token by email, 15 minute TTL, 5 minute cooldown between requests. All refresh tokens are revoked on reset.
 - **Account deletion**: confirmed with a short-lived code (15 minute TTL) before anything is removed.
 

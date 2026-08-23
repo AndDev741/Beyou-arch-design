@@ -11,7 +11,7 @@ The system sends exactly six e-mails, all owned by one service class in the noti
 
 | # | Mail | Trigger | Contains |
 |---|------|---------|----------|
-| 1 | Registration verification | New account created | Button link to the verify page, 24-hour expiry notice |
+| 1 | Registration verification | New account created, or a resend requested | Button link to the verify page, 24-hour expiry notice |
 | 2 | Password reset | Forgot-password request | Button link to the reset page, TTL in minutes |
 | 3 | Account deletion code | Deletion requested | Six digits, deliberately no link and no button: a deletion must not be one click away from an inbox |
 | 4 | Feedback acknowledgement | User submits feedback | Echo of the category and the submitted text |
@@ -41,6 +41,7 @@ Every mail must wait for its database transaction to commit; a reset link pointi
 | Feedback ack, reply and inbox alert | @Async listener on an AFTER_COMMIT transactional event | Background |
 | Password reset, deletion code | Hand-registered afterCommit synchronization | The request thread: the HTTP response waits on SMTP |
 | Registration verification | Plain @Async event listener, no transaction phase | Background |
+| Verification resend | Hand-registered afterCommit synchronization | The request thread: the HTTP response waits on SMTP |
 
 The registration path deserves its own warning label: it is only correct because `registerUser` carries no `@Transactional`, so the save has already committed when the event publishes. Adding `@Transactional` to that method would silently reintroduce the send-before-commit race the other flows guard against.
 
@@ -53,7 +54,8 @@ Each flow answers the failure differently, and the differences are the design:
 - **Password reset**: the error is logged and the token row is deleted, so the 5-minute cooldown cannot strand a user waiting on a link that never left the building.
 - **Deletion code**: same idea, sharper edge. The code row is discarded through a REQUIRES_NEW helper, because the discard runs after commit where a plain repository call would join a dead transaction. Nobody got the code, so nobody should sit out the cooldown.
 - **Feedback mails**: logged and swallowed. The submission or reply survives; the receipt is best-effort. The receipt and the inbox alert sit in separate try blocks on purpose, and the alert catches again per recipient, so one dead mailbox costs one message rather than hiding a submission from the console.
-- **Registration verification**: nothing catches it. The exception dies in the async handler's default logging, the user row and its token stay, and here is the real gap: login refuses unverified accounts with EMAIL_NOT_VERIFIED, and no resend endpoint exists. A lost verification mail strands the account.
+- **Registration verification**: nothing catches it. The exception dies in the async handler's default logging, and the user row and its token stay. That used to be unrecoverable — login refuses unverified accounts with EMAIL_NOT_VERIFIED, the email column is unique so registering again is refused too, and after 24 hours the token expired with nothing able to issue another. The only repair was an UPDATE by hand.
+- **Verification resend**: the cure for the line above, and it answers failure the way the deletion code does. The send runs in `afterCommit`, and a throw clears the account's `verificationTokenSentAt` through a REQUIRES_NEW helper, so nobody sits out a cooldown for a mail that never left. Worth saying plainly: this only catches SMTP refusing the handoff. A message the provider accepts and then bounces, or files as spam, throws nothing anywhere — which is why a second attempt the user can ask for matters more than any amount of failure logging.
 
 There is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
 
@@ -89,20 +91,21 @@ Two independent layers throttle the mail-producing endpoints:
 | Password reset | 5 min between requests per account; each new token invalidates the previous | 5 / 15 min per IP (auth tier) |
 | Deletion code | 60 seconds, in seconds on purpose: the user is waiting on-screen and resend must work in the same sitting | 10 / hour per user |
 | Registration | None | 5 / 15 min per IP (auth tier) |
+| Verification resend | 60 seconds per account, in seconds for the same reason as the deletion code: the user is on the login screen reading "email not verified" and the button beside it has to work now. Each new token invalidates the previous, so one inbox never holds two live links | 5 / 15 min per IP (auth tier) |
 | Feedback | None | 10 / hour per user |
 
 One configuration nit carried here for honesty: the yaml default for the reset TTL is 15 minutes, while the env template still ships 30. The yaml wins unless the operator copies the template value.
 
 ## Test coverage
 
-No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The one gap: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
+No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The resend flow arrived with its own suite, and one detail there is worth copying rather than rediscovering: it is the only mail test that is NOT `@Transactional`, because the send hangs off `afterCommit` and a test transaction that rolls back never commits, so every assertion about a mail going out would have passed against a service that sends nothing. Its negative assertions read the stored row rather than counting invocations, since the registration mail is async and racing it makes a coin toss of `verifyNoInteractions`. The one gap left: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
 
 ## What could be improved
 
 | Area | Current state | Note |
 |------|--------------|------|
-| Verification resend | No endpoint | The one failure mode that strands an account; the top candidate |
 | Retry | Single attempt everywhere | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
 | Reset/deletion sending thread | Request thread waits on SMTP | Moving to the async listener pattern the feedback flows use would cut response latency |
 | Templates | Eleven inline HTML blocks | Extracting shared chrome would shrink the duplication; a template engine is still overkill |
 | Reset flow tests | None | The only mail flow without direct coverage |
+| Verification token at rest | Stored in plaintext on the users row | The reset token is a BCrypt hash in `{UUID}.{raw}` form; a database read hands out email verification for free. Aligning the two breaks every link already sitting in an inbox, so it wants its own change |

@@ -52,6 +52,7 @@ flowchart LR
 | /auth/login | POST | Não | Login com e-mail + senha |
 | /auth/register | POST | Não | Registro (verificação de e-mail exigida antes do login) |
 | /auth/verify-email | GET | Não | Consome o token de verificação de 24 horas |
+| /auth/resend-verification | POST | Não | Emite um novo token de verificação e o envia por e-mail; sempre o mesmo 200 |
 | /auth/google | GET | Não | Troca de código do Google OAuth (web) |
 | /auth/google/mobile | POST | Não | Verificação de ID token do Google (mobile) |
 | /auth/refresh | POST | Não | Rotaciona o refresh token, emite novo JWT |
@@ -87,7 +88,7 @@ A ordem das checagens é a parte interessante:
 1. O lockout por conta roda antes de tudo. Dez falhas na janela travam o e-mail por 15 minutos, e o contador registra e-mails desconhecidos também, então o próprio lockout não serve para descobrir quais contas existem.
 2. Conta travada e senha errada devolvem o mesmo corpo 401. Sem oráculo.
 3. Contas Google nunca passam nessa checagem: a senha guardada é um marcador literal, não um hash BCrypt, então o `matches` sempre falha.
-4. Uma conta não verificada recebe um 403 EMAIL_NOT_VERIFIED distinto. Esse caminho troca deliberadamente um pouco de resistência a enumeração por uma mensagem usável de "confira sua caixa de entrada".
+4. Uma conta não verificada recebe um 403 EMAIL_NOT_VERIFIED distinto. Esse caminho troca deliberadamente um pouco de resistência a enumeração por uma mensagem usável de "confira sua caixa de entrada", e a tela de login agora pendura um botão de reenvio nela, então a troca compra uma saída em vez de só uma explicação.
 5. O sucesso zera o contador de falhas.
 
 ### Registro e verificação de e-mail
@@ -103,7 +104,9 @@ Dois caminhos separados, um por plataforma:
 - **Web** (`GET /auth/google?code=`): o backend troca o código de autorização com o Google no servidor (o client secret nunca sai de lá) e lê o perfil com o access token resultante. O cliente web gera e confere seu próprio valor de `state` antes de entregar o código.
 - **Mobile** (`POST /auth/google/mobile`): o app nativo envia um ID token do Google, que o backend verifica com o verificador oficial: assinatura contra as chaves publicadas do Google, emissor, expiração e uma lista de audiences permitidas. O token ainda é rejeitado a menos que o próprio Google reporte o e-mail como verificado.
 
-Os dois caminhos fazem find-or-create pelo e-mail. Contas criadas via Google ganham `isGoogleAccount=true`, um marcador de senha que não é hash e pulam a verificação de e-mail (o Google já a fez). Uma lacuna conhecida está documentada na avaliação abaixo: uma conta de senha pré-existente é logada diretamente quando chega uma identidade Google com o mesmo e-mail, sem etapa explícita de vinculação.
+Os dois caminhos fazem find-or-create pelo e-mail. Contas criadas via Google ganham `isGoogleAccount=true`, um marcador de senha que não é hash e pulam a verificação de e-mail (o Google já a fez).
+
+Os dois caminhos também recusam uma conta encontrada que seja de senha e com endereço não verificado, devolvendo o mesmo 403 EMAIL_NOT_VERIFIED do login. Até essa guarda existir, o `doLogin` era o único lugar do backend que lia `emailVerified`, então o Google era um desvio do portão — de leve, como cura acidental de um e-mail de verificação perdido, e a sério assim: qualquer um cadastra um endereço que não é seu, e a linha não verificada que sobra engoliria o login Google do dono de verdade, sem clique e sem aviso. O dono enche aquela linha com seus dados, e se um dia seguir o link de verificação que chegou quando o invasor se cadastrou, a flag vira e a senha do invasor abre a conta. Agora uma regra só vale em todas as portas, e ela é recuperável em vez de apenas rígida porque o endpoint de reenvio chegou junto. Uma conta de senha já verificada continua podendo vincular o Google à vontade.
 
 ## Tokens
 
@@ -159,7 +162,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 
 | Faixa | Endpoints | Limite | Chaveado por |
 |-------|-----------|--------|--------------|
-| auth | login, register, forgot-password, google, google/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hora | usuário |
 | docs | /docs/* (público) | 30 / min | IP |
 | photo | GET /user/photo/* | 120 / min | IP |
@@ -290,10 +293,11 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 | 2FA / MFA | Não implementado | O código por e-mail da exclusão é o único segundo fator do produto |
 | Log de auditoria | Não implementado | Logins falhos, resets e refreshes não deixam trilha dedicada |
 | Vínculo do refresh token | Sem vínculo a dispositivo ou IP | A rotação limita a janela de dano, mas um token roubado funciona em qualquer lugar até lá |
-| Vinculação de conta Google | Find-or-create por e-mail | Uma conta de senha é logada por uma identidade Google coincidente sem etapa explícita de vinculação |
+| Vinculação de conta Google | Find-or-create por e-mail, só contas verificadas | Uma conta de senha VERIFICADA ainda é logada por uma identidade Google coincidente sem etapa explícita de vinculação. O caso não verificado, que era o perigoso, agora é recusado |
 | Enumeração no registro | "Email already in use" por escolha | Com rate limit, e um tradeoff de usabilidade, mas ainda um oráculo |
 | Nuance do cooldown de reset | 400 dentro do cooldown para contas reais | Um sondador paciente distingue endereços conhecidos num segundo pedido |
-| Throttle do verify-email | Sem limite | GET sem autenticação que escapa das faixas por usuário; a entropia do token é a única guarda |
+| Throttle do verify-email | Sem limite | GET sem autenticação que escapa das faixas por usuário; a entropia do token é a única guarda. O POST /auth/resend-verification irmão ESTÁ na faixa auth |
+| Token de verificação em repouso | Coluna em texto plano na linha do usuário | O token de reset é guardado como hash BCrypt; este sai legível de um dump do banco |
 | Segredo do docs import | Comparado em tempo constante, falha fechado em branco | Nada valida seu comprimento ou entropia no boot |
 | Prompt injection | Defesa só por instrução | Sem filtragem programática do texto do usuário antes do modelo |
 | Teste de regressão do CSP | O teste garante a existência do header, não o valor | Um enfraquecimento silencioso do CSP passaria na suíte |

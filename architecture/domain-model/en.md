@@ -52,6 +52,7 @@ flowchart TD
 | isGoogleAccount | boolean | True for OAuth users |
 | emailVerified | boolean | New accounts confirm by e-mail before first login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | Verification state lives as columns here, not in a separate entity |
+| verificationTokenSentAt | Instant | When the last verification mail went out, read by the resend cooldown. An Instant against the LocalDateTime beside it because it is compared to a clock and never displayed. Null means no mail on record, which is how every row predating the column reads, and how a row whose send failed is reset |
 | perfilPhrase / perfilPhraseAuthor | String | Optional motivational quote |
 | perfilPhoto | String (512) | The Google CDN avatar URL, set at OAuth sign-in. NOT a path to an uploaded photo: an upload writes `{upload-dir}/user-photos/{userId}.jpg` and never touches this column, so it stays null for accounts that never signed in with Google. A profile is served the file first and this second, and removal has to clear both |
 | themeInUse / languageInUse | String | Preferences |
@@ -308,7 +309,7 @@ Three small hash-holding entities back the security flows, all ManyToOne to User
 | PasswordResetToken | password_reset_tokens | Hash of the reset token, expiry, usedAt |
 | AccountDeletionCode | account_deletion_codes | BCrypt hash of a six-digit code, expiry, usedAt, and an attempts counter that kills the code after a few wrong guesses |
 
-E-mail verification is the exception: it lives as columns on the users table rather than as its own entity.
+E-mail verification is the exception: it lives as columns on the users table rather than as its own entity. That also means the token sits there in plaintext, unlike the reset and deletion tokens beside it, which are stored as BCrypt hashes.
 
 ## XP progression system
 

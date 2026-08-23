@@ -52,6 +52,7 @@ flowchart TD
 | isGoogleAccount | boolean | True para contas OAuth |
 | emailVerified | boolean | Contas novas confirmam por e-mail antes do primeiro login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | O estado de verificação vive como colunas aqui, sem entidade própria |
+| verificationTokenSentAt | Instant | Quando o último e-mail de verificação saiu, lido pelo cooldown do reenvio. Um Instant contra o LocalDateTime ao lado porque é comparado a um relógio e nunca exibido. Null significa nenhum e-mail registrado, que é como toda linha anterior à coluna se lê, e como fica uma linha cujo envio falhou |
 | perfilPhrase / perfilPhraseAuthor | String | Citação motivacional opcional |
 | perfilPhoto | String (512) | A URL do avatar no CDN do Google, gravada no login OAuth. NÃO é o caminho de uma foto enviada: o upload escreve `{upload-dir}/user-photos/{userId}.jpg` e nunca toca nesta coluna, então ela fica nula em contas que nunca entraram com o Google. O perfil serve o arquivo primeiro e esta coluna depois, e remover tem que limpar os dois |
 | themeInUse / languageInUse | String | Preferências |
@@ -308,7 +309,7 @@ Três pequenas entidades guardadoras de hash sustentam os fluxos de segurança, 
 | PasswordResetToken | password_reset_tokens | Hash do token de reset, expiração, usedAt |
 | AccountDeletionCode | account_deletion_codes | Hash BCrypt de um código de seis dígitos, expiração, usedAt e um contador de tentativas que mata o código depois de alguns erros |
 
-A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria.
+A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria. Isso também quer dizer que o token fica ali em texto plano, ao contrário dos tokens de reset e de exclusão ao lado, que são guardados como hash BCrypt.
 
 ## Sistema de progressão de XP
 
