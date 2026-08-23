@@ -1,5 +1,5 @@
 ---
 title: "API do Controlador de Foto de Perfil"
-summary: "Upload da foto de perfil, servida de volta somente por URL assinada."
+summary: "Enviar a foto de perfil, removê-la, e servi-la de volta somente por URL assinada."
 ---
 <!-- API documentation will be rendered from the OpenAPI spec. -->

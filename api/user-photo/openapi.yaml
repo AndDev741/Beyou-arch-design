@@ -31,6 +31,35 @@ paths:
                 type: object
                 additionalProperties:
                   type: string
+    delete:
+      tags:
+      - user-photo-controller
+      operationId: remove
+      description: >-
+        Removes the authenticated account's profile photo. Takes no id and no body:
+        the account comes from the token, so the only photo a caller can remove is
+        their own.
+
+
+        Clears BOTH places a photo is stored. An account can hold an uploaded JPEG on
+        disk and a `perfilPhoto` Google CDN URL at the same time, and a profile is
+        served the file first, so removing one of them leaves a photo on screen: drop
+        only the file and a Google user falls back to their old avatar, clear only the
+        column and the upload keeps being served. This is also why `PUT /user` with an
+        empty `photo` does not remove an uploaded photo — it writes the column the
+        server skips while a file exists.
+
+
+        Idempotent. An account with no photo is already in the requested state and
+        gets 204, not 404.
+      responses:
+        '204':
+          description: The account has no photo, whether or not it had one before
+        '400':
+          description: >-
+            PHOTO_DELETE_FAILED — the stored file could not be unlinked. Nothing is
+            changed on the account in this case, deliberately: reporting success while
+            the file is still being served is the failure this endpoint exists to fix.
   /user/photo/{userId}:
     get:
       tags:

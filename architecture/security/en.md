@@ -213,6 +213,16 @@ The two upload paths (profile photo, feedback attachments) share the same defens
 - Storage paths are derived only from server-side UUIDs; no client-supplied filename ever touches the filesystem. Writes go to a temp file and land with an atomic move.
 - Feedback allows at most 5 attachments each.
 
+### Removing a profile photo
+
+A photo is stored in two unrelated places and read in priority order, and that is the whole reason removal needed its own endpoint. An upload writes `{upload-dir}/user-photos/{userId}.jpg` and never touches the user row; `perfilPhoto` on the row holds a Google CDN URL, set only at OAuth sign-in. `UserMapper` looks for the file first and falls back to the column.
+
+`DELETE /user/photo` clears both. Removing one half always leaves a photo on screen: drop only the file and a Google account falls back to the avatar it had before, clear only the column and the uploaded file goes on being served. The second case is also why `PUT /user` with an empty `photo` never worked as a removal, which is what users hit.
+
+The file is unlinked before the column is cleared, and a failed unlink rolls the whole thing back. The alternative order can commit "this account has no photo" over a JPEG that is still on disk and still winning the priority check, which is the one outcome worse than refusing.
+
+The account id comes from the token, never from the path, so the endpoint has nothing of the enumeration surface `GET` had to be signed to close.
+
 ### Serving a profile photo
 
 Reading a photo back is the one place here where authorization does not travel in a header. The callers are an `<img src>` on the web and an `<Image uri>` on the phone, and neither can send one, so `GET /user/photo/{userId}` used to answer any caller who could name a user id. Every uploaded face was readable by walking the UUID space.
@@ -286,7 +296,6 @@ The agent chat can call real tools, so its authority model matters:
 | verify-email throttling | Unthrottled | Unauthenticated GET that falls through the user-keyed tiers; token entropy is the only guard |
 | Docs import secret | Compared constant-time, fails closed when blank | Nothing validates its length or entropy at boot |
 | Prompt injection | Instruction-level defense only | No programmatic filtering of user text before it reaches the model |
-| Public profile photos | Readable by user UUID | Deliberate simplicity; revisit if photos become sensitive |
 | CSP regression test | Header existence is asserted, value is not | A silent CSP weakening would pass the suite |
 
 ### Threat model summary
