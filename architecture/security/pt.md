@@ -213,6 +213,16 @@ Os dois caminhos de upload (foto de perfil, anexos de feedback) dividem a mesma 
 - Os caminhos de armazenamento derivam só de UUIDs do servidor; nenhum nome de arquivo do cliente toca o filesystem. A escrita vai para um arquivo temporário e pousa com um move atômico.
 - Feedback aceita no máximo 5 anexos.
 
+### Removendo a foto de perfil
+
+Uma foto fica guardada em dois lugares sem relação entre si e é lida em ordem de prioridade, e é exatamente por isso que remover precisou de um endpoint próprio. O upload escreve `{upload-dir}/user-photos/{userId}.jpg` e nunca toca na linha do usuário; `perfilPhoto`, na linha, guarda uma URL do CDN do Google, gravada só no login OAuth. O `UserMapper` procura o arquivo primeiro e cai na coluna depois.
+
+O `DELETE /user/photo` limpa os dois. Limpar uma metade só sempre deixa uma foto na tela: apague apenas o arquivo e uma conta Google volta para o avatar que tinha antes; limpe apenas a coluna e o arquivo enviado continua sendo servido. O segundo caso também explica por que `PUT /user` com `photo` vazio nunca funcionou como remoção, e foi nisso que os usuários bateram.
+
+O arquivo é apagado antes de a coluna ser limpa, e uma falha ao apagar desfaz tudo. A ordem inversa pode gravar "esta conta não tem foto" sobre um JPEG que ainda está em disco e ainda ganha a prioridade, que é o único resultado pior do que recusar.
+
+O id da conta vem do token, nunca do caminho, então o endpoint não tem nada da superfície de enumeração que o `GET` precisou de assinatura para fechar.
+
 ### Servindo uma foto de perfil
 
 Ler a foto de volta é o único lugar daqui onde a autorização não viaja num header. Quem chama é uma `<img src>` na web e uma `<Image uri>` no celular, e nenhuma das duas manda header, então `GET /user/photo/{userId}` respondia a qualquer um que soubesse citar um id de usuário. Toda foto enviada era legível percorrendo o espaço de UUIDs.
@@ -286,7 +296,6 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 | Throttle do verify-email | Sem limite | GET sem autenticação que escapa das faixas por usuário; a entropia do token é a única guarda |
 | Segredo do docs import | Comparado em tempo constante, falha fechado em branco | Nada valida seu comprimento ou entropia no boot |
 | Prompt injection | Defesa só por instrução | Sem filtragem programática do texto do usuário antes do modelo |
-| Fotos de perfil públicas | Legíveis pelo UUID do usuário | Simplicidade deliberada; revisitar se fotos virarem dado sensível |
 | Teste de regressão do CSP | O teste garante a existência do header, não o valor | Um enfraquecimento silencioso do CSP passaria na suíte |
 
 ### Resumo do modelo de ameaças

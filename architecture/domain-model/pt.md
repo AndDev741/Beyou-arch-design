@@ -53,7 +53,7 @@ flowchart TD
 | emailVerified | boolean | Contas novas confirmam por e-mail antes do primeiro login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | O estado de verificação vive como colunas aqui, sem entidade própria |
 | perfilPhrase / perfilPhraseAuthor | String | Citação motivacional opcional |
-| perfilPhoto | String (512) | Caminho do arquivo da foto; os bytes vivem em disco, fora do banco |
+| perfilPhoto | String (512) | A URL do avatar no CDN do Google, gravada no login OAuth. NÃO é o caminho de uma foto enviada: o upload escreve `{upload-dir}/user-photos/{userId}.jpg` e nunca toca nesta coluna, então ela fica nula em contas que nunca entraram com o Google. O perfil serve o arquivo primeiro e esta coluna depois, e remover tem que limpar os dois |
 | themeInUse / languageInUse | String | Preferências |
 | timezone | String | Obrigatório. O fuso IANA da conta, vindo do cliente no cadastro e caindo em UTC quando não vem. Toda data que o app escreve é resolvida contra ele |
 | timezoneSource | enum TimezoneSource | DEFAULT, DETECTED ou EXPLICIT: se o fuso acima chegou a ser escolhido por alguém. Só DEFAULT pode ser corrigido automaticamente |

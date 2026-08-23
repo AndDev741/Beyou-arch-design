@@ -53,7 +53,7 @@ flowchart TD
 | emailVerified | boolean | New accounts confirm by e-mail before first login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | Verification state lives as columns here, not in a separate entity |
 | perfilPhrase / perfilPhraseAuthor | String | Optional motivational quote |
-| perfilPhoto | String (512) | Path to the stored photo file; bytes live on disk, not in the database |
+| perfilPhoto | String (512) | The Google CDN avatar URL, set at OAuth sign-in. NOT a path to an uploaded photo: an upload writes `{upload-dir}/user-photos/{userId}.jpg` and never touches this column, so it stays null for accounts that never signed in with Google. A profile is served the file first and this second, and removal has to clear both |
 | themeInUse / languageInUse | String | Preferences |
 | timezone | String | Required. The account's IANA zone, taken from the client at signup and falling back to UTC. Every date the app ever writes is resolved against it |
 | timezoneSource | TimezoneSource enum | DEFAULT, DETECTED or EXPLICIT: whether the zone above was ever actually chosen. Only DEFAULT may be corrected automatically |
