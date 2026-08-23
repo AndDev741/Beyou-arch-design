@@ -167,8 +167,11 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 | account-deletion | POST /user/deletion/* | 10 / hour | user |
 | feedback | POST /feedback | 10 / hour | user |
 | feedback-attachment | POST /feedback/*/attachments | 20 / hour | user |
+| export | GET /user/export | 5 / hour | user |
 | write | any other POST/PUT/DELETE | 30 / min | user |
 | read | any other GET | 60 / min | user |
+
+The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response — every category, habit, task, goal, routine, feedback thread and assistant conversation, assembled in memory and serialized in one go. Sixty a minute of that is a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
 
 Rejections answer 429 with a `Retry-After` header; successes carry `X-Rate-Limit-Remaining`. Both are named in `Access-Control-Expose-Headers`, without which a browser cannot read either one: neither is on the CORS safelist, so the wait was on the wire and unreachable by the web client.
 
