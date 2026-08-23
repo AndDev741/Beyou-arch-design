@@ -9,7 +9,7 @@ The single API serving the web app, the native mobile app, and this documentatio
 ## What lives here
 
 - **The domain**: categories, habits, tasks, goals, and routines, with the gamification engine on top: the check-in XP formula, the quadratic level curve, derived streaks, daily routine snapshots with XP decay, and the signed per-day XP ledger.
-- **Security**: stateless JWT auth with rotating refresh tokens, e-mail verification, two-factor account deletion, ten rate-limit tiers plus a login lockout, and boot-time validators that refuse a misconfigured production.
+- **Security**: stateless JWT auth with rotating refresh tokens, e-mail verification, two-factor account deletion, eleven rate-limit tiers plus a login lockout, and boot-time validators that refuse a misconfigured production.
 - **The AI agent**: a chat with 33 tools over the same domain services, streamed by SSE, running on a five-provider free-tier LLM fallback chain, plus the stateless onboarding suggestion endpoint.
 - **The docs system**: imports this documentation from GitHub into Postgres and serves the public read and search API the docs site runs on.
 

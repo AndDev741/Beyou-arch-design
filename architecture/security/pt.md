@@ -167,8 +167,11 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 | account-deletion | POST /user/deletion/* | 10 / hora | usuário |
 | feedback | POST /feedback | 10 / hora | usuário |
 | feedback-attachment | POST /feedback/*/attachments | 20 / hora | usuário |
+| export | GET /user/export | 5 / hora | usuário |
 | write | qualquer outro POST/PUT/DELETE | 30 / min | usuário |
 | read | qualquer outro GET | 60 / min | usuário |
+
+O export fica acima da faixa de leitura genérica por um motivo que vale registrar: é um GET, mas devolve a conta inteira em uma resposta — cada categoria, hábito, tarefa, meta, rotina, conversa de feedback e conversa com o assistente, montadas em memória e serializadas de uma vez. Sessenta por minuto disso é um jeito de segurar a heap, e ninguém que está levando os próprios dados precisa de uma sexta cópia dentro da hora.
 
 Rejeições respondem 429 com header `Retry-After`; sucessos carregam `X-Rate-Limit-Remaining`. Os dois estão citados no `Access-Control-Expose-Headers`, sem o que nenhum navegador consegue ler nenhum deles: nenhum está na safelist do CORS, então a espera ia no fio e era inalcançável para o cliente web.
 

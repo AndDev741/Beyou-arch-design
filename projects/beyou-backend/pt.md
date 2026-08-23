@@ -9,7 +9,7 @@ A única API servindo o web app, o app mobile nativo e este site de documentaç�
 ## O que vive aqui
 
 - **O domínio**: categorias, hábitos, tarefas, metas e rotinas, com o motor de gamificação por cima: a fórmula de XP do check-in, a curva quadrática de levels, streaks derivados, snapshots diários de rotina com decaimento de XP e o razão diário assinado de XP.
-- **Segurança**: auth JWT sem estado com refresh tokens rotativos, verificação de e-mail, exclusão de conta com segundo fator, dez faixas de rate limit mais lockout de login e validadores de boot que recusam uma produção mal configurada.
+- **Segurança**: auth JWT sem estado com refresh tokens rotativos, verificação de e-mail, exclusão de conta com segundo fator, onze faixas de rate limit mais lockout de login e validadores de boot que recusam uma produção mal configurada.
 - **O agente de IA**: um chat com 33 ferramentas sobre os mesmos services de domínio, transmitido por SSE, rodando em uma cadeia de fallback de cinco LLMs gratuitos, mais o endpoint sem estado de sugestões de onboarding.
 - **O sistema de docs**: importa esta documentação do GitHub para o Postgres e serve a API pública de leitura e busca em que o site de docs roda.
 
