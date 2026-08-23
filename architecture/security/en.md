@@ -52,6 +52,7 @@ flowchart LR
 | /auth/login | POST | No | Email + password login |
 | /auth/register | POST | No | Registration (email verification required before login) |
 | /auth/verify-email | GET | No | Consume the 24-hour verification token |
+| /auth/resend-verification | POST | No | Issue a new verification token and mail it; always the same 200 |
 | /auth/google | GET | No | Google OAuth code exchange (web) |
 | /auth/google/mobile | POST | No | Google ID-token verification (mobile) |
 | /auth/refresh | POST | No | Rotate the refresh token, mint a new JWT |
@@ -87,7 +88,7 @@ The order of the checks is the interesting part:
 1. The per-account lockout runs before anything else. Ten failures within the window lock the email for 15 minutes, and the counter tracks unknown emails too, so the lockout itself cannot be used to discover which accounts exist.
 2. A locked account and a wrong password return the same 401 body. No oracle.
 3. Google accounts can never pass this check: their stored password is a literal marker, not a BCrypt hash, so `matches` always fails.
-4. An unverified account gets a distinct 403 EMAIL_NOT_VERIFIED. That path deliberately trades a little enumeration resistance for a usable "check your inbox" message.
+4. An unverified account gets a distinct 403 EMAIL_NOT_VERIFIED. That path deliberately trades a little enumeration resistance for a usable "check your inbox" message, and the login screen now hangs a resend button off it, so the trade buys a way out rather than only an explanation.
 5. Success clears the failure counter.
 
 ### Registration and email verification
@@ -103,7 +104,9 @@ Two separate paths, one per platform:
 - **Web** (`GET /auth/google?code=`): the backend exchanges the authorization code with Google server-side (client secret never leaves the server) and reads the profile with the resulting access token. The web client generates and verifies its own `state` value before handing the code over.
 - **Mobile** (`POST /auth/google/mobile`): the native app sends a Google ID token, which the backend verifies with Google's official verifier: signature against Google's published keys, issuer, expiry, and an audience allowlist. The token is additionally rejected unless Google itself reports the e-mail as verified.
 
-Both paths find-or-create the user by e-mail. Google-created accounts get `isGoogleAccount=true`, a non-hash password marker, and skip e-mail verification (Google already did it). One known gap is documented in the assessment below: a pre-existing password account is logged in directly when a matching Google identity arrives, without any explicit linking step.
+Both paths find-or-create the user by e-mail. Google-created accounts get `isGoogleAccount=true`, a non-hash password marker, and skip e-mail verification (Google already did it).
+
+Both paths also refuse a matched account that is a password account with an unverified address, returning the same 403 EMAIL_NOT_VERIFIED that login does. Until that guard existed, `doLogin` was the only reader of `emailVerified` in the backend, so Google was a way around the gate — mildly, as an accidental cure for a lost verification mail, and seriously as this: anyone can register an address they do not own, and the unverified row they leave behind would swallow the real owner's Google sign-in with no click and no warning. The owner fills that row with their data, and if they ever follow the verification link that arrived when the squatter registered, the flag flips and the squatter's password opens the account. One rule now holds at every door, and it is recoverable rather than merely strict because the resend endpoint landed with it. A verified password account may still link Google freely.
 
 ## Tokens
 
@@ -159,7 +162,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 
 | Tier | Endpoints | Limit | Keyed by |
 |------|-----------|-------|----------|
-| auth | login, register, forgot-password, google, google/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hour | user |
 | docs | /docs/* (public) | 30 / min | IP |
 | photo | GET /user/photo/* | 120 / min | IP |
@@ -290,10 +293,11 @@ The agent chat can call real tools, so its authority model matters:
 | 2FA / MFA | Not implemented | The deletion flow's e-mail code is the only second factor in the product |
 | Audit logging | Not implemented | Failed logins, resets, and refreshes leave no dedicated trail |
 | Refresh token binding | Not bound to device or IP | Rotation limits the damage window but a stolen token works anywhere until then |
-| Google account linking | Find-or-create by e-mail | A password account is logged in by a matching Google identity without an explicit linking step |
+| Google account linking | Find-or-create by e-mail, verified accounts only | A VERIFIED password account is still logged in by a matching Google identity with no explicit linking step. The unverified case, which was the dangerous one, is now refused |
 | Registration enumeration | "Email already in use" by design | Rate-limited, and a usability tradeoff, but still an oracle |
 | Reset cooldown nuance | 400 inside the cooldown for real accounts | A patient prober can distinguish known addresses on a second request |
-| verify-email throttling | Unthrottled | Unauthenticated GET that falls through the user-keyed tiers; token entropy is the only guard |
+| verify-email throttling | Unthrottled | Unauthenticated GET that falls through the user-keyed tiers; token entropy is the only guard. Its sibling POST /auth/resend-verification IS in the auth tier |
+| Verification token at rest | Plaintext column on the users row | The reset token is stored as a BCrypt hash; this one is readable straight out of a database dump |
 | Docs import secret | Compared constant-time, fails closed when blank | Nothing validates its length or entropy at boot |
 | Prompt injection | Instruction-level defense only | No programmatic filtering of user text before it reaches the model |
 | CSP regression test | Header existence is asserted, value is not | A silent CSP weakening would pass the suite |

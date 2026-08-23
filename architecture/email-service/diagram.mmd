@@ -1,6 +1,7 @@
 flowchart TD
-  subgraph mails["The five mails"]
+  subgraph mails["The mail-producing flows"]
     REG["📝 Registration<br/>@Async listener"]
+    RSV["🔁 Verification resend<br/>afterCommit · request thread"]
     PR["🔑 Password reset<br/>afterCommit · request thread"]
     DEL["🗑️ Deletion code<br/>afterCommit · request thread"]
     FB["💬 Feedback ack + reply<br/>@Async AFTER_COMMIT event"]
@@ -8,6 +9,7 @@ flowchart TD
 
   ES["✉️ EmailService<br/>10 inline HTML templates (en · pt)"]
   REG --> ES
+  RSV --> ES
   PR --> ES
   DEL --> ES
   FB --> ES
@@ -19,9 +21,12 @@ flowchart TD
   FAIL --> F1["reset:<br/>delete the token"]
   FAIL --> F2["deletion:<br/>discard code (REQUIRES_NEW)"]
   FAIL --> F3["feedback:<br/>log and move on"]
-  FAIL --> F4["verification: uncaught,<br/>account stranded"]
+  FAIL --> F4["verification: uncaught,<br/>but recoverable via resend"]
+  FAIL --> F5["resend:<br/>clear sent stamp (REQUIRES_NEW)"]
 
   F1 --> DB[("🐘 DB")]
   F2 --> DB
   F3 --> LOG["📋 ERROR log → GlitchTip"]
   F4 --> LOG
+  F5 --> DB
+  F5 --> LOG

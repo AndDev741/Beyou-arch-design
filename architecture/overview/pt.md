@@ -119,7 +119,7 @@ sequenceDiagram
 
 - **Access token (JWT)**: 15 minutos, HMAC256. As requisições o carregam em `Authorization: Bearer`; o backend entrega um novo no header de resposta `X-Access-Token`.
 - **Refresh token**: 15 dias, token opaco com hash em cookie HttpOnly. O token antigo é revogado a cada refresh.
-- **Verificação de e-mail**: contas novas confirmam o endereço por e-mail antes do primeiro login.
+- **Verificação de e-mail**: contas novas confirmam o endereço por e-mail antes do primeiro login, e podem pedir outro link se o primeiro não chegar.
 - **Redefinição de senha**: token seguro por e-mail, TTL de 15 minutos, 5 minutos de espera entre pedidos. Todos os refresh tokens são revogados na redefinição.
 - **Exclusão de conta**: confirmada com um código de vida curta (TTL de 15 minutos) antes de qualquer remoção.
 

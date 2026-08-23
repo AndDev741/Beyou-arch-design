@@ -26,3 +26,61 @@ paths:
                 type: object
                 additionalProperties:
                   type: string
+  /auth/resend-verification:
+    post:
+      tags:
+      - auth-verification-controller
+      summary: Send another email-verification link
+      description: >-
+        The way back into an account whose verification mail never arrived. Login
+        refuses an unverified account, the email column is unique so registering
+        again is refused too, and the token expires after 24 hours — without this
+        route a lost mail locked the account for good.
+
+
+        Answers 200 for every outcome: the address is unknown, it is already
+        verified, it is still inside its cooldown, or a mail is genuinely on its
+        way. A client therefore cannot tell those apart, and must promise the
+        inbox rather than the account. That silence is deliberate and is what
+        keeps an unauthenticated endpoint from being asked which addresses hold an
+        account — note that the sibling POST /auth/forgot-password does NOT hold
+        this line, since it answers a cooled-down real address with a 400 carrying
+        PASSWORD_RESET_TOO_MANY_REQUESTS while an unknown one gets a quiet 200.
+
+
+        Issuing a new token invalidates the previous one, so a single inbox never
+        holds two live links. Public and unauthenticated: it shares the
+        per-address auth rate-limit bucket with login and register (5 per 15
+        minutes), and each account carries a 60-second cooldown of its own on top
+        of that.
+      operationId: resendVerification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: >-
+            Always, whatever happened. The body carries a single generic success
+            message and never says which of the four outcomes occurred.
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+components:
+  schemas:
+    ResendVerificationRequestDTO:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 256
+          minLength: 1
+          description: The address that never received its verification mail.
+      required:
+      - email
