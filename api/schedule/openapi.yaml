@@ -75,6 +75,13 @@ components:
       type: object
       properties:
         days:
+          description: >-
+            Week days the routine runs on. Responses always carry these canonical
+            capitalized names, and that is what the schedule_days CHECK constraint
+            stores. Requests are parsed leniently: any letter case (MONDAY, monday)
+            and the Portuguese day names (segunda-feira, terca, sabado, with or
+            without accents) resolve to the same value, so a near-miss costs nothing.
+            An unknown name is rejected with the accepted values in the message.
           type: array
           items:
             type: string
@@ -139,6 +146,13 @@ components:
           type: string
           format: uuid
         days:
+          description: >-
+            Week days the routine runs on. Responses always carry these canonical
+            capitalized names, and that is what the schedule_days CHECK constraint
+            stores. Requests are parsed leniently: any letter case (MONDAY, monday)
+            and the Portuguese day names (segunda-feira, terca, sabado, with or
+            without accents) resolve to the same value, so a near-miss costs nothing.
+            An unknown name is rejected with the accepted values in the message.
           type: array
           items:
             type: string
