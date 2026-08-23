@@ -230,7 +230,7 @@ Fields: name, iconId, startTime, endTime, orderIndex, favorite.
 
 **Product role**: which days of the week a routine is active, which decides whether it appears on the dashboard for a given day.
 
-The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_days collection table. The foreign key lives on the routine's side. One gotcha: the enum identifiers are capitalized words (Monday, Tuesday, ...), not SCREAMING_CASE, and they are stored as strings, so every consumer has to match that casing.
+The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_days collection table. The foreign key lives on the routine's side. One gotcha: the enum identifiers are capitalized words (Monday, Tuesday, ...), not SCREAMING_CASE, and they are stored as strings, which is also what a CHECK constraint on the table enforces and what every response emits. Incoming JSON is the one place that forgives a mismatch — any letter case, and the Portuguese day names, resolve to the same constant — because an agent tool call that guessed SCREAMING_CASE used to cost an entire LLM round trip to correct.
 
 ## Item groups and checks
 

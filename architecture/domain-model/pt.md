@@ -230,7 +230,7 @@ Campos: name, iconId, startTime, endTime, orderIndex, favorite.
 
 **Papel no produto**: em quais dias da semana uma rotina está ativa, o que decide se ela aparece no dashboard de um dado dia.
 
-A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabela de coleção schedule_days. A chave estrangeira vive do lado da rotina. Uma pegadinha: os identificadores do enum são palavras capitalizadas (Monday, Tuesday, ...), sem SCREAMING_CASE, e são guardados como string, então todo consumidor precisa casar com essa grafia.
+A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabela de coleção schedule_days. A chave estrangeira vive do lado da rotina. Uma pegadinha: os identificadores do enum são palavras capitalizadas (Monday, Tuesday, ...), sem SCREAMING_CASE, e são guardados como string — grafia que uma CHECK constraint na tabela também exige e que toda resposta devolve. O JSON de entrada é o único lugar que perdoa divergência: qualquer caixa, e os nomes em português, resolvem para a mesma constante, porque uma chamada de tool do agente que chutava SCREAMING_CASE custava uma ida e volta inteira ao LLM para se corrigir.
 
 ## Grupos de itens e checks
 
