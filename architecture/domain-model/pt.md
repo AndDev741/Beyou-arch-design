@@ -301,15 +301,20 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 
 ## Entidades de auth e conta
 
-Três pequenas entidades guardadoras de hash sustentam os fluxos de segurança, todas ManyToOne para User:
+Quatro pequenas entidades pendem da conta. Três guardam hashes para os fluxos de segurança, todas ManyToOne para User; a quarta guarda uma preferência:
 
 | Entidade | Tabela | O que guarda |
 |----------|--------|--------------|
 | RefreshToken | refresh_tokens | Hash do refresh token de 15 dias, expiração, revokedAt |
 | PasswordResetToken | password_reset_tokens | Hash do token de reset, expiração, usedAt |
 | AccountDeletionCode | account_deletion_codes | Hash BCrypt de um código de seis dígitos, expiração, usedAt e um contador de tentativas que mata o código depois de alguns erros |
+| NotificationPreferences | notification_preferences | Se a conta pode receber e-mail de engajamento, mais o token que um link de cancelamento carrega. OneToOne em vez de ManyToOne, chaveada pelo próprio id do usuário via `@MapsId` para que a chave e a associação não possam divergir |
 
 A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria. Isso também quer dizer que o token fica ali em texto plano, ao contrário dos tokens de reset e de exclusão ao lado, que são guardados como hash BCrypt.
+
+O token de cancelamento também é guardado cru, e esse é uma decisão, não uma herança. Os três acima são segredos de uso único, então o hash é de graça. Um token de cancelamento é estável — todo e-mail de engajamento pelo resto da vida da conta aponta para ele — e um hash não pode ser desfeito para montar esse link, então hashear forçaria um token novo por envio e mataria o link de toda mensagem já entregue. A ausência de linha significa que a conta nunca recebeu e-mail e nunca abriu a configuração; quem lê tem que tratar isso como opt-in.
+
+Diferente das três tabelas de token, esta não tem expiração nem marca de uso único: uma preferência não é gasta ao ser usada.
 
 ## Sistema de progressão de XP
 
@@ -413,6 +418,7 @@ flowchart LR
     refresh_tokens
     password_reset_tokens
     account_deletion_codes
+    notification_preferences
   end
 
   subgraph system["Referência & docs"]

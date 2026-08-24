@@ -7,7 +7,7 @@ This document covers the e-mail subsystem: which mails exist, how each one is ke
 
 ## What gets sent
 
-The system sends exactly six e-mails, all owned by one service class in the notification package:
+The system sends exactly six e-mails, all owned by one service class in the notification package. Every one of them is transactional — somebody asked for it by doing something — and that is why none of them consults a preference. The engagement mail that phase 1 prepares is the first that nobody asked for, so it gets its own switch: see [Engagement mail is opt-out](#engagement-mail-is-opt-out) below.
 
 | # | Mail | Trigger | Contains |
 |---|------|---------|----------|
@@ -99,6 +99,18 @@ One configuration nit carried here for honesty: the yaml default for the reset T
 ## Test coverage
 
 No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The resend flow arrived with its own suite, and one detail there is worth copying rather than rediscovering: it is the only mail test that is NOT `@Transactional`, because the send hangs off `afterCommit` and a test transaction that rolls back never commits, so every assertion about a mail going out would have passed against a service that sends nothing. Its negative assertions read the stored row rather than counting invocations, since the registration mail is async and racing it makes a coin toss of `verifyNoInteractions`. The one gap left: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
+
+## Engagement mail is opt-out
+
+Nothing here sends engagement mail yet. What exists is the consent it will need, because a nudge is the first mail in this product that nobody asked for, and building the switch after the sender is how a product ends up mailing people who cannot stop it.
+
+The state is one boolean and one token in a `notification_preferences` table, keyed by user. A table rather than two columns on `users`, because `users` is loaded in full by the security filter on every authenticated request and those columns would be read thousands of times a day to answer a question a nightly job asks.
+
+The default is on. These are messages about the reader's own routine — a streak about to break, a goal running out of days — rather than offers, and they carry one-click opt-out; a default of off would mean the feature only ever reaches people who go looking for it in settings. Absence of a row means the default, so nothing was backfilled and no token exists until the first mail needs one.
+
+The token is where this departs from every other token in the codebase, and deliberately. Password-reset tokens and deletion codes are stored as BCrypt hashes because they are one-shot secrets. This one is *stable* — every nudge for the rest of the account's life links to it — and a hash cannot be un-hashed to build that link, so hashing would force a fresh token per send and silently kill the unsubscribe link in every message already delivered. It is 256 random bits, stored raw, and the worst a leak of that column allows is unsubscribing somebody from mail they can re-enable in settings.
+
+Two things about the endpoint are worth keeping. It is a POST, and the mail links to a page in the app which posts it, rather than to the API directly: mail clients prefetch links to build previews and scan for malware, so a state-changing GET gets clicked by a robot and unsubscribes people who only opened the message. And it is public — listed in **both** the security config's permitAll set and the security filter's own bypass list, which are two separate lists of the same thing with nothing checking that they agree. The filter runs first, so a path permitted in one and missing from the other is not public: it answers 401 before authorization is ever consulted, and the endpoint looks broken rather than protected.
 
 ## What could be improved
 
