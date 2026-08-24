@@ -1,6 +1,6 @@
 ---
 title: "Product Analytics"
-summary: "PostHog em quatro superfícies atrás de um proxy first-party: o que é capturado, o que nunca sai do browser, por que o identify leva UUID e nome mas nunca email, e como os adblockers moldaram o transporte."
+summary: "PostHog em quatro superfícies atrás de um proxy first-party: o vocabulário de eventos nomeado pelos gatilhos de engajamento e não pelos botões, as person properties de que as coortes são feitas, o que nunca sai do browser, e como os adblockers moldaram o transporte."
 ---
 
 O [tópico de monitoring](/architecture/monitoring) responde "como o sistema está"; esta camada responde "o que as pessoas estão fazendo nele". A separação é intencional: métricas de infraestrutura ficam no Prometheus e no Grafana, comportamento de produto vai para o PostHog Cloud (região EU), e a única métrica que cruza a linha, quantos usuários estão online agora, vive no backend como um gauge do Micrometer, porque concorrência é uma propriedade do servidor e não de um browser individual.
@@ -23,9 +23,25 @@ O SDK nunca aparece em código de feature. O `@beyou/api` expõe um seam `Analyt
 
 ## Identidade
 
-O `identify()` carrega exatamente duas coisas: o UUID opaco da conta e o nome de exibição. O UUID foi adicionado ao payload do perfil para isso. Antes dele, a única identidade estável que o frontend possuía era o email, e enviar emails para um vendor de analytics é a linha que esta stack não cruza.
+O `identify()` carrega o UUID opaco da conta, o nome de exibição e um conjunto de person properties que descrevem o estado da conta. O UUID foi adicionado ao payload do perfil para isso. Antes dele, a única identidade estável que o frontend possuía era o email, e enviar emails para um vendor de analytics é a linha que esta stack não cruza — o nome é a única exceção deliberada, para que um person profile seja reconhecível.
+
+As person properties são o que torna uma audiência expressável: nível, XP, streak atual e recorde, uma *faixa* de streak, se a sequência está dormente, estado do tutorial, conta Google ou senha, timezone e sua origem, estratégia de decay de XP, idioma, tema e a data de cadastro. São montadas por uma função em `@beyou/api` e chamadas nos dois pontos de identify, porque duas listas escritas à mão divergiriam no primeiro campo adicionado.
+
+Três delas merecem ter a razão escrita. O streak vai cru e em faixa, porque uma person property é sobrescrita a cada identify e "usuários com streak de 23" não é uma população que interesse a ninguém — as faixas são as fronteiras em que os gatilhos de engajamento agem. A data de cadastro é uma coluna real lida do perfil, e não o first-seen do próprio vendor, porque para toda conta anterior à instrumentação essas duas datas são diferentes e só o backend conhece a primeira; a idade em dias é derivada na hora de reportar, já que uma idade armazenada fica velha no instante em que é escrita. E as contagens de itens estão ausentes de propósito: elas vivem em outra requisição que não a do perfil, então lê-las aqui amarraria a função a uma ordem de carregamento que ela não tem como ver.
 
 Os pontos de chamada seguem a mesma filosofia de funil único que o código usa em outros lugares. Na web, o identify vive dentro do `hydratePerfil`, a única função por onde todo caminho de carregamento do usuário (login, login Google, refresh silencioso, refresh do agente, tela de perfil) já passa, então um sexto caminho adicionado depois não tem como esquecer. No mobile é um componente `AnalyticsSync` observando o slice de auth, o mesmo padrão do ThemeSync. O `reset()` dispara no logout e no teardown de conta, porque uma identidade deixada no dispositivo fundiria a próxima conta daquele browser com a que saiu.
+
+## O vocabulário de eventos
+
+Os eventos são nomeados pelo gatilho de engajamento, nunca pelo controle que os disparou. `check_recorded` é aquilo de que um streak é feito; `dashboard_check_button_clicked` seria um fato sobre um botão e deixaria de ser verdade no próximo redesign. A regra existe porque os mesmos conceitos vão ser lidos duas vezes — aqui para medir um nudge, e no backend para decidir se ele deve ser enviado — e um nome que descreve a UI não pode ser compartilhado com um job agendado que não tem UI.
+
+O vocabulário é pequeno de propósito: um check registrado, um level up, um marco de streak atingido, um item criado (com o tipo), uma meta concluída, o tutorial finalizado, uma mensagem enviada ao agente e sugestões de onboarding solicitadas. Cada um responde a uma pergunta que o trabalho de engajamento realmente faz.
+
+Onde cada chamada vive segue a mesma filosofia de funil único do identify. Checks, level ups e marcos são rastreados no `applyRefreshUi`, a única função compartilhada por onde os dois clients passam todo check aceito, então nenhum dos dois rastreia isso separadamente. Criação de item e conclusão de meta ficam na própria chamada do `@beyou/api`, de novo uma vez para as duas plataformas. As duas condições ali são a parte interessante: um `item_created` é suprimido quando o corpo da resposta carrega uma recusa, porque esses endpoints respondem algumas falhas dentro de um 200 e contá-las colocaria submissões falhas num funil de ativação; e `check_recorded` exige um item marcado ou um hábito atualizado no payload, porque as ações de meta passam pela mesma função de refresh e contá-las como check-ins inflaria toda taxa de conclusão do produto.
+
+Duas flags pesam mais do que o tamanho sugere. `retroactive` marca um check preenchido para um dia anterior — justamente o comportamento que a janela de decay de XP existe para produzir, então ele precisa ser distinguível de um check do mesmo dia para que o nudge possa algum dia ser mostrado como eficaz. Ela anda no mesmo sinal que suprime a celebração, mas os eventos de level up e marco *não* são suprimidos junto: esconder confete num dia preenchido depois é uma decisão de UI, e o nível realmente subiu. E `skipped` separa um "não hoje" deliberado de uma conclusão, já que os dois mantêm o streak vivo e um funil que os confundisse leria uma semana de skips como uma semana de progresso.
+
+A regra de PII do seam vale sem mudança e é a razão do formato de várias propriedades: nunca conteúdo escrito pelo usuário em nenhuma propriedade. Então o evento do agente reporta o tamanho da pergunta e não a pergunta, o onboarding reporta o passo e não o contexto que o usuário digitou nele, e a conclusão de meta não reporta nada, porque tudo que identifica uma meta são as palavras do próprio usuário. Na dúvida, a coisa é contada em vez de nomeada.
 
 ## O que nunca sai do browser
 
