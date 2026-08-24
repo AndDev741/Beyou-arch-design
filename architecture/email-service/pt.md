@@ -1,13 +1,13 @@
 ---
 title: "Serviço de E-mail"
-summary: "Seis e-mails transacionais, uma classe de serviço: como cada mensagem se desacopla da transação do banco, o que acontece quando o SMTP falha e os templates bilíngues inline."
+summary: "Sete e-mails, uma classe de serviço: seis transacionais e um que ninguém pediu, como cada um se desacopla da transação do banco, os três limites entre um gatilho de nudge e uma caixa de entrada, e por que o remetente sobe desligado."
 ---
 
 Este documento cobre o subsistema de e-mail: quais mensagens existem, como cada uma é mantida segura em relação à transação, como falhas são tratadas por fluxo e como os templates são construídos e localizados.
 
 ## O que é enviado
 
-O sistema envia exatamente seis e-mails, todos de uma única classe de serviço no pacote de notificação. Todos são transacionais — alguém pediu, fazendo alguma coisa — e é por isso que nenhum deles consulta preferência nenhuma. O e-mail de engajamento que a fase 1 prepara é o primeiro que ninguém pediu, então ele ganha a sua própria chave: ver [O e-mail de engajamento é opt-out](#o-e-mail-de-engajamento-é-opt-out) abaixo.
+O sistema envia sete e-mails, todos de uma única classe de serviço no pacote de notificação. Seis são transacionais — alguém pediu cada um deles, fazendo alguma coisa — e é por isso que nenhum desses consulta preferência nenhuma. O sétimo é o nudge de engajamento, o primeiro e-mail daqui que ninguém pediu, e por isso é o único que consulta uma chave, gasta orçamento e sobe desligado. Ver [O e-mail de engajamento é opt-out](#o-e-mail-de-engajamento-é-opt-out) e [Os nudges, e quando eles não saem](#os-nudges-e-quando-eles-não-saem).
 
 | # | E-mail | Gatilho | Contém |
 |---|--------|---------|--------|
@@ -17,6 +17,7 @@ O sistema envia exatamente seis e-mails, todos de uma única classe de serviço 
 | 4 | Confirmação de feedback | Usuário envia feedback | Eco da categoria e do texto enviado |
 | 5 | Resposta de feedback | Admin responde | A resposta mais o original citado de volta |
 | 6 | Aviso de feedback no console | Usuário envia feedback | Um link para o console de admin, e nada além disso |
+| 7 | Nudge de engajamento | Uma passada agendada, num horário civil de onde quem lê está | Uma coisa em jogo e o número por trás dela, um link para o app e uma linha de cancelamento. O único que consulta uma preferência, e o único que pode ser desligado por inteiro |
 
 Igualmente deliberado é o que nunca é enviado: uma mudança de status de feedback não avisa ninguém (não existe listener, então nenhum endpoint futuro pode enviar e-mail por acidente), cadastros via Google não recebem nada (o Google já verificou o endereço) e nada anuncia a conclusão do reset de senha nem a exclusão efetiva da conta.
 
@@ -73,7 +74,7 @@ E-mail não é opcional. Os quatro valores centrais vêm sem defaults, e a resol
 
 ## Templates e idiomas
 
-Sem engine de template e sem arquivos de template: cada corpo é um text block Java inline, só HTML, formatado com String.formatted. Com dois idiomas por mensagem, isso dá onze templates hardcoded dividindo o mesmo cabeçalho, o azul da marca e o rodapé com o ano — onze e não doze porque o aviso do console é só em inglês. Todos os outros templates escolhem idioma porque quem lê é um usuário; esse é endereçado a quem opera o produto, tem duas frases, e o conteúdo dele é uma URL.
+Sem engine de template e sem arquivos de template: cada corpo é um text block Java inline, só HTML, formatado com String.formatted. Com dois idiomas por mensagem, isso dá treze templates hardcoded dividindo o mesmo cabeçalho, o azul da marca e o rodapé com o ano — um número ímpar e não par porque o aviso do console é só em inglês. O corpo do nudge é o único montado por partes: o título e o texto são escolhidos por gatilho e escapados antes de chegarem no frame, porque carregam números lidos da conta. Todos os outros templates escolhem idioma porque quem lê é um usuário; esse é endereçado a quem opera o produto, tem duas frases, e o conteúdo dele é uma URL.
 
 A escolha de idioma é uma decisão de dois ramos por mensagem: qualquer coisa começando com "pt" recebe português, todo o resto (incluindo nulo) recebe inglês. A parte interessante é de onde cada fluxo lê o idioma:
 
@@ -102,7 +103,7 @@ Nenhum teste fala SMTP. Os fluxos de feedback mockam o próprio JavaMailSender e
 
 ## O e-mail de engajamento é opt-out
 
-Nada aqui envia e-mail de engajamento ainda. O que existe é o consentimento de que ele vai precisar, porque um nudge é o primeiro e-mail deste produto que ninguém pediu, e construir a chave depois do remetente é como um produto acaba escrevendo para gente que não tem como fazer parar.
+A chave foi construída antes do remetente, de propósito: um nudge é o primeiro e-mail deste produto que ninguém pediu, e construir o consentimento depois da coisa que precisa dele é como um produto acaba escrevendo para gente que não tem como fazer parar.
 
 O estado é um booleano e um token numa tabela `notification_preferences`, chaveada pelo usuário. Uma tabela em vez de duas colunas em `users`, porque `users` é carregado inteiro pelo filtro de segurança em toda requisição autenticada e essas colunas seriam lidas milhares de vezes por dia para responder a uma pergunta que um job noturno faz.
 
@@ -112,12 +113,57 @@ O token é onde isto se afasta de todos os outros tokens do código, de propósi
 
 Duas coisas sobre o endpoint valem ficar registradas. Ele é um POST, e o e-mail aponta para uma página do app que faz esse POST, em vez de apontar direto para a API: clientes de e-mail fazem prefetch de links para montar preview e varrer malware, então um GET que muda estado é "clicado" por um robô e cancela a inscrição de quem só abriu a mensagem. E ele é público — listado **nas duas** listas: o permitAll do security config e a lista de bypass do próprio filtro de segurança, que são duas listas da mesma coisa sem nada verificando que concordam. O filtro roda primeiro, então um caminho liberado numa e ausente na outra não é público: responde 401 antes de a autorização ser consultada, e o endpoint parece quebrado em vez de protegido.
 
+## Os nudges, e quando eles não saem
+
+Dois gatilhos, e os dois reportam um custo que existe sendo ou não contado a alguém. Essa é a régua para um nudge aqui: se a mensagem precisa fabricar a urgência, ela é um anúncio.
+
+| Nudge | Dispara quando | O que diz |
+|---|---|---|
+| Janela de recuperação fechando | O dia mais antigo ainda aberto para check retroativo sai da janela depois de hoje, e ficou como perdido | Que dia expira hoje à noite, e quanto um check nele ainda rende |
+| Recorde de sequência em risco | A sequência está no recorde da conta ou perto dele, hoje está agendado e nada foi marcado ainda | A sequência, o recorde, e que hoje ainda está em aberto |
+
+O primeiro não inventa nada. O `XpDecayCalculator` já reduz o que um check atrasado rende e o `MAX_BACKFILL_DAYS` já fecha o dia de vez; a mensagem reporta um prazo que o produto já aplica. Ela cita a porcentagem da estratégia de decaimento *daquela conta*, porque `GRADUAL`, `FLAT` e `TIME_WINDOW` pagam diferente e uma mensagem citando o número errado é pior que uma sem número nenhum.
+
+O segundo está amarrado ao recorde e não ao dia, e a diferença é o ponto inteiro. "Você não marcou nada hoje" é a mesma consulta sem nenhum significado: para quem não tem sequência nenhuma, é uma cobrança por um dia que ainda está em andamento. Amarrado ao recorde, vira um aviso sobre perder algo que a pessoa construiu.
+
+Quase toda a lógica é exclusão, e é por isso que quase todos os testes dela afirmam que nada é enviado. O que vale escrever: a sequência conta dias **agendados**, então num dia não agendado ela não pode quebrar. Dizer a um usuário de seg/qua/sex, numa terça, que a sequência dele acaba hoje é falso — e uma mensagem dessas gasta a credibilidade de todas as seguintes.
+
+### Três limites, porque são três limites diferentes
+
+| Limite | Mecanismo | Por que existe |
+|---|---|---|
+| Uma conta, um tipo, um dia | Uma constraint UNIQUE em `notification_sends` | A passada roda de hora em hora e volta; um verifica-e-insere não é confiável quando o que ele protege é a caixa de entrada de alguém |
+| Uma conta, entre tipos | Um intervalo mínimo em dias | Dois gatilhos podem ser individualmente justificados na mesma manhã. A soma deles é um remetente que escreve todo dia |
+| Todo mundo, por dia | Um teto global, num terço da cota do provedor | Essa cota também carrega troca de senha. Um reset que não chega porque um nudge gastou o orçamento é uma falha muito pior do que um nudge que não sai |
+
+As datas são as de **quem lê**, não as do servidor. "Já enviado hoje" tem que significar o hoje da pessoa, ou uma conta suficientemente a leste recebe o mesmo nudge duas vezes dentro de um único dia dela. A consequência é que o teto global cruza duas datas na virada e fica aproximado nas bordas — aceito, porque a alternativa deixa o primeiro limite errado, e errar por alguns e-mails num orçamento de centenas é um erro bem menor do que escrever duas vezes para a mesma pessoa.
+
+### Envia primeiro, registra depois
+
+A linha que suprime a duplicata de amanhã só é escrita depois que a mensagem foi entregue à camada de e-mail. A ordem inversa é mais segura contra envio duplo e bem pior na prática: um envio que falhou deixaria uma linha afirmando que a mensagem saiu, e o nudge ficaria silenciosamente suprimido pelo resto do dia sem nada para notar. O inverso custa uma duplicata no pior caso, e a constraint recusa a terceira.
+
+### Desligado por padrão, e é esse o mecanismo de ordem
+
+`engagement.enabled` é false por padrão, então dar merge no remetente não envia nada. Isso não é cautela por cautela. A política de privacidade tem que descrever um novo uso dos dados de alguém *antes* de ele começar — a própria seção "Mudanças nesta política" promete exatamente isso — então a sequência é: a política entra, a política sobe, e só então a flag vira. Uma flag transforma essa ordem numa propriedade do deploy, em vez de algo que alguém precisa lembrar no dia certo.
+
+Todo limiar ao lado dela é configuração e não constante, porque todos foram escolhidos sem baseline: as métricas de produto que justificariam um número só começaram a coletar no dia em que o remetente foi escrito.
+
+### Quem fica de fora, e uma reversão
+
+Endereços não verificados não recebem e-mail de engajamento. Isso reverte uma leitura anterior dos mesmos dados, que tratava a coorte que nunca ativou como a maior oportunidade e o e-mail como o único canal capaz de alcançá-la. As duas coisas continuam verdadeiras — mas o endereço nunca foi confirmado, então pode não pertencer a quem o digitou, e e-mail para endereços não confirmados é como a reputação de um domínio remetente se estraga. Essa coorte já tem um caminho de reparo honesto: o reenvio de verificação, que é transacional, não precisa de preferência e é a coisa certa a mandar para alguém cujo endereço ainda não foi provado.
+
+A sequência de ativação vive, portanto, junto do fluxo de verificação, e não aqui. Ela é onboarding, não engajamento.
+
+### Monitoramento
+
+A passada faz check-in com o coletor ao fim de cada ciclo, pelo mesmo heartbeat invertido do job de snapshot — o monitor alerta na *ausência* de check-in, porque um endpoint de health devolvendo 200 não diz nada sobre uma passada agendada continuar rodando. Aqui importa mais que nos snapshots: um job de snapshot que para acaba aparecendo como histórico faltando, enquanto um job de nudge que para parece exatamente uma semana quieta. Ninguém reclama de e-mail que não recebeu.
+
 ## O que pode melhorar
 
 | Área | Estado atual | Nota |
 |------|--------------|------|
 | Retry | Tentativa única em tudo | Uma tabela de outbox ou retry no provedor removeria o padrão do GlitchTip-como-sino |
 | Thread de envio de reset/exclusão | A requisição espera o SMTP | Migrar para o padrão de listener assíncrono dos fluxos de feedback cortaria a latência |
-| Templates | Onze blocos HTML inline | Extrair o chrome compartilhado reduziria a duplicação; engine de template segue exagero |
+| Templates | Treze blocos HTML inline | O nudge trouxe o seu, e o chrome dele é cópia dos outros. Extrair o frame compartilhado reduziria a duplicação; engine de template segue exagero |
 | Testes do fluxo de reset | Nenhum | O único fluxo de e-mail sem cobertura direta |
 | Token de verificação em repouso | Guardado em texto plano na linha do usuário | O token de reset é um hash BCrypt no formato `{UUID}.{raw}`; uma leitura do banco entrega verificação de e-mail de graça. Alinhar os dois quebra todo link que já está numa caixa de entrada, então pede mudança própria |

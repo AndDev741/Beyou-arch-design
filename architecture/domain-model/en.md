@@ -301,7 +301,7 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 
 ## Auth and account entities
 
-Four small entities hang off the account. Three hold hashes for the security flows, all ManyToOne to User; the fourth holds a preference:
+Five small entities hang off the account. Three hold hashes for the security flows, all ManyToOne to User; the other two hold a preference and a log of the mail that preference allowed:
 
 | Entity | Table | What it holds |
 |--------|-------|---------------|
@@ -309,6 +309,7 @@ Four small entities hang off the account. Three hold hashes for the security flo
 | PasswordResetToken | password_reset_tokens | Hash of the reset token, expiry, usedAt |
 | AccountDeletionCode | account_deletion_codes | BCrypt hash of a six-digit code, expiry, usedAt, and an attempts counter that kills the code after a few wrong guesses |
 | NotificationPreferences | notification_preferences | Whether the account may be sent engagement mail, plus the token an unsubscribe link carries. OneToOne rather than ManyToOne, keyed by the user's own id via `@MapsId` so the key and the association cannot disagree |
+| NotificationSend | notification_sends | One row per engagement mail actually sent: the kind, and the RECIPIENT'S local date rather than the server's. A UNIQUE constraint on (user, kind, day) is what stops the hourly pass mailing the same thing twice; the same rows answer the per-account gap and the global daily cap |
 
 E-mail verification is the exception: it lives as columns on the users table rather than as its own entity. That also means the token sits there in plaintext, unlike the reset and deletion tokens beside it, which are stored as BCrypt hashes.
 
@@ -419,6 +420,7 @@ flowchart LR
     password_reset_tokens
     account_deletion_codes
     notification_preferences
+    notification_sends
   end
 
   subgraph system["Reference & docs"]
