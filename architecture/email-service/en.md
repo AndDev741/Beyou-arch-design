@@ -1,13 +1,13 @@
 ---
 title: "Email Service"
-summary: "Six transactional e-mails, one service class: how each mail decouples from its database transaction, what happens when SMTP fails, and the bilingual inline templates."
+summary: "Seven e-mails, one service class: six transactional and one that nobody asked for, how each decouples from its database transaction, the three limits standing between a nudge trigger and an inbox, and why the sender ships switched off."
 ---
 
 This document covers the e-mail subsystem: which mails exist, how each one is kept transaction-safe, how failures are handled per flow, and how the templates are built and localized.
 
 ## What gets sent
 
-The system sends exactly six e-mails, all owned by one service class in the notification package. Every one of them is transactional — somebody asked for it by doing something — and that is why none of them consults a preference. The engagement mail that phase 1 prepares is the first that nobody asked for, so it gets its own switch: see [Engagement mail is opt-out](#engagement-mail-is-opt-out) below.
+The system sends seven e-mails, all owned by one service class in the notification package. Six are transactional — somebody asked for each by doing something — and that is why none of those consults a preference. The seventh is the engagement nudge, the first mail here that nobody asked for, which is why it is the only one that checks a switch, counts against a budget, and ships disabled. See [Engagement mail is opt-out](#engagement-mail-is-opt-out) and [The nudges, and when they do not go out](#the-nudges-and-when-they-do-not-go-out).
 
 | # | Mail | Trigger | Contains |
 |---|------|---------|----------|
@@ -17,6 +17,7 @@ The system sends exactly six e-mails, all owned by one service class in the noti
 | 4 | Feedback acknowledgement | User submits feedback | Echo of the category and the submitted text |
 | 5 | Feedback reply | Admin replies | The reply plus the original quoted back |
 | 6 | Feedback inbox alert | User submits feedback | A link to the admin console, and nothing else |
+| 7 | Engagement nudge | A scheduled pass, at a civil hour where the reader lives | One thing at stake and the number behind it, a link into the app, and an unsubscribe line. The only mail that consults a preference, and the only one that can be switched off entirely |
 
 Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google sign-ups get nothing (Google already verified the address), and nothing announces password-reset completion or the account's actual deletion.
 
@@ -73,7 +74,7 @@ Mail is not optional. The four core values ship without defaults, and the from-a
 
 ## Templates and languages
 
-No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes eleven hardcoded templates sharing the same header, the brand blue, and the year-stamped footer — eleven and not twelve because the inbox alert is English only. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
+No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes thirteen hardcoded templates sharing the same header, the brand blue, and the year-stamped footer — an odd number rather than an even one because the inbox alert is English only. The nudge's is the only body assembled from parts: its headline and text are chosen per trigger and escaped before they reach the frame, because they carry numbers read off the account. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
 
 Language selection is a two-branch decision per mail: anything starting with "pt" gets Portuguese, everything else (including null) gets English. The interesting part is where each flow reads the language from:
 
@@ -102,7 +103,7 @@ No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and 
 
 ## Engagement mail is opt-out
 
-Nothing here sends engagement mail yet. What exists is the consent it will need, because a nudge is the first mail in this product that nobody asked for, and building the switch after the sender is how a product ends up mailing people who cannot stop it.
+The switch was built before the sender, deliberately: a nudge is the first mail in this product that nobody asked for, and building consent after the thing that needs it is how a product ends up mailing people who cannot make it stop.
 
 The state is one boolean and one token in a `notification_preferences` table, keyed by user. A table rather than two columns on `users`, because `users` is loaded in full by the security filter on every authenticated request and those columns would be read thousands of times a day to answer a question a nightly job asks.
 
@@ -112,12 +113,57 @@ The token is where this departs from every other token in the codebase, and deli
 
 Two things about the endpoint are worth keeping. It is a POST, and the mail links to a page in the app which posts it, rather than to the API directly: mail clients prefetch links to build previews and scan for malware, so a state-changing GET gets clicked by a robot and unsubscribes people who only opened the message. And it is public — listed in **both** the security config's permitAll set and the security filter's own bypass list, which are two separate lists of the same thing with nothing checking that they agree. The filter runs first, so a path permitted in one and missing from the other is not public: it answers 401 before authorization is ever consulted, and the endpoint looks broken rather than protected.
 
+## The nudges, and when they do not go out
+
+Two triggers, and both report a cost that exists whether or not anybody is told about it. That is the bar a nudge has to clear here: if the mail has to manufacture the urgency, it is an advertisement.
+
+| Nudge | Fires when | What it says |
+|---|---|---|
+| Recovery window closing | The oldest day still open for a retroactive check falls out of the backfill window after today, and it was missed | Which day expires tonight, and what a check on it still earns |
+| Streak record at risk | The run is at or near the account's own record, today is scheduled, and nothing is checked yet | The run, the record, and that today is still open |
+
+The first one invents nothing. `XpDecayCalculator` already reduces what a late check earns and `MAX_BACKFILL_DAYS` already closes the day for good; the mail reports a deadline the product already enforces. It quotes the percentage for *that account's* decay strategy, because `GRADUAL`, `FLAT` and `TIME_WINDOW` pay differently and a mail quoting the wrong number is worse than one quoting none.
+
+The second is tied to the record rather than to the day, and the difference is the whole point. "You have not checked anything today" is the same query with none of the meaning: for somebody with no run going it is a reprimand for a day still in progress. Tied to the record it is a warning about losing something they actually built.
+
+Most of the logic is exclusions, which is why most of its tests assert that nothing is sent. The one worth stating: a streak counts **scheduled** days, so on an unscheduled day it cannot break. Telling a Mon/Wed/Fri user on a Tuesday that their streak ends today is false, and one mail like that spends the credibility of every later one.
+
+### Three limits, because they are three different limits
+
+| Limit | Mechanism | Why it exists |
+|---|---|---|
+| One account, one kind, one day | A UNIQUE constraint on `notification_sends` | The pass runs hourly and comes back round; a check-then-insert cannot be trusted when what it protects is somebody's inbox |
+| One account, across kinds | A minimum gap in days | Two triggers can each be individually justified on the same morning. Their sum is a sender that writes every day |
+| Everybody, per day | A global cap, set to a third of the provider's allowance | That allowance also carries password resets. A reset that does not arrive because a nudge spent the budget is a far worse failure than a nudge that never goes out |
+
+The dates are the **reader's**, not the server's. "Already sent today" has to mean their today, or an account far enough east receives the same nudge twice inside one of its own days. The consequence is that the global cap spans two dates at the boundary and is approximate at the edges — accepted, because the alternative makes the first limit wrong, and being a few mails out on a budget of hundreds is a much smaller error than mailing somebody twice.
+
+### Send first, record second
+
+The row that suppresses tomorrow's duplicate is written only after the mail is handed to the mail layer. The other order is safer against double sends and much worse in practice: a failed send would leave a row claiming the mail went out, and the nudge would be silently suppressed for the rest of the day with nothing to notice. The reverse costs one duplicate at worst, and the constraint refuses the third.
+
+### Off by default, and that is the ordering mechanism
+
+`engagement.enabled` defaults to false, so merging the sender sends nothing. This is not caution for its own sake. The privacy policy has to describe a new use of somebody's data *before* it starts — its own "Changes to this policy" section promises exactly that — so the sequence is: policy merges, policy deploys, then the flag flips. A flag makes that a property of the deployment rather than something an operator has to remember on the right day.
+
+Every threshold beside it is configuration rather than a constant, because every one was chosen without a baseline: the product analytics that would justify a number only began collecting the day the sender was written.
+
+### Who is excluded, and one reversal
+
+Unverified addresses get no engagement mail. This reverses an earlier reading of the same data, which had the never-activated cohort as the biggest opportunity and e-mail as the only channel that could reach it. Both of those are still true — but the address was never confirmed, so it may not belong to the person who typed it, and mail to unconfirmed addresses is how a sending domain's reputation goes bad. That cohort already has an honest repair path: the verification resend, which is transactional, needs no preference, and is the right thing to send somebody whose address is still unproven.
+
+The activation sequence therefore lives with the verification flow rather than here. It is onboarding, not engagement.
+
+### Monitoring
+
+The pass checks in with the collector after each cycle, through the same inverted heartbeat the snapshot job uses — the monitor alerts on the *absence* of a check-in, because a health endpoint returning 200 says nothing about whether a scheduled pass still runs. It matters more here than for snapshots: a snapshot job that stops eventually shows up as missing history, whereas a nudge job that stops looks exactly like a quiet week. Nobody complains about mail they did not receive.
+
 ## What could be improved
 
 | Area | Current state | Note |
 |------|--------------|------|
 | Retry | Single attempt everywhere | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
 | Reset/deletion sending thread | Request thread waits on SMTP | Moving to the async listener pattern the feedback flows use would cut response latency |
-| Templates | Eleven inline HTML blocks | Extracting shared chrome would shrink the duplication; a template engine is still overkill |
+| Templates | Thirteen inline HTML blocks | The nudge added its own, and its chrome is a copy of the others'. Extracting the shared frame would shrink the duplication; a template engine is still overkill |
 | Reset flow tests | None | The only mail flow without direct coverage |
 | Verification token at rest | Stored in plaintext on the users row | The reset token is a BCrypt hash in `{UUID}.{raw}` form; a database read hands out email verification for free. Aligning the two breaks every link already sitting in an inbox, so it wants its own change |

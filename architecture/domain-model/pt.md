@@ -301,7 +301,7 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 
 ## Entidades de auth e conta
 
-Quatro pequenas entidades pendem da conta. Três guardam hashes para os fluxos de segurança, todas ManyToOne para User; a quarta guarda uma preferência:
+Cinco pequenas entidades pendem da conta. Três guardam hashes para os fluxos de segurança, todas ManyToOne para User; as outras duas guardam uma preferência e um log do e-mail que essa preferência permitiu:
 
 | Entidade | Tabela | O que guarda |
 |----------|--------|--------------|
@@ -309,6 +309,7 @@ Quatro pequenas entidades pendem da conta. Três guardam hashes para os fluxos d
 | PasswordResetToken | password_reset_tokens | Hash do token de reset, expiração, usedAt |
 | AccountDeletionCode | account_deletion_codes | Hash BCrypt de um código de seis dígitos, expiração, usedAt e um contador de tentativas que mata o código depois de alguns erros |
 | NotificationPreferences | notification_preferences | Se a conta pode receber e-mail de engajamento, mais o token que um link de cancelamento carrega. OneToOne em vez de ManyToOne, chaveada pelo próprio id do usuário via `@MapsId` para que a chave e a associação não possam divergir |
+| NotificationSend | notification_sends | Uma linha por e-mail de engajamento efetivamente enviado: o tipo e a data local de QUEM RECEBE, não a do servidor. Uma constraint UNIQUE em (usuário, tipo, dia) é o que impede a passada horária de enviar a mesma coisa duas vezes; as mesmas linhas respondem ao intervalo por conta e ao teto diário global |
 
 A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria. Isso também quer dizer que o token fica ali em texto plano, ao contrário dos tokens de reset e de exclusão ao lado, que são guardados como hash BCrypt.
 
@@ -419,6 +420,7 @@ flowchart LR
     password_reset_tokens
     account_deletion_codes
     notification_preferences
+    notification_sends
   end
 
   subgraph system["Referência & docs"]
