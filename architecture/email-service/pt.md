@@ -7,7 +7,7 @@ Este documento cobre o subsistema de e-mail: quais mensagens existem, como cada 
 
 ## O que é enviado
 
-O sistema envia exatamente seis e-mails, todos de uma única classe de serviço no pacote de notificação:
+O sistema envia exatamente seis e-mails, todos de uma única classe de serviço no pacote de notificação. Todos são transacionais — alguém pediu, fazendo alguma coisa — e é por isso que nenhum deles consulta preferência nenhuma. O e-mail de engajamento que a fase 1 prepara é o primeiro que ninguém pediu, então ele ganha a sua própria chave: ver [O e-mail de engajamento é opt-out](#o-e-mail-de-engajamento-é-opt-out) abaixo.
 
 | # | E-mail | Gatilho | Contém |
 |---|--------|---------|--------|
@@ -99,6 +99,18 @@ Uma minúcia de configuração registrada por honestidade: o default do yaml par
 ## Cobertura de testes
 
 Nenhum teste fala SMTP. Os fluxos de feedback mockam o próprio JavaMailSender e verificam as mensagens capturadas (destinatários, assunto, corpo e o caso que sustenta tudo: um envio de feedback sobrevive a um send que lança exceção). O fluxo de exclusão mocka o EmailService e fixa o formato de seis dígitos, o armazenamento só do hash e o descarte em caso de falha. O aviso do console tem suíte própria, verificando por destinatário em vez de contar envios: cada admin avisado exatamente uma vez, quem escreveu nunca avisado sobre a própria mensagem, nenhum texto de feedback no corpo, e um recibo que lança exceção ainda deixando o console avisado. O fluxo de reenvio chegou com suíte própria, e um detalhe dela vale copiar em vez de redescobrir: é o único teste de e-mail que NÃO é `@Transactional`, porque o envio pendura no `afterCommit` e uma transação de teste que faz rollback nunca commita, então toda verificação de e-mail enviado passaria contra um serviço que não envia nada. As verificações negativas dela leem a linha guardada em vez de contar invocações, já que o e-mail de cadastro é assíncrono e disputar com ele transforma o `verifyNoInteractions` em cara ou coroa. A lacuna que resta: o fluxo de reset de senha não tem teste dedicado, então a limpeza do token em falha de envio depende só de revisão de código.
+
+## O e-mail de engajamento é opt-out
+
+Nada aqui envia e-mail de engajamento ainda. O que existe é o consentimento de que ele vai precisar, porque um nudge é o primeiro e-mail deste produto que ninguém pediu, e construir a chave depois do remetente é como um produto acaba escrevendo para gente que não tem como fazer parar.
+
+O estado é um booleano e um token numa tabela `notification_preferences`, chaveada pelo usuário. Uma tabela em vez de duas colunas em `users`, porque `users` é carregado inteiro pelo filtro de segurança em toda requisição autenticada e essas colunas seriam lidas milhares de vezes por dia para responder a uma pergunta que um job noturno faz.
+
+O padrão é ligado. São mensagens sobre a rotina do próprio leitor — uma sequência a ponto de quebrar, uma meta com os dias contados — e não ofertas, e carregam opt-out de um clique; um padrão desligado significaria um recurso que só alcança quem for procurá-lo nas configurações. A ausência de linha significa o padrão, então nada foi backfillado e nenhum token existe antes do primeiro e-mail precisar de um.
+
+O token é onde isto se afasta de todos os outros tokens do código, de propósito. Tokens de reset de senha e códigos de exclusão são guardados como hash BCrypt porque são segredos de uso único. Este é *estável* — todo nudge pelo resto da vida da conta aponta para ele — e um hash não pode ser desfeito para montar esse link, então hashear forçaria um token novo a cada envio e mataria silenciosamente o link de cancelamento de toda mensagem já entregue. São 256 bits aleatórios, guardados crus, e o pior que um leak dessa coluna permite é cancelar a inscrição de alguém num e-mail que ela pode religar nas configurações.
+
+Duas coisas sobre o endpoint valem ficar registradas. Ele é um POST, e o e-mail aponta para uma página do app que faz esse POST, em vez de apontar direto para a API: clientes de e-mail fazem prefetch de links para montar preview e varrer malware, então um GET que muda estado é "clicado" por um robô e cancela a inscrição de quem só abriu a mensagem. E ele é público — listado **nas duas** listas: o permitAll do security config e a lista de bypass do próprio filtro de segurança, que são duas listas da mesma coisa sem nada verificando que concordam. O filtro roda primeiro, então um caminho liberado numa e ausente na outra não é público: responde 401 antes de a autorização ser consultada, e o endpoint parece quebrado em vez de protegido.
 
 ## O que pode melhorar
 

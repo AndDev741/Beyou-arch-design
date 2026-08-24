@@ -1,0 +1,122 @@
+openapi: 3.1.0
+info:
+  title: Notification preferences
+  version: v0
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /notification/preferences:
+    get:
+      tags:
+      - notification-preferences-controller
+      summary: Read the engagement-mail switch
+      description: >-
+        Authenticated. Creates the account's preference row on first read, which is
+        also what mints its unsubscribe token — so the first mail always has a token
+        to link to. The token itself is never returned: it is a capability that works
+        without a session, and a caller that already holds a session has no use for
+        one. An account with no stored row reads as opted in.
+      operationId: getPreferences
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponseDTO'
+    put:
+      tags:
+      - notification-preferences-controller
+      summary: Turn engagement mail on or off
+      description: >-
+        Authenticated. The same switch the unsubscribe link flips, so a user who
+        unsubscribed from a message can turn it back on here.
+      operationId: updatePreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPreferencesDTO'
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponseDTO'
+  /notification/unsubscribe:
+    post:
+      tags:
+      - notification-preferences-controller
+      summary: Disable engagement mail for the holder of an unsubscribe token
+      description: >-
+        Public — no session required, because the whole point of an unsubscribe link
+        is that it works for someone who cannot sign in, which describes most of the
+        population these mails are aimed at. The token in the body is the entire proof
+        of ownership.
+
+
+        POST, and the mail links to a page in the app that posts this, rather than to
+        the endpoint itself. A state-changing GET would be simpler and is what a mail
+        client can follow directly — which is exactly the problem: mail clients
+        prefetch links to build previews and scan for malware, so a robot would
+        unsubscribe people who merely opened the message.
+
+
+        Idempotent: unsubscribing twice reports the same success. A token matching no
+        account is refused with 400 and `errorKey` INVALID_REQUEST rather than a
+        cheerful success — there is nothing to enumerate, since the token is random
+        rather than derived from the address, and somebody whose link was mangled by
+        their mail client is better told it did not work.
+
+
+        Rate limited per address, in its own bucket rather than the shared
+        authentication one: a burst of unsubscribe attempts from one address must not
+        eat the sign-in allowance of everyone behind the same NAT.
+      operationId: unsubscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnsubscribeRequestDTO'
+      responses:
+        "200":
+          description: Engagement mail disabled for that account.
+        "400":
+          description: The token matches no account.
+        "429":
+          description: Rate limit exceeded — `errorKey` is `RATE_LIMIT_EXCEEDED`.
+components:
+  schemas:
+    NotificationPreferencesResponseDTO:
+      type: object
+      properties:
+        engagementEmail:
+          type: boolean
+          description: >-
+            Whether the account may be sent engagement mail. True for an account that
+            has never touched the setting: these are first-party messages about the
+            reader's own routine, not offers, and they carry one-click opt-out.
+    UpdateNotificationPreferencesDTO:
+      type: object
+      properties:
+        engagementEmail:
+          type: boolean
+      required:
+      - engagementEmail
+    UnsubscribeRequestDTO:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 64
+          minLength: 1
+          description: >-
+            The token from the link. In the body rather than the query string: query
+            strings reach browser history and the Referer header of the next
+            navigation, and a capability should not travel where a URL travels.
+      required:
+      - token

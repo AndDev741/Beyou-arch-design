@@ -301,15 +301,20 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 
 ## Auth and account entities
 
-Three small hash-holding entities back the security flows, all ManyToOne to User:
+Four small entities hang off the account. Three hold hashes for the security flows, all ManyToOne to User; the fourth holds a preference:
 
 | Entity | Table | What it holds |
 |--------|-------|---------------|
 | RefreshToken | refresh_tokens | Hash of the 15-day refresh token, expiry, revokedAt |
 | PasswordResetToken | password_reset_tokens | Hash of the reset token, expiry, usedAt |
 | AccountDeletionCode | account_deletion_codes | BCrypt hash of a six-digit code, expiry, usedAt, and an attempts counter that kills the code after a few wrong guesses |
+| NotificationPreferences | notification_preferences | Whether the account may be sent engagement mail, plus the token an unsubscribe link carries. OneToOne rather than ManyToOne, keyed by the user's own id via `@MapsId` so the key and the association cannot disagree |
 
 E-mail verification is the exception: it lives as columns on the users table rather than as its own entity. That also means the token sits there in plaintext, unlike the reset and deletion tokens beside it, which are stored as BCrypt hashes.
+
+The unsubscribe token is stored raw too, and that one is a decision rather than an inheritance. The three above are one-shot secrets, so a hash is free. An unsubscribe token is stable — every engagement mail for the rest of the account's life links to it — and a hash cannot be un-hashed to build that link, so hashing would force a new token per send and kill the link in every message already delivered. A row's absence means the account has never been mailed and never opened the setting; readers must treat that as opted in.
+
+Unlike the three token tables, this one has no expiry and no single-use marker: a preference is not spent by being used.
 
 ## XP progression system
 
@@ -413,6 +418,7 @@ flowchart LR
     refresh_tokens
     password_reset_tokens
     account_deletion_codes
+    notification_preferences
   end
 
   subgraph system["Reference & docs"]
