@@ -1,6 +1,6 @@
 ---
 title: "Product Analytics"
-summary: "PostHog across four surfaces behind one first-party proxy: what gets captured, what never leaves the browser, why identify carries a UUID and a name but never an email, and how adblockers shaped the transport."
+summary: "PostHog across four surfaces behind one first-party proxy: the event vocabulary named after engagement triggers rather than buttons, the person properties the cohorts are built from, what never leaves the browser, and how adblockers shaped the transport."
 ---
 
 The [monitoring topic](/architecture/monitoring) answers "how is the system doing"; this layer answers "what are people doing in it". The split is intentional: infrastructure metrics stay in Prometheus and Grafana, product behavior goes to PostHog Cloud (EU region), and the one metric that straddles the line, how many users are on right now, lives on the backend as a Micrometer gauge, because concurrency is a property of the server rather than of any one browser.
@@ -23,9 +23,25 @@ The SDK never appears in feature code. `@beyou/api` exposes an `Analytics` seam 
 
 ## Identity
 
-`identify()` carries exactly two things: the account's opaque UUID and the display name. The UUID was added to the profile payload for this purpose. Before it, the only stable identity the frontend possessed was the email, and shipping emails to an analytics vendor is the line this stack does not cross.
+`identify()` carries the account's opaque UUID, the display name, and a set of account-shape person properties. The UUID was added to the profile payload for this purpose. Before it, the only stable identity the frontend possessed was the email, and shipping emails to an analytics vendor is the line this stack does not cross — the name is the one deliberate exception, so that a person profile is recognizable at all.
+
+The person properties are what make an audience expressible: level, XP, current and best streak, a streak *bucket*, whether the run is dormant, tutorial state, Google vs password account, timezone and its source, XP-decay strategy, language, theme, and the signup date. They are built by one function in `@beyou/api` and called from the two identify sites, because two hand-written lists would drift on the first field added.
+
+Three of those deserve their reasons written down. The streak arrives both raw and bucketed, because a person property is overwritten on every identify and "users whose streak is 23" is not a population anyone wants — the buckets are the boundaries the engagement triggers act on. The signup date is a real column read off the profile rather than the vendor's own first-seen timestamp, because for every account older than the instrumentation those are different dates and only the backend knows the first one; the age in days is derived at report time, since a stored age is stale the moment it is written. And item counts are deliberately absent: they live in a different request than the profile, so reading them here would tie the builder to a load order it cannot see.
 
 The call sites follow the same single-funnel philosophy the codebase uses elsewhere. On web, identify lives inside `hydratePerfil`, the one function every user-loading path (login, Google login, silent refresh, agent refresh, profile screen) already passes through, so a sixth path added later cannot forget it. On mobile it is an `AnalyticsSync` component watching the auth slice, the same pattern as ThemeSync. `reset()` fires on logout and account teardown, because an identity left on the device would merge the next account on that browser into the one that left.
+
+## The event vocabulary
+
+Events are named after the engagement trigger, never after the control that fired them. `check_recorded` is the thing a streak is made of; `dashboard_check_button_clicked` would be a fact about a button and would stop being true at the next redesign. The rule exists because the same concepts are about to be read twice — once here to measure a nudge, once on the backend to decide whether to send it — and a name that describes the UI cannot be shared with a scheduled job that has no UI.
+
+The vocabulary is small on purpose: a check recorded, a level up, a streak milestone crossed, an item created (with its type), a goal completed, the tutorial finished, an agent message sent, and onboarding suggestions requested. Each one answers a question the engagement work actually asks.
+
+Where each call lives follows the same single-funnel philosophy as identify. Checks, level-ups and milestones are tracked in `applyRefreshUi`, the one shared function both platforms pipe every accepted check through, so neither client tracks them separately. Item creation and goal completion sit in the `@beyou/api` call itself, again once for both platforms. The two conditions there are the interesting part: an `item_created` is suppressed when the response body carries a refusal, because these endpoints answer some failures in a 200 and counting those would put failed submissions into an activation funnel; and `check_recorded` requires a checked item or a refreshed habit in the payload, because goal actions come through the same refresh function and counting them as check-ins would inflate every completion rate in the product.
+
+Two flags carry more weight than their size suggests. `retroactive` marks a check filled in for an earlier day — the behaviour the XP-decay window is meant to produce, so it has to be distinguishable from a same-day check for the nudge to ever be shown to have worked. It rides the same signal that suppresses the celebration, but the level-up and milestone events are *not* suppressed with it: hiding confetti on a backfilled day is a UI decision, and the level really did go up. And `skipped` separates a deliberate "not today" from a completion, since both keep a streak alive and a funnel that conflated them would read a week of skips as a week of progress.
+
+The PII rule from the seam applies unchanged and is the reason several properties are shaped the way they are: no user-written content in any property, ever. So the agent event reports the length of the question and not the question, onboarding reports the step and not the context the user typed into it, and goal completion reports nothing at all, because everything that identifies a goal is the user's own words. When in doubt, the thing gets counted instead of named.
 
 ## What never leaves the browser
 

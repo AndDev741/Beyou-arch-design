@@ -136,6 +136,12 @@ components:
     UserResponseDTO:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
+          description: >-
+            The account's opaque UUID. The only identity product analytics may
+            use — the email is never sent to an analytics vendor.
         name:
           type: string
         email:
@@ -207,3 +213,15 @@ components:
           - GRADUAL
           - FLAT
           - TIME_WINDOW
+        createdAt:
+          type: string
+          description: >-
+            The day the account was created, ISO-8601 (`2026-03-14`). A date and
+            not an instant because that is all the column behind it holds, and it
+            is the server's calendar day rather than the user's — precise enough
+            to bucket an account by age, not enough to reason about signup time.
+            Sent so the clients can report it to product analytics as the signup
+            date: the analytics provider's own first-seen timestamp answers when
+            it first saw the account, which for anything older than the
+            instrumentation is a different date. Absent on an account created
+            before the column existed.
