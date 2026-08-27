@@ -192,25 +192,31 @@ Embedded by **User, Habit, Task, and Routine**: the four things that get checked
 
 ## Routine
 
-**Product role**: the daily execution tool. A routine has sections ("Morning", "Work", "Evening"), each holding habit and task groups. Checking items generates XP across every related entity.
+**Product role**: the daily execution tool, in one of two shapes. A **daily** routine has sections ("Morning", "Work", "Evening"), each holding habit and task groups with their own time windows. A **list** routine drops both: a flat, ordered checklist the user ticks off whenever they like during the day. Checking items generates XP across every related entity, identically for the two.
 
-**Inheritance**: Routine is an abstract base using single-table inheritance with a `dtype` discriminator. DiaryRoutine is the only concrete type today.
+**Inheritance**: Routine is an abstract base using single-table inheritance with a `dtype` discriminator. DiaryRoutine is the only concrete type, and the shape is a `routineType` column (DAILY or LIST) rather than a second subclass. That was deliberate: the whole check path casts the routine it reaches through the item's section to DiaryRoutine on every branch, and the snapshot writer, the day-close resolver and the schedule service are all typed to it. A column leaves every one of those untouched, so a list routine is scheduled, snapshotted, checked, streaked and levelled by exactly the code that already serves a daily one. `routines_routine_type_check` mirrors the enum; adding a value in Java without adding it there makes every write of the new kind fail.
+
+A list routine still stores its items in **one** RoutineSection, created server-side with null start and end times. That section is an internal representation and never reaches a client: the API takes and returns a flat `items` array instead.
 
 ```mermaid
 flowchart TD
   R["📋 Routine<br/>(abstract, single-table)"]
-  R --> DR["📋 DiaryRoutine"]
-  DR --> RS1["📑 Section: Morning"]
-  DR --> RS2["📑 Section: Evening"]
+  R --> DR["📋 DiaryRoutine<br/>routineType: DAILY | LIST"]
+  DR --> RS1["📑 Section: Morning<br/>(DAILY)"]
+  DR --> RS2["📑 Section: Evening<br/>(DAILY)"]
+  DR --> LS["📑 One implicit section<br/>(LIST, no times)"]
   RS1 --> HG1["💪 Habit Group"]
   RS1 --> TG1["📝 Task Group"]
+  LS --> HG2["💪 Habit Group"]
   HG1 --> HC["✅ HabitGroupCheck"]
   TG1 --> TC["✅ TaskGroupCheck"]
 ```
 
 ### Routine (abstract base)
 
-Fields: name, iconId. Embeds XpProgress and CheckProgress.
+Fields: name, iconId, routineType. Embeds XpProgress and CheckProgress.
+
+`routineType` is never null: the migration that added it defaults to DAILY, so every routine written before the list shape existed, and every client that has never heard of the field, keeps exactly the behaviour it had. Read it through `isList()` / `isDaily()` rather than comparing the enum at call sites — those two are the seam, and what a reader greps for to find everywhere the shapes actually diverge.
 
 **Relationships**
 
@@ -225,6 +231,8 @@ Extends Routine, adding routineSections (OneToMany, cascade ALL, orphan removal,
 
 Fields: name, iconId, startTime, endTime, orderIndex, favorite.
 
+The times are nullable, and a list routine's single section leaves both null. Its name and icon follow the routine's own, because the column is NOT NULL and because that name is what the snapshot writer copies onto every SnapshotCheck — a history row reading "Errands" is at least true.
+
 **Relationships**: belongs to a Routine (ManyToOne); contains HabitGroups and TaskGroups (OneToMany, cascade ALL, orphan removal). One quirk to be aware of: these collections are unidirectional and mapped through join tables (routine_sections_habit_groups, routine_sections_task_groups), while ItemGroup also carries its own routine_section_id column. The section-to-group link is effectively mapped twice.
 
 ## Schedule
@@ -237,7 +245,7 @@ The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_
 
 **Product role**: placing a habit or task inside a routine section creates a "group", the trackable instance that gets checked or skipped each day. Each check is a historical record with date, time, and the XP it generated.
 
-**ItemGroup** (abstract, joined inheritance): startTime, endTime, and the ManyToOne back to its section. Concrete types HabitGroup (references a Habit) and TaskGroup (references a Task), each owning their check collections (cascade ALL, no orphan removal, so history survives).
+**ItemGroup** (abstract, joined inheritance): startTime, endTime, orderIndex, and the ManyToOne back to its section. `orderIndex` is read only by list routines, which have no times to sort by; a daily routine orders its items by startTime in both clients and ignores the column, though it is written for both so the two shapes share one merge path. Concrete types HabitGroup (references a Habit) and TaskGroup (references a Task), each owning their check collections (cascade ALL, no orphan removal, so history survives).
 
 **BaseCheck** (abstract, joined inheritance): checkDate, checkTime, checked, skipped, xpGenerated. Concrete types HabitGroupCheck and TaskGroupCheck, each owned by their group.
 

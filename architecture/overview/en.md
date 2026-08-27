@@ -73,7 +73,7 @@ erDiagram
 - **Habit**: trackable behavior with importance, difficulty, motivational phrase, and XP/level progression.
 - **Task**: like a habit, but can be one-time (oneTimeTask) with soft-delete via markedToDelete.
 - **Goal**: target-based with currentValue / targetValue, status (active/completed/failed), and term (short/long/life).
-- **Routine**: abstract base with DiaryRoutine as the concrete type. Contains sections with habit/task groups.
+- **Routine**: abstract base with DiaryRoutine as the concrete type, and a routineType column choosing the shape. A DAILY routine holds sections with habit/task groups on a clock; a LIST one is a flat, ordered checklist with no sections and no times.
 - **Schedule**: days of the week linked to a routine.
 - **Checks**: daily check/skip records for habit and task groups inside routines, with XP generation tracking.
 - **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.

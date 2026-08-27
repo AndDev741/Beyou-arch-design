@@ -177,17 +177,76 @@ components:
           format: date
     DiaryRoutineRequestDTO:
       type: object
+      description: >
+        The create/update body for a routine, in one of two shapes. Which of the two
+        collections is read depends on `type`, and sending the wrong one is a 400 rather
+        than a partial apply: a DAILY routine sends `routineSections` and no `items`, a
+        LIST routine sends `items` and no `routineSections`.
       properties:
         name:
           type: string
         iconId:
           type: string
+        type:
+          $ref: '#/components/schemas/RoutineType'
         routineSections:
           type: array
+          description: >
+            DAILY only. Rejected with ROUTINE_SHAPE_MISMATCH when sent for a LIST routine.
+            Required and non-empty for a DAILY one, otherwise ROUTINE_SECTION_REQUIRED.
           items:
             $ref: '#/components/schemas/RoutineSectionRequestDTO'
+        items:
+          type: array
+          description: >
+            LIST only, and required and non-empty there (otherwise ROUTINE_ITEMS_REQUIRED).
+            Position in this array IS the order the user sees; there is no index to send.
+            Rejected with ROUTINE_SHAPE_MISMATCH when sent for a DAILY routine.
+          items:
+            $ref: '#/components/schemas/RoutineItemRequestDTO'
+    RoutineType:
+      type: string
+      description: >
+        The routine's shape. DAILY has sections with start and end times and items carrying
+        their own windows. LIST has neither: a flat, ordered checklist ticked off at any
+        point in the day. Absent on a request means DAILY, which is what keeps every client
+        written before the list shape existed working unchanged. Everything around a routine
+        treats the two identically — both are scheduled to weekdays, both reach the dashboard
+        on their days, both are snapshotted, and both award the same XP.
+
+        A routine cannot change type after it is created: PUT with a different `type` is
+        rejected with ROUTINE_SHAPE_MISMATCH, because switching would either discard every
+        time window the user set or invent times nobody chose.
+      enum:
+        - DAILY
+        - LIST
+    RoutineItemRequestDTO:
+      type: object
+      description: >
+        One entry of a LIST routine. Exactly one of `habitId` / `taskId` must be set —
+        neither, or both, is rejected with ROUTINE_ITEM_AMBIGUOUS rather than guessed at.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >
+            The existing item group's id, on an update. Echo it back for every entry you are
+            keeping: it is what preserves the row, and with it every check ever recorded
+            against that item. Omit it for a new entry and the server assigns one.
+        habitId:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
     DiaryRoutineResponseDTO:
       type: object
+      description: >
+        A LIST routine fills BOTH collections. `items` is the flat, ordered list its clients
+        render; `routineSections` carries the same items through the single internal section
+        they are stored in, so the snapshot endpoints, the check endpoints and any client
+        that has never heard of the list shape keep reading what they already read. A DAILY
+        routine returns an empty `items`.
       properties:
         id:
           type: string
@@ -196,10 +255,21 @@ components:
           type: string
         iconId:
           type: string
+        type:
+          $ref: '#/components/schemas/RoutineType'
         routineSections:
           type: array
+          description: >
+            For a LIST routine this is always exactly one section, with null start and end
+            times, named after the routine. That section is an internal representation —
+            build a list from `items`, not from here.
           items:
             $ref: '#/components/schemas/RoutineSectionResponseDTO'
+        items:
+          type: array
+          description: A LIST routine's entries in the user's order. Empty for a DAILY one.
+          items:
+            $ref: '#/components/schemas/RoutineItemResponseDTO'
         schedule:
           $ref: '#/components/schemas/ScheduleResponseDTO'
         xp:
@@ -214,6 +284,40 @@ components:
         level:
           type: integer
           format: int32
+    RoutineItemResponseDTO:
+      type: object
+      description: One row of a LIST routine.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >
+            The item group's id. This is what POST /routine/check and POST /routine/skip
+            take — a list item is checked by exactly the call a sectioned one is.
+        type:
+          type: string
+          enum:
+            - HABIT
+            - TASK
+        habitId:
+          type: string
+          format: uuid
+          description: Set when `type` is HABIT; null otherwise.
+        taskId:
+          type: string
+          format: uuid
+          description: Set when `type` is TASK; null otherwise.
+        orderIndex:
+          type: integer
+          format: int32
+          description: Position in the user's arrangement, counting from zero.
+        checks:
+          type: array
+          description: >
+            Habit and task checks share one shape here. Both carry only checkDate,
+            checkTime, checked, skipped and xpGenerated, so no client can tell which it got.
+          items:
+            $ref: '#/components/schemas/HabitGroupCheck'
     HabitGroupCheck:
       type: object
       properties:

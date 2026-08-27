@@ -47,7 +47,7 @@ Toda entidade de domínio (categoria, hábito, tarefa, meta, rotina) segue o mes
 | xBox | O card expansível de um item, com ações de editar e apagar |
 | renderXs | A grade responsiva que mapeia a lista |
 
-Os formulários validam por schemas zod que vivem no pacote compartilhado de validação, escritos como fábricas que recebem a função de tradução, então toda mensagem de validação é bilíngue por construção. As regras de rotina entre campos (seções com horários sobrepostos, faixas atravessando a meia-noite) moram ao lado como funções puras que o formulário e o builder de rotina chamam.
+Os formulários validam por schemas zod que vivem no pacote compartilhado de validação, escritos como fábricas que recebem a função de tradução, então toda mensagem de validação é bilíngue por construção. As regras de rotina entre campos (seções com horários sobrepostos, faixas atravessando a meia-noite) moram ao lado como funções puras que o formulário e o builder de rotina chamam. Uma rotina em lista valida por um schema próprio, não por um desvio dentro do da diária: os dois formulários guardam estados de fato diferentes, um array de seções com horário contra um array plano de hábitos e tarefas escolhidos, e um schema que aceitasse os dois não checaria nenhum direito.
 
 ## Dashboard e widgets
 

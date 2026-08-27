@@ -1,6 +1,6 @@
 ---
 title: "Agente de IA"
-summary: "Um agente de chat com 33 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de LLMs configurável, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
+summary: "Um agente de chat com 40 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de LLMs configurável, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
 ---
 
 Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, como LLMs de camada gratuita são encadeados em um modelo confiável e o que acontece em cada ponto de falha.
@@ -74,7 +74,7 @@ O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para que
 
 ## As ferramentas
 
-Trinta e três ferramentas agrupadas por domínio: CRUD completo de hábitos, categorias, tarefas e metas (mais completar, aumentar e diminuir meta), construção de rotina (criar, edições dirigidas, edição de substituição total, adicionar e remover item), schedules, a rotina de hoje com check e skip, leitura e ajuste da configuração do usuário, dois escritores de memória e envio de feedback.
+Quarenta ferramentas agrupadas por domínio: CRUD completo de hábitos, categorias, tarefas e metas (mais completar, aumentar e diminuir meta), construção de rotina (criar, edições dirigidas, edição de substituição total, adicionar e remover item), rotinas em lista (criar e substituir por inteiro, as duas recebendo um array plano de itens e nenhum horário), schedules, a rotina de hoje com check e skip, leitura e ajuste da configuração do usuário, dois escritores de memória e envio de feedback.
 
 O modelo de autoridade é a parte importante:
 
