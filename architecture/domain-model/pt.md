@@ -192,9 +192,11 @@ Embutido por **User, Habit, Task e Routine**: as quatro coisas que são marcadas
 
 ## Routine
 
-**Papel no produto**: a ferramenta de execução diária. Uma rotina tem seções ("Manhã", "Trabalho", "Noite"), cada uma com grupos de hábitos e tarefas. Marcar itens gera XP em cada entidade relacionada.
+**Papel no produto**: a ferramenta de execução diária, em uma de duas formas. Uma rotina **diária** tem seções ("Manhã", "Trabalho", "Noite"), cada uma com grupos de hábitos e tarefas com suas próprias janelas de horário. Uma rotina **em lista** abre mão das duas coisas: é uma lista plana e ordenada que a pessoa marca na hora que quiser ao longo do dia. Marcar itens gera XP em cada entidade relacionada, igual nas duas.
 
-**Herança**: Routine é uma base abstrata com herança single-table e discriminador `dtype`. DiaryRoutine é o único tipo concreto hoje.
+**Herança**: Routine é uma base abstrata com herança single-table e discriminador `dtype`. DiaryRoutine é o único tipo concreto, e a forma é uma coluna `routineType` (DAILY ou LIST) em vez de uma segunda subclasse. Isso foi deliberado: todo o caminho de check faz cast para DiaryRoutine em cada ramo ao chegar na rotina pela seção do item, e o escritor de snapshot, o resolvedor de fechamento do dia e o serviço de schedule são todos tipados nela. Uma coluna deixa cada um desses intactos, então uma rotina em lista é agendada, fotografada, marcada, contabilizada em sequência e nivelada exatamente pelo código que já atende a diária. `routines_routine_type_check` espelha o enum; acrescentar um valor no Java sem acrescentar lá faz toda escrita do novo tipo falhar.
+
+Uma rotina em lista ainda guarda seus itens em **uma** RoutineSection, criada no servidor com horários de início e fim nulos. Essa seção é uma representação interna e nunca chega a um cliente: a API recebe e devolve um array plano de `items` no lugar.
 
 ```mermaid
 flowchart TD
@@ -210,7 +212,9 @@ flowchart TD
 
 ### Routine (base abstrata)
 
-Campos: name, iconId. Embute XpProgress e CheckProgress.
+Campos: name, iconId, routineType. Embute XpProgress e CheckProgress.
+
+`routineType` nunca é nulo: a migration que o criou usa DAILY como padrão, então toda rotina escrita antes da forma em lista existir, e todo cliente que nunca ouviu falar do campo, mantém exatamente o comportamento que tinha. Leia pelos métodos `isList()` / `isDaily()` em vez de comparar o enum nas chamadas — esses dois são a costura, e é o que alguém procura para achar todos os lugares onde as formas de fato divergem.
 
 **Relacionamentos**
 
@@ -225,6 +229,8 @@ Estende Routine, adicionando routineSections (OneToMany, cascade ALL, orphan rem
 
 Campos: name, iconId, startTime, endTime, orderIndex, favorite.
 
+Os horários são anuláveis, e a seção única de uma rotina em lista deixa os dois nulos. Nome e ícone dela seguem os da rotina, porque a coluna é NOT NULL e porque esse nome é o que o escritor de snapshot copia para cada SnapshotCheck — uma linha de histórico que diz "Compras" é pelo menos verdadeira.
+
 **Relacionamentos**: pertence a uma Routine (ManyToOne); contém HabitGroups e TaskGroups (OneToMany, cascade ALL, orphan removal). Uma peculiaridade para conhecer: essas coleções são unidirecionais e mapeadas por join tables (routine_sections_habit_groups, routine_sections_task_groups), enquanto o ItemGroup também carrega sua própria coluna routine_section_id. O vínculo seção-grupo está, na prática, mapeado duas vezes.
 
 ## Schedule
@@ -237,7 +243,7 @@ A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabe
 
 **Papel no produto**: colocar um hábito ou tarefa dentro de uma seção de rotina cria um "grupo", a instância rastreável que é marcada ou pulada a cada dia. Cada check é um registro histórico com data, hora e o XP que gerou.
 
-**ItemGroup** (abstrata, herança joined): startTime, endTime e o ManyToOne de volta à seção. Tipos concretos HabitGroup (referencia um Habit) e TaskGroup (referencia uma Task), cada um dono das suas coleções de checks (cascade ALL, sem orphan removal, então o histórico sobrevive).
+**ItemGroup** (abstrata, herança joined): startTime, endTime, orderIndex e o ManyToOne de volta à seção. `orderIndex` só é lido por rotinas em lista, que não têm horário para ordenar; uma rotina diária ordena os itens por startTime nos dois clientes e ignora a coluna, ainda que ela seja gravada para as duas formas, para que compartilhem um único caminho de merge. Tipos concretos HabitGroup (referencia um Habit) e TaskGroup (referencia uma Task), cada um dono das suas coleções de checks (cascade ALL, sem orphan removal, então o histórico sobrevive).
 
 **BaseCheck** (abstrata, herança joined): checkDate, checkTime, checked, skipped, xpGenerated. Tipos concretos HabitGroupCheck e TaskGroupCheck, cada um pertencente ao seu grupo.
 

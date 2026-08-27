@@ -1,6 +1,6 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 33 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 40 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
 ---
 
 This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
@@ -74,7 +74,7 @@ The assistant is optional end to end. Nothing reaches a provider for a user who 
 
 ## The tools
 
-Thirty-three tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease), routine building (create, targeted edits, full-replace edit, item add and remove), schedules, today's routine with check and skip, user configuration reads and patches, two memory writers, and feedback submission.
+Forty tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease), routine building (create, targeted edits, full-replace edit, item add and remove), list routines (create and full-replace, both taking a flat item array and no times), schedules, today's routine with check and skip, user configuration reads and patches, two memory writers, and feedback submission.
 
 The authority model is the important part:
 

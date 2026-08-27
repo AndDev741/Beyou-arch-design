@@ -73,7 +73,7 @@ erDiagram
 - **Habit**: comportamento rastreável com importância, dificuldade, frase motivacional e progressão de XP/level.
 - **Task**: como um hábito, mas pode ser única (oneTimeTask) com soft-delete via markedToDelete.
 - **Goal**: baseada em alvo com currentValue / targetValue, status (ativa/concluída/falhou) e prazo (curto/longo/vida).
-- **Routine**: base abstrata com DiaryRoutine como tipo concreto. Contém seções com grupos de hábitos/tarefas.
+- **Routine**: base abstrata com DiaryRoutine como tipo concreto, e uma coluna routineType que escolhe a forma. Uma rotina DAILY tem seções com grupos de hábitos/tarefas no relógio; uma LIST é uma lista plana e ordenada, sem seções e sem horários.
 - **Schedule**: dias da semana ligados a uma rotina.
 - **Checks**: registros diários de check/skip para os grupos de hábitos e tarefas dentro das rotinas, com rastreio do XP gerado.
 - **Snapshots de rotina**: uma cópia diária imutável de cada rotina, tirada por timezone por um scheduler, para que o histórico sobreviva a edições futuras da rotina.

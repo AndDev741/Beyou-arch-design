@@ -47,7 +47,7 @@ Every domain entity (category, habit, task, goal, routine) follows the same four
 | xBox | The expandable card showing one item, with edit and delete actions |
 | renderXs | The responsive grid that maps the list |
 
-Forms resolve through zod schemas that live in the shared validation package, written as factories taking the translation function, so every validation message is bilingual by construction. Cross-field routine rules (overlapping section times, overnight ranges) live beside them as plain functions the form and the routine builder both call.
+Forms resolve through zod schemas that live in the shared validation package, written as factories taking the translation function, so every validation message is bilingual by construction. Cross-field routine rules (overlapping section times, overnight ranges) live beside them as plain functions the form and the routine builder both call. A list routine is validated by its own schema rather than a branch inside the daily one: the two forms hold genuinely different state, an array of timed sections against a flat array of picked habits and tasks, and one schema accepting both would check neither properly.
 
 ## Dashboard and widgets
 
