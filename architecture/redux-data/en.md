@@ -1,6 +1,6 @@
 ---
 title: "Redux and Data Architecture"
-summary: "One state package shared by web and mobile: 17 slices, a PII-aware persistence blacklist, the shared gamification apply function, and the two-tier HTTP layer underneath."
+summary: "One state package shared by web and mobile: 18 slices, a PII-aware persistence blacklist, versioned persisted state, the shared gamification apply function, and the two-tier HTTP layer underneath."
 ---
 
 This document explains the state and data layer: where the slices live, what persists and what deliberately does not, how a check response fans out across the store, and how the HTTP client is structured so web and mobile share everything above the transport.
@@ -12,7 +12,7 @@ The slices live in the shared `packages/state`, and each app assembles its own s
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["17 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
+    SLICES["18 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
   end
 
   subgraph web["apps/web"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## The 17 slices
+## The 18 slices
 
 | Slice | Holds |
 |-------|-------|
@@ -38,10 +38,11 @@ flowchart LR
 | snapshot | Historical routine snapshots by date, plus the selected date |
 | celebration | A FIFO queue of pending celebrations (level-ups, streak milestones) |
 | viewFilters | The per-page sort choice, hydrated through a key whitelist |
+| focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths, and a per-item cache of the server's micro-tasks |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |
 
-The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps seventeen slices from stepping on each other in two apps.
+The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps eighteen slices from stepping on each other in two apps.
 
 Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, and the onboarding entity-creation helpers.
 
@@ -55,7 +56,9 @@ The web store persists to localStorage with a deliberate blacklist:
 | snapshot | Routine history is PII by accumulation |
 | celebration | Transient by definition: a queued level-up must not replay after a reload |
 
-Everything else (entity lists, edit drafts, sort preferences) persists, so a reload paints instantly from local data while fresh data loads behind it. The mobile app persists nothing: tokens live in the secure store, data refetches on mount, and its logout action resets every slice through the root reducer. On web, logout instead purges the persistor and hard-navigates, which discards the in-memory store wholesale.
+Everything else (entity lists, edit drafts, sort preferences) persists, so a reload paints instantly from local data while fresh data loads behind it.
+
+The focus slice persists on purpose, and it is the one slice that made persistence VERSIONED. A pomodoro is a promise about the next 25 minutes, so its absolute end time has to survive a reload; but redux-persist's default reconciler replaces a stored slice wholesale rather than merging it into the reducer's initial state, so every field added to a persisted slice is `undefined` in every browser holding the previous shape — and the first render reads it before any reducer can repair it. The web store therefore carries a `version` and a migration table (`persistMigrations.ts`): each bump drops the stored focus slice and lets the reducer supply the current shape. The rule that came out of it is written next to the table: a field added to a persisted slice needs a version bump AND a tolerant read, and a test that hands the reducer the OLD shape on purpose is what catches the one you forget. The mobile app persists nothing: tokens live in the secure store, data refetches on mount, and its logout action resets every slice through the root reducer. On web, logout instead purges the persistor and hard-navigates, which discards the in-memory store wholesale.
 
 ## The check response: applyRefreshUi
 

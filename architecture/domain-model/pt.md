@@ -1,6 +1,6 @@
 ---
 title: "Modelo de Domínio"
-summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, feedback e chats de IA construídas ao redor."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, feedback e chats de IA construídas ao redor."
 ---
 
 Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
@@ -9,7 +9,7 @@ Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações e
 
 ## O quadro geral
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam quatro famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, as threads de feedback e os chats do agente de IA.
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam cinco famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -289,6 +289,27 @@ A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabe
 
 O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada conta, então uma rotina é congelada na meia-noite daquele usuário, não na do servidor.
 
+## Histórico do Modo Foco
+
+**Papel no produto**: o Modo Foco é a tela que fica aberta enquanto a pessoa executa o dia, um item por vez, com um timer pomodoro e uma lista curta de coisas pequenas para fazer entre ciclos. O histórico dele responde a uma pergunta diferente da dos snapshots — não "o que eu fiz", mas "como eu executei".
+
+**FocusCycle** (tabela focus_cycles): uma linha por ciclo COMPLETO.
+
+- Uma linha por ciclo e não por sessão, e essa é a decisão que sustenta o resto. Uma sessão não tem fim confiável: o app pode ser morto, a aba fechada, o telefone pode morrer, e uma linha de "sessão aberta" precisaria de reconciliação para sempre por algo que tem de adivinhar. Um ciclo completo é um fato que nunca precisa ser fechado, e "quatro pomodoros hoje" é uma contagem de linhas.
+- Nada é escrito para um ciclo abandonado. A feature não tem estado de falha por desenho, então não há o que registrar.
+- `kind` é POMODORO, SHORT_BREAK ou LONG_BREAK, gravado como varchar espelhado por um CHECK (o padrão da V19/V25). `minutes` é limitado a 1..180 por um CHECK também, repetindo o clamp do cliente onde ele não pode ser contornado.
+- `item_group_id` é nulo permitido e `ON DELETE SET NULL`: um ciclo pode rodar sem nada selecionado, e apagar uma rotina não pode apagar o fato de que alguém focou 25 minutos naquela manhã.
+- `cycle_date` é o dia local do DONO, resolvido pelo fuso dele, como toda linha datada aqui.
+
+**FocusMicroTask** (tabela focus_micro_tasks): uma coisa pequena feita junto de um item da rotina, num dia.
+
+- Escopada a um ITEM da rotina (`item_group_id NOT NULL`, cascade na exclusão), não a uma sessão. Mudar de item não leva a lista junto.
+- `pinned` é uma flag de template. Selecionar outro item cria uma linha para aquele nome lá também, então um "alongar" fixado percorrido por quatro itens deixa quatro linhas, uma por item, cada uma marcável por conta própria. O conjunto de fixadas é derivado das próprias linhas do usuário com `pinned = true` — sem segunda tabela para manter em sincronia — e fixar é propriedade do NOME: fixe em qualquer lugar e está fixado em todos, desafixe em qualquer lugar e deixa de ser template em todos.
+- `UNIQUE (user, dia, item, nome)` é o que torna materializar um template idempotente: a leitura da lista de um item cria as linhas fixadas que faltam antes de responder, e a segunda leitura não cria nada.
+- `done_at` é timestamp e não booleano, então "feito" carrega o quando. Nulo é aberto.
+
+**Como chega ao snapshot**: a resposta do snapshot do dia junta as duas tabelas pelo `SnapshotCheck.originalGroupId`, então cada linha de check carrega as micro-tarefas criadas para aquele hábito ou tarefa e a contagem de pomodoros rodados nele. Duas leituras para o dia, juntadas em memória — nunca uma consulta por linha de check, que seria um N+1 do tamanho da rotina na tela de histórico.
+
 ## Feedback
 
 **Papel no produto**: usuários reportam bugs e pedem funcionalidades dentro do app; um admin lê, responde e acompanha o status.
@@ -410,6 +431,8 @@ flowchart LR
     entity_xp_day
     routine_snapshot
     snapshot_check
+    focus_cycles
+    focus_micro_tasks
   end
 
   subgraph support["Feedback & IA"]

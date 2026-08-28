@@ -125,7 +125,7 @@ sequenceDiagram
 
 ## API layer
 
-24 REST controllers organized by domain, all under `/api/v1`:
+25 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
@@ -133,6 +133,7 @@ sequenceDiagram
 | **Core entities** | Category, Habit, Task, Goal | /category, /habit, /task, /goal |
 | **Routines** | Routine, Schedule, Snapshot | /routine, /schedule, /routine/snapshot |
 | **History** | CheckHistory, XpHistory | /check-history, /xp |
+| **Focus Mode** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
 | **AI** | AiAgent, Onboarding | /ai/agent, /onboarding |
 | **Feedback** | Feedback, FeedbackAdmin | /feedback, /feedback/admin |

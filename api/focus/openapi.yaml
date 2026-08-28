@@ -1,0 +1,296 @@
+openapi: 3.1.0
+info:
+  title: Focus Mode
+  version: v0
+  description: |
+    The Focus Mode's history: completed timer cycles, and the micro-tasks done alongside
+    each routine item. Every route is authenticated by the default rule; writes fall under
+    the `write` rate-limit tier and reads under `read`.
+
+    Two shapes are worth knowing before calling anything here.
+
+    A cycle is written ONLY when it completes. There is no "start" call and no open-session
+    row: a sitting has no reliable end (the app can be killed, the tab closed), and a
+    completed cycle is a fact that never needs closing. An abandoned cycle is never reported —
+    the feature has no failure state, so there is nothing to record.
+
+    A micro-task belongs to one routine ITEM (an item group), on one day. `pinned` is a
+    template flag: the server creates a row for that name on every item the person moves to,
+    so a pinned "stretch" walked across four items leaves four rows, one per item, each
+    independently tickable. Pinning is a property of the NAME — pin it anywhere and it is
+    pinned everywhere, unpin it anywhere and it stops being a template everywhere.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /focus/cycles:
+    post:
+      tags:
+      - focus-controller
+      operationId: recordCycle
+      description: |
+        Report one completed cycle. The date is NOT in the body: the server files the cycle
+        under the owner's local day, resolved from their timezone, the same way every check
+        does, so a client with a wrong clock cannot put a cycle on the wrong day.
+        `itemGroupId` may be null for a cycle run with nothing selected.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCycleRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FocusCycleResponseDTO'
+        '400':
+          description: Ends before it starts, or minutes outside 1..180
+        '403':
+          description: The item group belongs to another user
+  /focus/day:
+    get:
+      tags:
+      - focus-controller
+      operationId: getFocusDay
+      description: |
+        Everything the Focus Mode wrote on one day. Read-only, and it materialises NOTHING: a
+        pinned template appears on an item only once the person actually arrived at that item,
+        so history must not invent rows.
+      parameters:
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FocusDayResponseDTO'
+  /focus/micro-tasks:
+    get:
+      tags:
+      - focus-controller
+      operationId: listMicroTasks
+      description: |
+        Today's list for one item. THIS READ IS ALSO A WRITE: before answering, the server
+        creates a row for every pinned name that has none for (today, this item). The moment
+        the person selects an item is exactly when its list should exist, and a separate
+        "materialise" call would be one more thing a client can forget. The unique constraint
+        on (user, day, item, name) is what makes repeating the read free.
+      parameters:
+      - name: itemGroupId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+    post:
+      tags:
+      - focus-controller
+      operationId: addMicroTask
+      description: |
+        A micro-task on one item, today. Idempotent on the name: asking twice for "stretch"
+        on the same item returns the existing row rather than a 500 from the unique
+        constraint, which is what lets a client retry a request whose response it lost.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMicroTaskRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created (or the existing row for that name)
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+  /focus/micro-tasks/{id}/toggle:
+    patch:
+      tags:
+      - focus-controller
+      operationId: toggleMicroTask
+      description: Ticked, or un-ticked. `doneAt` is a timestamp rather than a boolean; null is open.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+  /focus/micro-tasks/{id}/pin:
+    patch:
+      tags:
+      - focus-controller
+      operationId: pinMicroTask
+      description: |
+        Keep this NAME for next time, or stop keeping it. Applies to every row of the user's
+        that carries the name, on every item and every day, so the answer to "is this kept?"
+        cannot depend on which item you happen to be looking at.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: pinned
+        in: query
+        required: true
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+  /focus/micro-tasks/{id}:
+    delete:
+      tags:
+      - focus-controller
+      operationId: deleteMicroTask
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+components:
+  schemas:
+    RecordCycleRequestDTO:
+      required:
+      - endedAt
+      - kind
+      - minutes
+      - startedAt
+      type: object
+      properties:
+        itemGroupId:
+          type: string
+          format: uuid
+          description: Null for a cycle run with nothing selected
+        kind:
+          type: string
+          enum:
+          - POMODORO
+          - SHORT_BREAK
+          - LONG_BREAK
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        minutes:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 180
+          description: The clamp the clients already apply, restated where it cannot be bypassed
+    CreateMicroTaskRequestDTO:
+      required:
+      - itemGroupId
+      - name
+      type: object
+      properties:
+        itemGroupId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+        pinned:
+          type: boolean
+          description: Makes the NAME a template that materialises on every item the person moves to
+    FocusCycleResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          description: The user's local day, as resolved by the server
+        itemGroupId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - POMODORO
+          - SHORT_BREAK
+          - LONG_BREAK
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        minutes:
+          type: integer
+          format: int32
+    FocusMicroTaskResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        itemGroupId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pinned:
+          type: boolean
+        doneAt:
+          type: string
+          format: date-time
+          description: Null while open
+    FocusDayResponseDTO:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        cycles:
+          type: array
+          items:
+            $ref: '#/components/schemas/FocusCycleResponseDTO'
+        microTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/FocusMicroTaskResponseDTO'

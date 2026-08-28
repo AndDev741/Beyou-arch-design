@@ -1,6 +1,6 @@
 ---
 title: "Domain Model"
-summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, feedback, and AI chat families built around it."
+summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, feedback, and AI chat families built around it."
 ---
 
 This document covers every entity in the Beyou domain, explaining what each one does for the user and how it is structured in the database. The goal is a clear mental model of the data layer before reading or writing code.
@@ -9,7 +9,7 @@ One ground rule shapes everything here: the schema belongs to Flyway. Migrations
 
 ## The big picture
 
-Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit four supporting families: daily history rows, immutable routine snapshots, feedback threads, and the AI agent's chats.
+Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit five supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, feedback threads, and the AI agent's chats.
 
 ```mermaid
 flowchart TD
@@ -291,6 +291,27 @@ The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_
 
 The snapshot scheduler runs per timezone, using each account's own timezone column, so a routine is frozen at that user's midnight rather than the server's.
 
+## Focus Mode history
+
+**Product role**: the Focus Mode is the screen that stays open while the person executes the day, one item at a time, with a pomodoro timer and a short list of small things to do between cycles. Its history answers a different question from the snapshots — not "what did I do" but "how did I execute it".
+
+**FocusCycle** (table focus_cycles): one row per COMPLETED cycle.
+
+- One row per cycle rather than one per sitting, and that is the load-bearing decision. A sitting has no reliable end: the app can be killed, the tab closed, the phone can die, and an "open session" row would need reconciling forever by something that has to guess. A completed cycle is a fact that never needs closing, and "four pomodoros today" is a count over rows.
+- Nothing is written for an abandoned cycle. The feature has no failure state by design, so there is nothing to record.
+- `kind` is POMODORO, SHORT_BREAK or LONG_BREAK, stored as a varchar mirrored by a CHECK constraint (the V19/V25 pattern). `minutes` is bounded 1..180 by a CHECK too, restating the client's own clamp where it cannot be bypassed.
+- `item_group_id` is nullable and `ON DELETE SET NULL`: a cycle can run with nothing selected, and deleting a routine must not erase the fact that somebody focused for 25 minutes that morning.
+- `cycle_date` is the OWNER's local day, resolved from their timezone, like every other dated row here.
+
+**FocusMicroTask** (table focus_micro_tasks): a small thing done alongside one routine item, on one day.
+
+- Scoped to a routine ITEM (`item_group_id NOT NULL`, cascade on delete), not to a sitting. Changing item does not carry the list over.
+- `pinned` is a template flag. Selecting another item creates a row for that name there too, so a pinned "stretch" walked across four items leaves four rows, one per item, each independently tickable. The pinned set is derived from the user's own rows where `pinned = true` — no second table to keep in step — and pinning is a property of the NAME: pin it anywhere and it is pinned everywhere, unpin it anywhere and it stops being a template everywhere.
+- `UNIQUE (user, day, item, name)` is what makes materialising a template idempotent: the list read for an item creates the missing pinned rows first, and the second read creates nothing.
+- `done_at` is a timestamp rather than a boolean, so "done" carries when. Null is open.
+
+**How it reaches the snapshot**: the day's snapshot response joins both tables on `SnapshotCheck.originalGroupId`, so each check row carries the micro-tasks created for that habit or task and the count of pomodoros run on it. Two reads for the day, joined in memory — never one lookup per check row, which would be an N+1 sized by the routine on the history screen.
+
 ## Feedback
 
 **Product role**: users report bugs and ask for features inside the app; an admin reads, replies, and tracks status.
@@ -412,6 +433,8 @@ flowchart LR
     entity_xp_day
     routine_snapshot
     snapshot_check
+    focus_cycles
+    focus_micro_tasks
   end
 
   subgraph support["Feedback & AI"]

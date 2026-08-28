@@ -1,6 +1,6 @@
 ---
 title: "Redux e Arquitetura de Dados"
-summary: "Um pacote de estado dividido entre web e mobile: 17 slices, uma blacklist de persistência ciente de PII, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
+summary: "Um pacote de estado dividido entre web e mobile: 18 slices, uma blacklist de persistência ciente de PII, estado persistido versionado, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
 ---
 
 Este documento explica a camada de estado e dados: onde os slices vivem, o que persiste e o que deliberadamente não persiste, como a resposta de um check se espalha pela store e como o cliente HTTP é estruturado para web e mobile dividirem tudo acima do transporte.
@@ -12,7 +12,7 @@ Os slices vivem no pacote compartilhado `packages/state`, e cada app monta a pr�
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["17 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
+    SLICES["18 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
   end
 
   subgraph web["apps/web"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## Os 17 slices
+## Os 18 slices
 
 | Slice | Guarda |
 |-------|--------|
@@ -38,10 +38,11 @@ flowchart LR
 | snapshot | Snapshots históricos de rotina por data, mais a data selecionada |
 | celebration | Uma fila FIFO de celebrações pendentes (level-ups, marcos de streak) |
 | viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves |
+| focus | O Modo Foco: em que estado a tela está, o item selecionado e se a pessoa o escolheu à mão, o timer pomodoro como hora de fim absoluta mais as quatro durações editáveis, e um cache por item das micro-tarefas do servidor |
 | register | Um booleano para a tela de sucesso pós-cadastro |
 | errorHandler | Uma string global de erro |
 
-O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede dezessete slices de pisarem uns nos outros em dois apps.
+O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede dezoito slices de pisarem uns nos outros em dois apps.
 
 Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh e os helpers de criação de entidades do onboarding.
 
@@ -56,6 +57,8 @@ A store do web persiste em localStorage com uma blacklist deliberada:
 | celebration | Transitório por definição: um level-up na fila não pode tocar de novo depois de um reload |
 
 Todo o resto (listas de entidades, rascunhos de edição, preferências de ordenação) persiste, então um reload pinta na hora com dados locais enquanto dados frescos carregam por trás. O app mobile não persiste nada: tokens vivem no armazenamento seguro, dados rebuscam ao montar e o logout dele zera todos os slices pelo root reducer. No web, o logout purga o persistor e navega de forma dura, o que descarta a store em memória por inteiro.
+
+O slice focus persiste de propósito, e foi o slice que tornou a persistência VERSIONADA. Um pomodoro é uma promessa sobre os próximos 25 minutos, então a hora de fim absoluta dele tem de sobreviver a um reload; mas o reconciliador padrão do redux-persist substitui um slice guardado por inteiro em vez de fundi-lo com o estado inicial do reducer, então todo campo novo num slice persistido chega como `undefined` em todo browser que guardou a forma anterior — e o primeiro render lê antes que qualquer reducer possa consertar. A store do web por isso carrega uma `version` e uma tabela de migrações (`persistMigrations.ts`): cada bump descarta o slice focus guardado e deixa o reducer fornecer a forma atual. A regra que saiu disso está escrita ao lado da tabela: um campo adicionado a um slice persistido precisa de bump de versão E de leitura tolerante, e um teste que entrega ao reducer a forma ANTIGA de propósito é o que apanha o que você esqueceu.
 
 ## A resposta do check: applyRefreshUi
 
