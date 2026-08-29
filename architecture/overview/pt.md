@@ -125,7 +125,7 @@ sequenceDiagram
 
 ## Camada de API
 
-24 controllers REST organizados por domínio, todos sob `/api/v1`:
+25 controllers REST organizados por domínio, todos sob `/api/v1`:
 
 | Grupo | Controllers | Caminhos base |
 |-------|-------------|---------------|
@@ -133,6 +133,7 @@ sequenceDiagram
 | **Entidades principais** | Category, Habit, Task, Goal | /category, /habit, /task, /goal |
 | **Rotinas** | Routine, Schedule, Snapshot | /routine, /schedule, /routine/snapshot |
 | **Histórico** | CheckHistory, XpHistory | /check-history, /xp |
+| **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
 | **IA** | AiAgent, Onboarding | /ai/agent, /onboarding |
 | **Feedback** | Feedback, FeedbackAdmin | /feedback, /feedback/admin |

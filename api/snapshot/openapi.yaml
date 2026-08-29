@@ -250,6 +250,65 @@ components:
         xpGenerated:
           type: number
           format: double
+        microTasks:
+          type: array
+          description: |
+            The Focus Mode's micro-tasks done on this item that day, joined server-side on
+            originalGroupId. Absent from snapshots written before the Focus Mode existed.
+          items:
+            $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+        pomodoros:
+          type: integer
+          format: int32
+          description: Completed POMODORO cycles on this item that day. Breaks do not count.
+    FocusCycleResponseDTO:
+      type: object
+      description: A completed Focus Mode cycle. Defined in full in api/focus/openapi.yaml.
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        itemGroupId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - POMODORO
+          - SHORT_BREAK
+          - LONG_BREAK
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        minutes:
+          type: integer
+          format: int32
+    FocusMicroTaskResponseDTO:
+      type: object
+      description: One micro-task on one routine item. Defined in full in api/focus/openapi.yaml.
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        itemGroupId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pinned:
+          type: boolean
+        doneAt:
+          type: string
+          format: date-time
     SnapshotMonthResponseDTO:
       type: object
       properties:
@@ -282,3 +341,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SnapshotCheckResponseDTO'
+        focusCycles:
+          type: array
+          description: |
+            Every Focus Mode cycle of the day that ran on one of this routine's items, plus every
+            cycle that ran on no item at all — a pomodoro started with nothing selected still
+            happened that day and has nowhere else to appear. Absent from older snapshots.
+          items:
+            $ref: '#/components/schemas/FocusCycleResponseDTO'
