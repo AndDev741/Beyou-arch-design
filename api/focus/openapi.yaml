@@ -93,7 +93,10 @@ paths:
           format: uuid
       responses:
         '200':
-          description: OK
+          description: |
+            The item's list, in the order the person put it in. Rows written before ordering
+            existed all carry position 0, so creation time is the tiebreaker and an untouched list
+            still comes back in the order it was written.
           content:
             '*/*':
               schema:
@@ -169,6 +172,42 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+  /focus/micro-tasks/reorder:
+    patch:
+      tags:
+      - focus-controller
+      operationId: reorderMicroTasks
+      description: |
+        The item's list, in the order it should now be in.
+
+        Takes the WHOLE list rather than "move row X to position N". The client already holds what
+        it is showing, so the server never has to reconstruct it, and two tabs dragging at once end
+        on one of the two orders instead of an interleaving neither asked for.
+
+        Tolerant on purpose: ids belonging to another item are ignored, and rows the payload never
+        mentions keep their relative order after the ones it does. A list that grew elsewhere
+        between the read and the drop should not lose rows or turn a drag into an error.
+
+        Ordering is per (user, day, item). One item's positions say nothing about another's.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderMicroTasksRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: The list as the server settled it
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+        '400':
+          description: An empty id list, which is a client bug rather than a request to clear the order
+        '403':
+          description: The item group belongs to another user
   /focus/micro-tasks/{id}:
     delete:
       tags:
@@ -232,6 +271,22 @@ components:
         pinned:
           type: boolean
           description: Makes the NAME a template that materialises on every item the person moves to
+    ReorderMicroTasksRequestDTO:
+      required:
+      - ids
+      - itemGroupId
+      type: object
+      properties:
+        itemGroupId:
+          type: string
+          format: uuid
+        ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+          description: Every row of the item's list, in its new order
     FocusCycleResponseDTO:
       type: object
       properties:
