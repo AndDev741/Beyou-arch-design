@@ -47,9 +47,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/FocusCycleResponseDTO'
         '400':
-          description: Ends before it starts, or minutes outside 1..180
-        '403':
-          description: The item group belongs to another user
+          description: |
+            Ends before it starts, minutes outside 1..180 — or the item group belongs to another
+            user. Ownership refusals come back as 400 with the `ROUTINE_NOT_OWNED` error key, not
+            403: every `BusinessException` in this API maps to 400, and a client branching on the
+            status alone would mis-handle the refusal.
   /focus/day:
     get:
       tags:
@@ -84,6 +86,10 @@ paths:
         the person selects an item is exactly when its list should exist, and a separate
         "materialise" call would be one more thing a client can forget. The unique constraint
         on (user, day, item, name) is what makes repeating the read free.
+
+        Bounded: at most the 50 most recently pinned names are materialised per read. This runs
+        under the read tier and inserts rows, so the cap is what keeps a GET from writing without
+        limit.
       parameters:
       - name: itemGroupId
         in: query
@@ -124,6 +130,9 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+        '400':
+          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+
   /focus/micro-tasks/{id}/toggle:
     patch:
       tags:
@@ -144,6 +153,9 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+        '400':
+          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+
   /focus/micro-tasks/{id}/pin:
     patch:
       tags:
@@ -172,6 +184,9 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
+        '400':
+          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+
   /focus/micro-tasks/reorder:
     patch:
       tags:
@@ -206,13 +221,18 @@ paths:
                   $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
         '400':
           description: An empty id list, which is a client bug rather than a request to clear the order
-        '403':
-          description: The item group belongs to another user
+        '400':
+          description: The item group belongs to another user (`ROUTINE_NOT_OWNED`, as 400 — see /focus/cycles)
   /focus/micro-tasks/{id}:
     delete:
       tags:
       - focus-controller
       operationId: deleteMicroTask
+      description: |
+        Removes the row. If it was PINNED, the name stops being a template as well — otherwise the
+        next list read materialised it straight back, and the row vanished and reappeared with
+        nothing to explain why. Rows already created on other items stay; they only stop being
+        pinned.
       parameters:
       - name: id
         in: path
@@ -223,6 +243,9 @@ paths:
       responses:
         '204':
           description: No Content
+        '400':
+          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+
 components:
   schemas:
     RecordCycleRequestDTO:
