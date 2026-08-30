@@ -177,6 +177,22 @@ components:
           type: string
           maxLength: 200
           minLength: 0
+          description: >-
+            The app route the user is on when they send, so the agent can resolve
+            "create one" against the page they are looking at. The message always wins
+            over the page.
+        selectedItemGroupId:
+          type: string
+          maxLength: 64
+          minLength: 0
+          description: >-
+            The routine entry (habitGroup or taskGroup id) open in Focus Mode, so the
+            micro-task tools can resolve "add a step here". Send it only while the user
+            is actually on the focus screen: a selection they have left behind is not
+            what "here" means. Typed as a string rather than a uuid on purpose — it is a
+            convenience hint filled from whatever the client is rendering, and a message
+            must not fail to send because it was empty or stale. The server parses it and
+            drops anything that is not an id.
       required:
       - userInput
     ChatResponseDTO:
