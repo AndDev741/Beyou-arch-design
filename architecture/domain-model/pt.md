@@ -49,7 +49,7 @@ flowchart TD
 | name | String | |
 | email | String | Único |
 | password | String | Hash BCrypt |
-| isGoogleAccount | boolean | True para contas OAuth |
+| isGoogleAccount | boolean | True para contas OAuth. Significa Google especificamente, não federação em geral: uma conta criada por outro provedor tem isso false |
 | emailVerified | boolean | Contas novas confirmam por e-mail antes do primeiro login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | O estado de verificação vive como colunas aqui, sem entidade própria |
 | verificationTokenSentAt | Instant | Quando o último e-mail de verificação saiu, lido pelo cooldown do reenvio. Um Instant contra o LocalDateTime ao lado porque é comparado a um relógio e nunca exibido. Null significa nenhum e-mail registrado, que é como toda linha anterior à coluna se lê, e como fica uma linha cujo envio falhou |
@@ -310,6 +310,33 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - `order_index` é a posição na lista daquele item, escopada a (user, dia, item). Linhas escritas antes de existir ordenação carregam 0, e o `created_at` continua a ser o desempate na consulta, então uma lista que ninguém arrastou volta na ordem em que foi escrita. Reordenar envia a lista INTEIRA e não um movimento: o cliente já tem o que está a mostrar, e dois clientes a arrastar ao mesmo tempo caem numa das duas ordens em vez de um intercalado que nenhum pediu.
 
 **Como chega ao snapshot**: a resposta do snapshot do dia junta as duas tabelas pelo `SnapshotCheck.originalGroupId`, então cada linha de check carrega as micro-tarefas criadas para aquele hábito ou tarefa e a contagem de pomodoros rodados nele. Duas leituras para o dia, juntadas em memória — nunca uma consulta por linha de check, que seria um N+1 do tamanho da rotina na tela de histórico.
+
+## FederatedIdentity
+
+**Papel no produto**: uma identidade externa pela qual uma conta pode ser acessada, além
+da senha e do Google. Adicionada na V29.
+
+A identidade é o par `(issuer, subject)` e nada mais. Ambos vêm de um ID token verificado
+e nenhum deles pode ser reatribuído a outra pessoa por ninguém além daquele emissor. O
+endereço que o provedor afirmou fica como registro do que foi dito, nunca como forma de
+encontrar um usuário, porque um provedor que pudesse alcançar uma conta afirmando o
+endereço dela poderia alcançar todas as contas.
+
+**Campos principais**
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID | Gerado automaticamente |
+| user | User | ON DELETE CASCADE, para que a exclusão da conta nunca seja travada por um vínculo |
+| issuer | String | A claim `iss`, comparada byte a byte, nunca normalizada |
+| subject | String | A claim `sub`. UNIQUE em conjunto com issuer |
+| emailAtLink | String | O que o provedor afirmou no momento do vínculo. Registrado, nunca consultado |
+| createdAt | LocalDateTime | |
+| lastLoginAt | LocalDateTime | Atualizado a cada entrada por esta identidade |
+
+As linhas do Google aparecem preguiçosamente em vez de por migração em lote: o subject
+dele nunca foi guardado, então a linha é escrita no próximo login Google da conta. Veja o
+documento de segurança para a regra de resolução que essas linhas alimentam.
 
 ## Feedback
 

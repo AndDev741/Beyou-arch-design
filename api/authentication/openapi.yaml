@@ -184,8 +184,150 @@ paths:
               schema:
                 type: object
                 additionalProperties: {}
+  /auth/oidc/providers:
+    get:
+      tags:
+      - authentication-controller
+      operationId: oidcProviders
+      description: >-
+        The federated sign-in providers this deployment offers, for the login screen
+        to render. Public, because the login screen is. An empty list is the normal
+        answer when none is configured, and it is what makes the feature ship dark:
+        the client renders no button rather than a button that can only fail.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                          description: The value to use as {provider} in the paths below.
+                        displayName:
+                          type: string
+  /auth/oidc/{provider}:
+    post:
+      tags:
+      - authentication-controller
+      operationId: oidcLogin
+      description: >-
+        Signs in with a federated provider. The client sends the ID TOKEN it obtained
+        through Authorization Code + PKCE, never the authorization code: the
+        code_verifier never leaves the device that generated it, so sending the code
+        would mean sending the verifier with it.
+
+
+        Identity is the pair (iss, sub) from the verified token. The claimed e-mail
+        address is recorded and never used to decide which account is reached, so a
+        provider cannot enter an account by asserting the address on it.
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        description: A slug from /auth/oidc/providers. Anything else answers 404.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcLoginDTO'
+      responses:
+        '200':
+          description: Signed in. Same body as the Google endpoints.
+        '403':
+          description: >-
+            FEDERATED_LINK_REQUIRED. The token verified, but this identity may not
+            enter on its own: either the issuer is not trusted on addresses
+            (reason EMAIL_NOT_TRUSTED), or the address already belongs to an account
+            (reason ACCOUNT_EXISTS). Not a failure to retry. The client sends the user
+            to sign in the ordinary way and link the provider from settings.
+        '404':
+          description: No such provider is configured.
+  /auth/oidc/{provider}/mobile:
+    post:
+      tags:
+      - authentication-controller
+      operationId: oidcLoginMobile
+      description: >-
+        The same as /auth/oidc/{provider}, on the mobile contract: the access token
+        arrives in the X-Access-Token header and the refresh token in the body,
+        with no cookie.
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcLoginDTO'
+      responses:
+        '200':
+          description: Signed in.
+        '403':
+          description: FEDERATED_LINK_REQUIRED, as above.
+  /auth/oidc/{provider}/link:
+    post:
+      tags:
+      - authentication-controller
+      operationId: oidcLink
+      description: >-
+        Attaches a federated identity to the account making the request.
+
+
+        AUTHENTICATED, and deliberately the only way an identity reaches an account
+        that already exists. The session is the proof that whoever is adding a second
+        door to the account is already inside it. This is where a 403
+        FEDERATED_LINK_REQUIRED sends the user.
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcLoginDTO'
+      responses:
+        '200':
+          description: Linked. Idempotent when the same identity is already linked here.
+        '400':
+          description: >-
+            The identity belongs to another account, or this account already has a
+            link to that issuer.
 components:
   schemas:
+    OidcLoginDTO:
+      type: object
+      required:
+      - idToken
+      properties:
+        idToken:
+          type: string
+          description: >-
+            The raw ID token from the provider. The server verifies signature against
+            the provider's published JWKS, issuer, audience, azp and expiry before
+            reading a single claim from it.
+        timezone:
+          type: string
+          description: >-
+            The IANA zone the client detected. Claimed by the CLIENT, never by the
+            issuer, and applied only when an account is created.
     ForgotPasswordRequestDTO:
       type: object
       properties:
