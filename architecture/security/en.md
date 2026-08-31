@@ -55,6 +55,10 @@ flowchart LR
 | /auth/resend-verification | POST | No | Issue a new verification token and mail it; always the same 200 |
 | /auth/google | GET | No | Google OAuth code exchange (web) |
 | /auth/google/mobile | POST | No | Google ID-token verification (mobile) |
+| /auth/oidc/providers | GET | No | The federated providers configured; empty list when none |
+| /auth/oidc/{provider} | POST | No | Federated ID-token sign-in (web) |
+| /auth/oidc/{provider}/mobile | POST | No | Federated ID-token sign-in (mobile) |
+| /auth/oidc/{provider}/link | POST | **Yes** | Attach a federated identity to the account making the request |
 | /auth/refresh | POST | No | Rotate the refresh token, mint a new JWT |
 | /auth/logout | POST | No | Clear the cookie, revoke the token |
 | /auth/verify | GET | Yes | Session probe; returns "authenticated" |
@@ -107,6 +111,59 @@ Two separate paths, one per platform:
 Both paths find-or-create the user by e-mail. Google-created accounts get `isGoogleAccount=true`, a non-hash password marker, and skip e-mail verification (Google already did it).
 
 Both paths also refuse a matched account that is a password account with an unverified address, returning the same 403 EMAIL_NOT_VERIFIED that login does. Until that guard existed, `doLogin` was the only reader of `emailVerified` in the backend, so Google was a way around the gate — mildly, as an accidental cure for a lost verification mail, and seriously as this: anyone can register an address they do not own, and the unverified row they leave behind would swallow the real owner's Google sign-in with no click and no warning. The owner fills that row with their data, and if they ever follow the verification link that arrived when the squatter registered, the flag flips and the squatter's password opens the account. One rule now holds at every door, and it is recoverable rather than merely strict because the resend endpoint landed with it. A verified password account may still link Google freely.
+
+### Federated identity, beyond Google
+
+Google was the only external provider, and both of its paths find the account by
+**e-mail**. That is safe only while the single issuer actually proves ownership of the
+address it asserts. Add a second provider on the same rule and every beyou account
+becomes reachable by whoever operates that issuer: mint a token claiming the address,
+walk into the account, including accounts belonging to people who never heard of that
+provider.
+
+So identity moved to the pair the issuer alone controls and cannot reassign,
+`(issuer, subject)`, held in `federated_identities` (V29) under a UNIQUE constraint. The
+claimed address survives as `email_at_link`, a record of what was said, for support and
+audit. Nothing authenticates on it, and there is deliberately no repository method that
+finds a user by it.
+
+`FederatedIdentityService.resolve` is the only decision point, and every provider funnels
+through it:
+
+1. **Known `(iss, sub)`** - log in. The only lookup that authenticates anybody.
+2. **Address not trusted** - refuse with `LinkRequired(EMAIL_NOT_TRUSTED)`. Covers both a
+   provider we do not trust on this point (`trustEmailVerified: false`, the default) and a
+   token that admitted `email_verified: false`. Nothing is created, nothing is matched, and
+   the address is not even queried.
+3. **Address trusted and already in use** - refuse with `LinkRequired(ACCOUNT_EXISTS)`.
+   The account exists; joining a new door to it is a decision taken from inside, through
+   `POST /auth/oidc/{provider}/link`. **This is where the behaviour deliberately differs
+   from Google**, which does enter an existing account by address. The reason is blast
+   radius: a user who signed up with a password never agreed that a third party would be
+   able to open their account.
+4. **Address trusted and unknown** - create the account and the link together.
+
+`trustEmailVerified` is per provider and defaults to false. Turning it on is a statement
+about the operator of that issuer, not about their code: it says a `true` there means
+somebody proved they control the address, and that nobody can flip the column by hand.
+
+Token verification (`OidcIdTokenVerifier`) checks signature against the provider's
+published JWKS, then issuer, audience, `azp` and expiry. The algorithm is required to be
+RS256 **by name** rather than read from the header, which is what keeps `alg: none` out.
+The discovery document is discarded unless its own `issuer` equals the configured one:
+without that, redirecting our discovery fetch would let an attacker nominate the JWKS we
+verify against. Keys are cached per issuer, and an unknown `kid` triggers at most one
+refetch per minute, so rotation heals without a deploy and a probe cannot turn each login
+attempt into an outbound request.
+
+Google is **not** backfilled in a batch: its subject was never stored, so there is nothing
+to backfill from. `recordSeenIdentity` writes the row on the account's next Google
+sign-in, and failures there are swallowed - a login is not worth failing over bookkeeping,
+and the address path it falls back to stays correct for Google specifically.
+
+A provider absent from configuration does not exist: `/auth/oidc/providers` omits it and
+the login endpoints answer 404. That is the off switch, and it needs no code change.
+
 
 ## Tokens
 

@@ -49,7 +49,7 @@ flowchart TD
 | name | String | |
 | email | String | Unique |
 | password | String | BCrypt hash |
-| isGoogleAccount | boolean | True for OAuth users |
+| isGoogleAccount | boolean | True for OAuth users. Means Google specifically, not federation in general: an account created through another provider has this false |
 | emailVerified | boolean | New accounts confirm by e-mail before first login |
 | verificationToken / verificationTokenExpiry | String / LocalDateTime | Verification state lives as columns here, not in a separate entity |
 | verificationTokenSentAt | Instant | When the last verification mail went out, read by the resend cooldown. An Instant against the LocalDateTime beside it because it is compared to a clock and never displayed. Null means no mail on record, which is how every row predating the column reads, and how a row whose send failed is reset |
@@ -312,6 +312,33 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - `order_index` is the position in that item's list, scoped to (user, day, item). Rows written before ordering existed carry 0, and `created_at` stays the tiebreaker in the query, so a list nobody has dragged comes back in the order it was written. Reordering sends the WHOLE list rather than one move: the client already holds what it is showing, and two clients dragging at once then land on one of the two orders instead of an interleaving neither asked for.
 
 **How it reaches the snapshot**: the day's snapshot response joins both tables on `SnapshotCheck.originalGroupId`, so each check row carries the micro-tasks created for that habit or task and the count of pomodoros run on it. Two reads for the day, joined in memory — never one lookup per check row, which would be an N+1 sized by the routine on the history screen.
+
+## FederatedIdentity
+
+**Product role**: one external identity an account may be entered through, beyond the
+password and Google. Added in V29.
+
+Identity is the pair `(issuer, subject)` and nothing else. Both come from a verified ID
+token and neither can be reassigned to a different person by anyone but that issuer. The
+address the provider claimed is kept as a record of what was said, never as a way to find
+a user, because a provider that could reach an account by asserting its address could
+reach every account.
+
+**Key fields**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | Auto-generated |
+| user | User | ON DELETE CASCADE, so account deletion is never blocked by a link |
+| issuer | String | The `iss` claim, compared byte-for-byte, never normalised |
+| subject | String | The `sub` claim. UNIQUE together with issuer |
+| emailAtLink | String | What the provider claimed at link time. Recorded, never queried |
+| createdAt | LocalDateTime | |
+| lastLoginAt | LocalDateTime | Touched on every sign-in through this identity |
+
+Google rows appear lazily rather than by backfill: its subject was never stored, so the
+row is written on the account's next Google sign-in. See the security document for the
+resolution rule these rows feed.
 
 ## Feedback
 

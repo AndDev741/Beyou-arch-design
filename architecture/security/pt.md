@@ -55,14 +55,10 @@ flowchart LR
 | /auth/resend-verification | POST | Não | Emite um novo token de verificação e o envia por e-mail; sempre o mesmo 200 |
 | /auth/google | GET | Não | Troca de código do Google OAuth (web) |
 | /auth/google/mobile | POST | Não | Verificação de ID token do Google (mobile) |
-| /auth/refresh | POST | Não | Rotaciona o refresh token, emite novo JWT |
-| /auth/logout | POST | Não | Limpa o cookie, revoga o token |
-| /auth/verify | GET | Sim | Sonda de sessão; devolve "authenticated" |
-| /auth/forgot-password | POST | Não | Pede o e-mail de redefinição |
-| /auth/reset-password/validate | GET | Não | Pré-valida um token de reset |
-| /auth/reset-password | POST | Não | Define a nova senha |
-
-Todos os endpoints de auth sem autenticação dividem um mesmo balde de rate limit: 5 requisições por 15 minutos por IP.
+| /auth/oidc/providers | GET | Não | Os provedores federados configurados; lista vazia quando não há nenhum |
+| /auth/oidc/{provider} | POST | Não | Login federado por ID token (web) |
+| /auth/oidc/{provider}/mobile | POST | Não | Login federado por ID token (mobile) |
+| /auth/oidc/{provider}/link | POST | **Sim** | Liga uma identidade federada à conta que faz o pedido |
 
 ## Como o login funciona
 
@@ -107,6 +103,66 @@ Dois caminhos separados, um por plataforma:
 Os dois caminhos fazem find-or-create pelo e-mail. Contas criadas via Google ganham `isGoogleAccount=true`, um marcador de senha que não é hash e pulam a verificação de e-mail (o Google já a fez).
 
 Os dois caminhos também recusam uma conta encontrada que seja de senha e com endereço não verificado, devolvendo o mesmo 403 EMAIL_NOT_VERIFIED do login. Até essa guarda existir, o `doLogin` era o único lugar do backend que lia `emailVerified`, então o Google era um desvio do portão — de leve, como cura acidental de um e-mail de verificação perdido, e a sério assim: qualquer um cadastra um endereço que não é seu, e a linha não verificada que sobra engoliria o login Google do dono de verdade, sem clique e sem aviso. O dono enche aquela linha com seus dados, e se um dia seguir o link de verificação que chegou quando o invasor se cadastrou, a flag vira e a senha do invasor abre a conta. Agora uma regra só vale em todas as portas, e ela é recuperável em vez de apenas rígida porque o endpoint de reenvio chegou junto. Uma conta de senha já verificada continua podendo vincular o Google à vontade.
+
+### Identidade federada, além do Google
+
+O Google era o único provedor externo, e os dois caminhos dele encontram a conta por
+**e-mail**. Isso só é seguro enquanto o único emissor de facto prova a posse do endereço
+que afirma. Acrescente um segundo provedor com a mesma regra e toda conta do beyou passa a
+ser alcançável por quem operar aquele emissor: emitir um token afirmando o endereço e
+entrar na conta, inclusive contas de pessoas que nunca ouviram falar daquele provedor.
+
+Por isso a identidade passou para o par que só o emissor controla e não pode reatribuir,
+`(issuer, subject)`, guardado em `federated_identities` (V29) sob uma restrição UNIQUE. O
+endereço afirmado sobrevive como `email_at_link`, um registro do que foi dito, para suporte
+e auditoria. Nada se autentica nele, e não existe de propósito nenhum método de repositório
+que encontre um usuário por ele.
+
+`FederatedIdentityService.resolve` é o único ponto de decisão, e todo provedor passa por
+ele:
+
+1. **Par `(iss, sub)` conhecido** - entra. É a única busca que autentica alguém.
+2. **Endereço não confiável** - recusa com `LinkRequired(EMAIL_NOT_TRUSTED)`. Cobre tanto
+   um provedor em que não confiamos nesse ponto (`trustEmailVerified: false`, o padrão)
+   quanto um token que admitiu `email_verified: false`. Nada é criado, nada é casado, e o
+   endereço não é nem consultado.
+3. **Endereço confiável e já em uso** - recusa com `LinkRequired(ACCOUNT_EXISTS)`. A conta
+   existe; juntar uma porta nova a ela é decisão de quem já está dentro, por
+   `POST /auth/oidc/{provider}/link`. **Aqui o comportamento difere do Google de
+   propósito**: o Google entra numa conta existente pelo endereço. A razão é o raio de
+   alcance: quem se cadastrou com senha nunca concordou que um terceiro pudesse abrir a
+   conta dele.
+4. **Endereço confiável e desconhecido** - cria a conta e o vínculo juntos.
+
+`trustEmailVerified` é por provedor e o padrão é false. Ligá-lo é uma afirmação sobre o
+operador daquele emissor, não sobre o código dele: diz que um `true` ali significa que
+alguém provou controlar o endereço, e que ninguém vira a coluna à mão.
+
+A verificação do token (`OidcIdTokenVerifier`) checa assinatura contra o JWKS publicado
+pelo provedor, depois emissor, audience, `azp` e expiração. O algoritmo é exigido como
+RS256 **pelo nome** em vez de lido do cabeçalho, o que é o que mantém `alg: none` de fora.
+O documento de descoberta é descartado a menos que o `issuer` dele seja igual ao
+configurado: sem isso, redirecionar nossa busca de descoberta deixaria um atacante nomear
+o JWKS contra o qual verificamos. As chaves são cacheadas por emissor, e um `kid`
+desconhecido dispara no máximo uma rebusca por minuto, de modo que a rotação se cura sem
+deploy e uma sondagem não transforma cada tentativa de login numa requisição externa.
+
+O Google **não** é migrado em lote: o subject dele nunca foi guardado, então não há de
+onde migrar. `recordSeenIdentity` escreve a linha no próximo login Google da conta, e
+falhas ali são engolidas - um login não vale ser derrubado por escrituração, e o caminho
+por endereço para o qual ele recai continua correto para o Google especificamente.
+
+Um provedor ausente da configuração não existe: `/auth/oidc/providers` o omite e os
+endpoints de login respondem 404. É o interruptor, e não precisa de mudança de código.
+| /auth/refresh | POST | Não | Rotaciona o refresh token, emite novo JWT |
+| /auth/logout | POST | Não | Limpa o cookie, revoga o token |
+| /auth/verify | GET | Sim | Sonda de sessão; devolve "authenticated" |
+| /auth/forgot-password | POST | Não | Pede o e-mail de redefinição |
+| /auth/reset-password/validate | GET | Não | Pré-valida um token de reset |
+| /auth/reset-password | POST | Não | Define a nova senha |
+
+Todos os endpoints de auth sem autenticação dividem um mesmo balde de rate limit: 5 requisições por 15 minutos por IP.
+
 
 ## Tokens
 
