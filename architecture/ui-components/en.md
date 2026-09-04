@@ -13,7 +13,7 @@ flowchart TD
   APP --> PUB["Public routes<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
   APP --> PROT["ProtectedRoute (layout route)"]
   PROT --> SHELL["Shell, mounted once:<br/>Sidebar · BottomNav · AgentWidget"]
-  SHELL --> PAGES["/dashboard · /categories · /habits · /goals<br/>/tasks · /routines · /configuration · /feedback"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /configuration · /feedback"]
   PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
@@ -52,6 +52,12 @@ Forms resolve through zod schemas that live in the shared validation package, wr
 ## Dashboard and widgets
 
 The dashboard composes a profile card, shortcut links, today's routine with its check-in flow, a goals rail, and the configurable widget area.
+
+## Goals: the tree and the viewer
+
+The goals page groups sub-goals under their main goal by default, with a flat list one toggle away. A card with sub-goals carries a "n/m sub-goals" chip, a thin second bar for the children's mean progress, and a fold that lists them as compact rows with their own stepper; when every child is complete the card offers to complete the parent, because that is still the only thing that pays the parent's XP. Search and the deep link look through the hierarchy: a match on a sub-goal keeps its main goal on the page, dimmed when it only made it through the child. The form's "Main goal" picker is pre-filtered with the same rule the server enforces (not itself, not a descendant, three levels), and "Add sub-goal" on a card opens it with the parent, its categories and its deadline already filled in. Deleting a parent warns that the children become main goals.
+
+`/goals/view` is the same goal, one at a time: a `fixed inset-0` layer over the shell, like the Focus Mode, with Escape as the way out. Each slide gives the motivation the room the card never had, a large progress ring, the deadline as days left, the categories, the same stepper and Complete button as the card, the sub-goals as a list that jumps to their own slide, and a way back to the main goal. Ordering is by status by default (in progress, then not started, then completed), or by category, deadline, progress or name, persisted per device in `viewFilters.goalsViewer`; the arrows and the keyboard walk the same deck, and `?goal=` opens on a given slide. The mobile app has the same screen at the root of its router, outside the tab group, for the same reason the focus screen lives there: the bottom bar is a sibling of the screens, not an overlay, so a screen inside the group cannot hide it.
 
 Widget identity is shared state: the list of ids lives in the state package (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), and both apps read it. Four render full-width. A fabric component maps id to component, so adding a widget is one entry in the map plus one entry in the shared list.
 

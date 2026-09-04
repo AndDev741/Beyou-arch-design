@@ -72,7 +72,7 @@ erDiagram
 - **Category**: groups habits, tasks, and goals via ManyToMany. Has its own XP/level.
 - **Habit**: trackable behavior with importance, difficulty, motivational phrase, and XP/level progression.
 - **Task**: like a habit, but can be one-time (oneTimeTask) with soft-delete via markedToDelete.
-- **Goal**: target-based with currentValue / targetValue, status (active/completed/failed), and term (short/long/life).
+- **Goal**: target-based with currentValue / targetValue, a status (NOT_STARTED / IN_PROGRESS / COMPLETED) derived from progress and completion, a term (SHORT / MEDIUM / LONG), and an optional parent goal for nesting up to three levels.
 - **Routine**: abstract base with DiaryRoutine as the concrete type, and a routineType column choosing the shape. A DAILY routine holds sections with habit/task groups on a clock; a LIST one is a flat, ordered checklist with no sections and no times.
 - **Schedule**: days of the week linked to a routine.
 - **Checks**: daily check/skip records for habit and task groups inside routines, with XP generation tracking.

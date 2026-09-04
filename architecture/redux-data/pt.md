@@ -32,12 +32,12 @@ flowchart LR
 | Slice | Guarda |
 |-------|--------|
 | perfil | O usuário: nome, e-mail, foto, frase, XP/level, streaks e dormência, widgets, tema, idioma, timezone e sua origem, estratégia de decaimento de XP, flag do tutorial, checkRevision |
-| categories / habits / tasks / goals / routines | As listas de entidades, cada uma com sua action de entrada e actions de refresh dirigido onde os checks as atualizam no lugar |
+| categories / habits / tasks / goals / routines | As listas de entidades, cada uma com sua action de entrada e actions de refresh dirigido onde os checks as atualizam no lugar. A lista de metas vem plana do servidor; a árvore (`buildGoalTree`, `childrenSummary`, `eligibleParents`, `rootsForFilter`) e o baralho da vitrine (`orderGoalsForViewer`) derivam dela em funções puras partilhadas, para web e mobile mostrarem os mesmos números sem um segundo pedido |
 | editCategory / editHabit / editTask / editGoal / editRoutine | Rascunhos do modo de edição, populados campo a campo quando o botão de editar de um card é clicado |
 | todayRoutine | A rotina agendada de hoje, com refreshItemGroup aplicando o resultado de um check sem rebuscar |
 | snapshot | Snapshots históricos de rotina por data, mais a data selecionada |
 | celebration | Uma fila FIFO de celebrações pendentes (level-ups, marcos de streak) |
-| viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves |
+| viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves. Guarda também `goalsViewer`, a ordenação do ecrã de uma meta de cada vez, separada da ordenação da página de metas |
 | focus | O Modo Foco: em que estado a tela está, o item selecionado e se a pessoa o escolheu à mão, o timer pomodoro como hora de fim absoluta mais as quatro durações editáveis, e um cache por item das micro-tarefas do servidor |
 | register | Um booleano para a tela de sucesso pós-cadastro |
 | errorHandler | Uma string global de erro |

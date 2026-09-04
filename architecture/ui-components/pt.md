@@ -13,7 +13,7 @@ flowchart TD
   APP --> PUB["Rotas públicas<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
   APP --> PROT["ProtectedRoute (rota de layout)"]
   PROT --> SHELL["Shell, montado uma vez:<br/>Sidebar · BottomNav · AgentWidget"]
-  SHELL --> PAGES["/dashboard · /categories · /habits · /goals<br/>/tasks · /routines · /configuration · /feedback"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /configuration · /feedback"]
   PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
@@ -52,6 +52,12 @@ Os formulários validam por schemas zod que vivem no pacote compartilhado de val
 ## Dashboard e widgets
 
 O dashboard compõe um card de perfil, atalhos, a rotina de hoje com seu fluxo de check-in, um trilho de metas e a área configurável de widgets.
+
+## Metas: a árvore e a vitrine
+
+A página de metas agrupa as submetas debaixo da meta principal por defeito, com a lista plana a um toque de distância. Um card com submetas traz um chip "n/m submetas", uma segunda barra fina com a média do progresso das filhas e uma dobra que as lista como linhas compactas com o seu próprio stepper; quando todas as filhas estão concluídas o card oferece completar o pai, porque isso continua a ser a única coisa que paga o XP dele. A pesquisa e o deep link olham através da hierarquia: um acerto numa submeta mantém a meta principal na página, esbatida quando só passou por causa da filha. O seletor "Meta principal" do formulário é pré-filtrado com a mesma regra que o servidor impõe (não ela própria, não uma descendente, três níveis), e "Adicionar submeta" num card abre-o já com o pai, as categorias e o prazo dele preenchidos. Apagar um pai avisa que as filhas passam a metas principais.
+
+`/goals/view` é a mesma meta, uma de cada vez: uma camada `fixed inset-0` por cima do shell, como o Modo Foco, com Escape como saída. Cada slide dá à motivação o espaço que o card nunca teve, um anel de progresso grande, o prazo em dias restantes, as categorias, o mesmo stepper e botão Completar do card, as submetas como uma lista que salta para o slide delas, e um caminho de volta à meta principal. A ordenação é por status por defeito (em progresso, depois não iniciadas, depois concluídas), ou por categoria, prazo, progresso ou nome, guardada por dispositivo em `viewFilters.goalsViewer`; as setas e o teclado percorrem o mesmo baralho, e `?goal=` abre num slide dado. A app mobile tem o mesmo ecrã na raiz do router, fora do grupo de abas, pela mesma razão que o ecrã de foco vive lá: a barra inferior é irmã dos ecrãs, não uma sobreposição, e um ecrã dentro do grupo não a consegue esconder.
 
 A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada.
 
