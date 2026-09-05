@@ -92,7 +92,7 @@ Late checks never receive a streak bonus (the streak was already broken by the m
 
 ## Goals
 
-Goals pay once, through the explicit complete endpoint, calculated from target size, difficulty, urgency, and finishing before the deadline (the full factor table lives in the domain model topic). The reward goes to the user and the goal's categories; goals themselves have no level. Completing is a toggle: un-completing takes the XP back and returns the goal to in-progress. Progress updates pay nothing, which is what makes a fake pre-completed goal worthless.
+Goals pay once, through the explicit complete endpoint, calculated from target size, difficulty, urgency, and finishing before the deadline (the full factor table lives in the domain model topic). The reward goes to the user and the goal's categories; goals themselves have no level. Completing is a toggle: un-completing takes the XP back and returns the goal to in-progress. Progress updates pay nothing, which is what makes a fake pre-completed goal worthless. Nested goals keep the same rule at every level: a sub-goal pays when it is completed, its parent pays when it is completed, and there is no bonus for finishing a whole tree, for the same reason the pomodoro pays nothing on top of the check it wraps. The only thing a sub-goal does to its parent is start it: the first increment on a child moves a NOT_STARTED parent to IN_PROGRESS.
 
 ## The ledger
 

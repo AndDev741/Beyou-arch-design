@@ -142,10 +142,13 @@ flowchart TD
 | completeDate | LocalDate | |
 | status | GoalStatus enum | NOT_STARTED, IN_PROGRESS, COMPLETED (stored as strings) |
 | term | GoalTerm enum | SHORT_TERM, MEDIUM_TERM, LONG_TERM |
+| parentId | UUID, nullable | The goal this one sits under. Null for a top-level goal |
 
-**Relationships**: belongs to a User (ManyToOne); tagged by Categories (ManyToMany, owning side, join table goal_category).
+**Relationships**: belongs to a User (ManyToOne); tagged by Categories (ManyToMany, owning side, join table goal_category); optionally nested under another Goal (ManyToOne to itself, `parent_id`, lazy, with a read-only mirror column so the id reaches the response without touching the relation).
 
-**Invariant worth knowing**: constructing a goal with status COMPLETED silently downgrades it to IN_PROGRESS. Only the explicit complete endpoint pays XP, so nobody can post a pre-completed goal and farm a reward.
+**Nesting**: a goal may hang under another goal, three levels at most: a big goal, a medium one under it, a small one under that. The tree is a single nullable self-reference, not a second entity, because every read already loads all of a user's goals in one query and both clients assemble the tree from `parentId` in shared code. The rules live once, in `GoalService.resolveParent`, and the pickers on web and mobile only pre-filter what it would refuse: the parent must be the same user's (GOAL_NOT_OWNED), must not be the goal itself or a descendant (GOAL_PARENT_CYCLE), and the chain must fit in three levels counting both the ancestors above the new parent and the subtree already under the goal (GOAL_DEPTH_EXCEEDED). A parent is a normal goal with its own target, unit and XP; the sub-goal summary shown on cards is computed on the client. The one server-side link between levels: the first increment on a sub-goal moves a NOT_STARTED parent to IN_PROGRESS, the same way a goal's own first increment does.
+
+**Invariant worth knowing**: constructing a goal with status COMPLETED silently downgrades it to IN_PROGRESS. Only the explicit complete endpoint pays XP, so nobody can post a pre-completed goal and farm a reward. Nesting changes none of that: a parent pays its own XP on its own completion, whatever its children did.
 
 **XP calculation**: GoalXpCalculator multiplies four factors.
 
@@ -423,6 +426,7 @@ Understanding the cascades matters most at account deletion, which relies on the
 | Routine | Schedule | REMOVE | No. Unscheduling is explicit |
 | Habit | HabitGroups | ALL | No. Deleting a habit does not silently rewrite routines |
 | HabitGroup / TaskGroup | Checks | ALL | No. Check history is preserved |
+| Goal (DB level) | Sub-goals | ON DELETE SET NULL | Children are promoted to top level, never deleted with the parent. The UI says so before the delete |
 | RoutineSnapshot | SnapshotChecks | ALL | Yes |
 
 ## Database tables summary

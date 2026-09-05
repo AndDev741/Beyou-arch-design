@@ -32,12 +32,12 @@ flowchart LR
 | Slice | Holds |
 |-------|-------|
 | perfil | The user: name, e-mail, photo, phrase, XP/level, streaks and dormancy, widgets, theme, language, timezone and its source, XP decay strategy, tutorial flag, checkRevision |
-| categories / habits / tasks / goals / routines | The entity lists, each with its enter action and targeted refresh actions where checks update them in place |
+| categories / habits / tasks / goals / routines | The entity lists, each with its enter action and targeted refresh actions where checks update them in place. The goals list is flat on the wire; the tree (`buildGoalTree`, `childrenSummary`, `eligibleParents`, `rootsForFilter`) and the viewer's deck (`orderGoalsForViewer`) are derived from it in shared pure functions, so web and mobile show the same numbers without a second request |
 | editCategory / editHabit / editTask / editGoal / editRoutine | Edit-mode drafts, populated field by field when a card's edit button is clicked |
 | todayRoutine | Today's scheduled routine, with refreshItemGroup applying a check result without a refetch |
 | snapshot | Historical routine snapshots by date, plus the selected date |
 | celebration | A FIFO queue of pending celebrations (level-ups, streak milestones) |
-| viewFilters | The per-page sort choice, hydrated through a key whitelist |
+| viewFilters | The per-page sort choice, hydrated through a key whitelist. Also holds `goalsViewer`, the one-goal-at-a-time screen's ordering, kept apart from the goals page's sort |
 | focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths, and a per-item cache of the server's micro-tasks |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |

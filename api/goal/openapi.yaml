@@ -210,6 +210,17 @@ components:
           - SHORT_TERM
           - MEDIUM_TERM
           - LONG_TERM
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Optional parent goal, for nesting ("big goal > medium > small"). The server, not
+            the client, decides whether it is acceptable: the parent must belong to the same
+            user (GOAL_NOT_OWNED), must not be the goal itself or one of its descendants
+            (GOAL_PARENT_CYCLE), and the resulting chain may be at most three goals deep
+            counting ancestors above the parent and the subtree already hanging under the
+            goal (GOAL_DEPTH_EXCEEDED). Omit or send null for a top-level goal.
       required:
       - categoriesId
       - currentValue
@@ -274,6 +285,13 @@ components:
           - SHORT_TERM
           - MEDIUM_TERM
           - LONG_TERM
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The parent goal after the edit. Always send it: an absent or null value detaches the
+            goal to the top level. Same rules as on create (owner, cycle, three levels).
       required:
       - categoriesId
       - complete
@@ -338,6 +356,14 @@ components:
         completeDate:
           type: string
           format: date
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Id of the goal this one sits under, or null for a top-level goal. The response is
+            flat on purpose: clients rebuild the tree from this field over the full list that
+            GET /goal already returns, so no extra request is needed for children or summaries.
     RefreshItemCheckedDTO:
       type: object
       properties:

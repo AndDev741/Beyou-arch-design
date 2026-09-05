@@ -142,10 +142,13 @@ flowchart TD
 | completeDate | LocalDate | |
 | status | Enum GoalStatus | NOT_STARTED, IN_PROGRESS, COMPLETED (guardados como string) |
 | term | Enum GoalTerm | SHORT_TERM, MEDIUM_TERM, LONG_TERM |
+| parentId | UUID, anulável | A meta debaixo da qual esta fica. Nulo numa meta principal |
 
-**Relacionamentos**: pertence a um User (ManyToOne); marcada por Categories (ManyToMany, lado dono, join table goal_category).
+**Relacionamentos**: pertence a um User (ManyToOne); marcada por Categories (ManyToMany, lado dono, join table goal_category); opcionalmente aninhada debaixo de outra Goal (ManyToOne para si própria, `parent_id`, lazy, com uma coluna espelho só de leitura para o id chegar à resposta sem tocar na relação).
 
-**Invariante que vale conhecer**: construir uma meta com status COMPLETED a rebaixa silenciosamente para IN_PROGRESS. Só o endpoint explícito de conclusão paga XP, então ninguém consegue postar uma meta pré-completada para colher recompensa.
+**Aninhamento**: uma meta pode ficar debaixo de outra, no máximo três níveis: uma meta grande, uma média debaixo dela, uma pequena debaixo dessa. A árvore é uma única auto-referência anulável, não uma segunda entidade, porque toda leitura já carrega todas as metas do utilizador numa query e os dois clientes montam a árvore a partir de `parentId` em código partilhado. As regras vivem uma vez só, em `GoalService.resolveParent`, e os seletores da web e do mobile apenas pré-filtram o que ele recusaria: o pai tem de ser do mesmo utilizador (GOAL_NOT_OWNED), não pode ser a própria meta nem uma descendente (GOAL_PARENT_CYCLE), e a cadeia tem de caber em três níveis contando os antepassados acima do novo pai e a subárvore que já está debaixo da meta (GOAL_DEPTH_EXCEEDED). Um pai é uma meta normal, com alvo, unidade e XP próprios; o resumo de submetas que aparece nos cards é calculado no cliente. A única ligação entre níveis no servidor: o primeiro increment numa submeta move um pai NOT_STARTED para IN_PROGRESS, tal como o primeiro increment da própria meta faz.
+
+**Invariante que vale conhecer**: construir uma meta com status COMPLETED a rebaixa silenciosamente para IN_PROGRESS. Só o endpoint explícito de conclusão paga XP, então ninguém consegue postar uma meta pré-completada para colher recompensa. O aninhamento não muda nada disso: um pai paga o seu próprio XP na sua própria conclusão, façam os filhos o que fizerem.
 
 **Cálculo de XP**: o GoalXpCalculator multiplica quatro fatores.
 
@@ -421,6 +424,7 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | Routine | Schedule | REMOVE | Não. Desagendar é explícito |
 | Habit | HabitGroups | ALL | Não. Apagar um hábito não reescreve rotinas em silêncio |
 | HabitGroup / TaskGroup | Checks | ALL | Não. O histórico de checks é preservado |
+| Goal (nível de banco) | Submetas | ON DELETE SET NULL | As filhas sobem para o nível principal, nunca são apagadas com o pai. A UI avisa antes de apagar |
 | RoutineSnapshot | SnapshotChecks | ALL | Sim |
 
 ## Resumo das tabelas do banco

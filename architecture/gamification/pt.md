@@ -92,7 +92,7 @@ Checks atrasados nunca recebem bônus de streak (o streak já tinha quebrado na 
 
 ## Metas
 
-Metas pagam uma vez, pelo endpoint explícito de conclusão, calculadas por tamanho do alvo, dificuldade, urgência e terminar antes do prazo (a tabela completa de fatores vive no tópico do modelo de domínio). A recompensa vai para o usuário e as categorias da meta; metas não têm level próprio. Completar é um toggle: descompletar devolve o XP e retorna a meta a em-progresso. Atualizações de progresso não pagam nada, e é isso que torna uma meta falsa pré-completada inútil.
+Metas pagam uma vez, pelo endpoint explícito de conclusão, calculadas por tamanho do alvo, dificuldade, urgência e terminar antes do prazo (a tabela completa de fatores vive no tópico do modelo de domínio). A recompensa vai para o usuário e as categorias da meta; metas não têm level próprio. Completar é um toggle: descompletar devolve o XP e retorna a meta a em-progresso. Atualizações de progresso não pagam nada, e é isso que torna uma meta falsa pré-completada inútil. Metas aninhadas mantêm a mesma regra em cada nível: uma submeta paga quando é concluída, o pai paga quando é concluído, e não há bónus por fechar uma árvore inteira, pela mesma razão que o pomodoro não paga nada por cima do check que embrulha. A única coisa que uma submeta faz ao pai é começá-lo: o primeiro increment numa filha move um pai NOT_STARTED para IN_PROGRESS.
 
 ## O livro-razão
 
