@@ -316,6 +316,24 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 
 **How it reaches the snapshot**: the day's snapshot response joins both tables on `SnapshotCheck.originalGroupId`, so each check row carries the micro-tasks created for that habit or task and the count of pomodoros run on it. Two reads for the day, joined in memory — never one lookup per check row, which would be an N+1 sized by the routine on the history screen.
 
+## Mood entries and the journal
+
+**Product role**: how a day felt, and anything the person wanted to keep about it. It answers the question nothing else in the product does — the habits, goals and routines all record what was DONE, and none of them records how it went.
+
+**MoodEntry** (table mood_entries): one row per user per day, added in V31.
+
+- `UNIQUE (user_id, entry_date)` is the whole model. A day has one mood, so recording again is an update, and every reader — the week strip, the month calendar, the streak count — can trust that one date means one row.
+- Writes go through a native `INSERT ... ON CONFLICT DO UPDATE` rather than read-then-save. Two taps on the dashboard widget half a second apart both pass any check the application could make; the loser then hits the unique constraint INSIDE a transaction, which poisons it, so there is nothing left to retry with. Letting Postgres resolve the conflict removes the race instead of recovering from it.
+- **Two write verbs, and the difference is load-bearing.** `PUT /mood/{date}` replaces the entry including the note; `PATCH /mood/{date}` sets the level and has no field that could carry a note. The dashboard widget and the assistant use PATCH, so a client that has never loaded the day's writing is structurally unable to delete it. A single upsert route would have made losing a diary entry a one-tap accident: journal in the morning, tap a face at night, writing gone.
+- `mood` is an integer 1..5 with a CHECK mirroring the scale, not a varchar enum like V19 and V27. This one is genuinely ordinal — the week average is arithmetic on it — and the labels are translated in the clients. It is `integer` and not `smallint` because the entity field is an `Integer` and Hibernate's `ddl-auto: validate` refuses to boot on int2-against-INTEGER.
+- `note` is `text` with no length limit in the column. The 4000-character cap lives in the DTO, where exceeding it is a validation error the client can show rather than a truncation nobody can undo.
+- `entry_date` is the OWNER's local day, resolved through `UserDateResolver` before the write, like every other dated row here. Days after the owner's today are refused in the service with `MOOD_FUTURE_DATE`, so the calendar's disabled cells are a convenience rather than the enforcement. Past days stay editable.
+- `ON DELETE CASCADE`. A journal is not history worth keeping past the account that wrote it, and this is the most personal data the product stores.
+- **No XP and no link to the gamification tables.** Paying for a feeling turns the scale into something to farm, and a farmed scale describes nothing. The only streak shown is counted client-side from these rows.
+- Deliberately not cached, unlike the other domains. Every read is a date range, so a `@Cacheable` keyed on the user would serve one range's answer for another, and a composite key would need its own eviction path on every write.
+
+**Privacy**: the note is the one place in the product where somebody writes at length for themselves. It never reaches browser storage (the `mood` slice is on the web persist blacklist and mobile redux is in-memory); the account export carries every entry with the words intact; and the assistant's read tool returns dates, levels and whether a day has a note, never the note itself.
+
 ## FederatedIdentity
 
 **Product role**: one external identity an account may be entered through, beyond the

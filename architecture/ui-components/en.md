@@ -59,9 +59,30 @@ The goals page groups sub-goals under their main goal by default, with a flat li
 
 `/goals/view` is the same goal, one at a time: a `fixed inset-0` layer over the shell, like the Focus Mode, with Escape as the way out. Each slide gives the motivation the room the card never had, a large progress ring, the deadline as days left, the categories, the same stepper and Complete button as the card, the sub-goals as a list that jumps to their own slide, and a way back to the main goal. Ordering is by status by default (in progress, then not started, then completed), or by category, deadline, progress or name, persisted per device in `viewFilters.goalsViewer`; the arrows and the keyboard walk the same deck, and `?goal=` opens on a given slide. The mobile app has the same screen at the root of its router, outside the tab group, for the same reason the focus screen lives there: the bottom bar is a sibling of the screens, not an overlay, so a screen inside the group cannot hide it.
 
-Widget identity is shared state: the list of ids lives in the state package (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), and both apps read it. Four render full-width. A fabric component maps id to component, so adding a widget is one entry in the map plus one entry in the shared list.
+Widget identity is shared state: the list of ids lives in the state package (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), and both apps read it. Four render full-width. A fabric component maps id to component, so adding a widget is one entry in the map plus one entry in the shared list — and the mobile map is an exhaustive `Record<WidgetId, …>`, so a new id fails the mobile build until mobile implements it. That is deliberate: the alternative is a widget the two platforms disagree about.
+
+Most widgets are handed their data by the dashboard. Two fetch their own — the constance heatmap and the mood week — because both read a date range nothing else on the page needs, and both are optional, so a user without them should not pay for the request. A self-fetching widget owes the rail a stable height while it loads: `moodWeek` renders the week's shape with placeholder dots and a `data-loading` attribute rather than deciding between its two views, because deciding early painted a full week of blank days and then flipped, twice, for anyone who had not marked today.
 
 Selection lives in Configuration: a drag-to-reorder list that autosaves on every change, pushing the new order to the backend and Redux together, and rolling nothing into Redux when the server rejects. On phones the dashboard renders widgets in a snap-scroll carousel, one per screen, so adding widgets never pushes today's routine below the fold.
+
+## The diary
+
+`/mood` is an ordinary page inside the shell, and the only one whose content is something the
+person wrote rather than something the app recorded. Four blocks down the page: the day with its
+five faces, the journal box with a Save button, a month calendar with a coloured dot per recorded
+day, and the recent entries.
+
+Two details are load-bearing, and both are about not losing writing.
+
+The faces and the Save button send DIFFERENT requests. A face sends the level alone; Save sends
+the whole entry. That is why tapping a face on the dashboard widget cannot wipe the morning's
+journal — the request has no field for it — and it is enforced on the server too, not only here.
+
+The text area seeds from the stored entry, keyed on the day AND on the entry itself. Keyed on the
+day alone it seeded empty before the day's entry had arrived and never re-seeded, so a day with a
+journal showed blank and Save then cleared it: the same data loss the two-verb split exists to
+prevent, reintroduced one layer up. It also refuses to replace typed text with nothing, so a
+late-arriving empty entry cannot swallow what somebody is in the middle of writing.
 
 ## The tutorial, in two systems
 

@@ -314,6 +314,24 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 
 **Como chega ao snapshot**: a resposta do snapshot do dia junta as duas tabelas pelo `SnapshotCheck.originalGroupId`, então cada linha de check carrega as micro-tarefas criadas para aquele hábito ou tarefa e a contagem de pomodoros rodados nele. Duas leituras para o dia, juntadas em memória — nunca uma consulta por linha de check, que seria um N+1 do tamanho da rotina na tela de histórico.
 
+## Registos de humor e o diário
+
+**Papel no produto**: como correu um dia, e o que a pessoa quis guardar sobre ele. Responde à pergunta que mais nada no produto responde — hábitos, metas e rotinas registam o que foi FEITO, e nenhum regista como correu.
+
+**MoodEntry** (tabela mood_entries): uma linha por utilizador por dia, adicionada na V31.
+
+- `UNIQUE (user_id, entry_date)` é o modelo inteiro. Um dia tem um humor, então registar de novo é uma atualização, e todos os leitores — a faixa da semana, o calendário do mês, a contagem de dias seguidos — podem confiar que uma data significa uma linha.
+- As escritas passam por um `INSERT ... ON CONFLICT DO UPDATE` nativo, e não por ler-depois-gravar. Dois toques no widget do dashboard com meio segundo de intervalo passam ambos por qualquer verificação que a aplicação consiga fazer; o perdedor bate então na constraint única DENTRO de uma transação, o que a envenena, e não sobra nada para repetir. Deixar o Postgres resolver o conflito elimina a corrida em vez de a recuperar.
+- **Dois verbos de escrita, e a diferença é o que sustenta a feature.** `PUT /mood/{date}` substitui o registo, nota incluída; `PATCH /mood/{date}` define o nível e não tem campo nenhum onde uma nota caiba. O widget do dashboard e o assistente usam PATCH, por isso um cliente que nunca carregou o texto do dia é estruturalmente incapaz de o apagar. Uma rota única de upsert teria feito de perder o diário um acidente a um toque: escrever de manhã, tocar numa carinha à noite, texto perdido.
+- `mood` é um inteiro de 1 a 5 com um CHECK a espelhar a escala, e não um varchar de enum como na V19 e na V27. Este é genuinamente ordinal — a média da semana é aritmética sobre ele — e as etiquetas são traduzidas nos clientes. É `integer` e não `smallint` porque o campo da entidade é um `Integer` e o `ddl-auto: validate` do Hibernate recusa arrancar com int2 contra INTEGER.
+- `note` é `text`, sem limite de comprimento na coluna. O teto de 4000 caracteres vive no DTO, onde ultrapassá-lo é um erro de validação que o cliente mostra, em vez de um corte que ninguém desfaz.
+- `entry_date` é o dia local do DONO, resolvido pelo `UserDateResolver` antes da escrita, como toda linha datada aqui. Dias depois do hoje do dono são recusados no serviço com `MOOD_FUTURE_DATE`, por isso as células desativadas do calendário são uma conveniência e não a imposição. Dias passados continuam editáveis.
+- `ON DELETE CASCADE`. Um diário não é histórico que valha a pena guardar para além da conta que o escreveu, e este é o dado mais pessoal que o produto armazena.
+- **Sem XP e sem ligação às tabelas de gamificação.** Pagar por um sentimento transforma a escala em algo para farmar, e uma escala farmada não descreve nada. A única contagem de dias seguidos mostrada é calculada no cliente a partir destas linhas.
+- Deliberadamente sem cache, ao contrário dos outros domínios. Toda leitura é um intervalo de datas, então um `@Cacheable` com chave no utilizador serviria a resposta de um intervalo para outro, e uma chave composta precisaria do seu próprio caminho de invalidação a cada escrita.
+
+**Privacidade**: a nota é o único sítio do produto onde alguém escreve longamente para si próprio. Nunca chega ao armazenamento do navegador (a slice `mood` está na blacklist do persist na web e o redux do mobile é só em memória); a exportação da conta leva cada registo com as palavras intactas; e a ferramenta de leitura do assistente devolve datas, níveis e se um dia tem nota, nunca a nota.
+
 ## FederatedIdentity
 
 **Papel no produto**: uma identidade externa pela qual uma conta pode ser acessada, além

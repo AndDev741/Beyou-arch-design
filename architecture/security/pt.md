@@ -230,7 +230,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 | write | qualquer outro POST/PUT/DELETE | 30 / min | usuário |
 | read | qualquer outro GET | 60 / min | usuário |
 
-O export fica acima da faixa de leitura genérica por um motivo que vale registrar: é um GET, mas devolve a conta inteira em uma resposta — cada categoria, hábito, tarefa, meta, rotina, conversa de feedback e conversa com o assistente, montadas em memória e serializadas de uma vez. Sessenta por minuto disso é um jeito de segurar a heap, e ninguém que está levando os próprios dados precisa de uma sexta cópia dentro da hora.
+O export fica acima da faixa de leitura genérica por um motivo que vale registrar: é um GET, mas devolve a conta inteira em uma resposta — cada categoria, hábito, tarefa, meta, rotina, registo de humor, conversa de feedback e conversa com o assistente, montadas em memória e serializadas de uma vez. Sessenta por minuto disso é um jeito de segurar a heap, e ninguém que está levando os próprios dados precisa de uma sexta cópia dentro da hora.
 
 Rejeições respondem 429 com header `Retry-After`; sucessos carregam `X-Rate-Limit-Remaining`. Os dois estão citados no `Access-Control-Expose-Headers`, sem o que nenhum navegador consegue ler nenhum deles: nenhum está na safelist do CORS, então a espera ia no fio e era inalcançável para o cliente web.
 
@@ -253,8 +253,31 @@ Excluir a conta é a única ação onde uma sessão logada deliberadamente não 
 1. `POST /user/deletion/code` envia por e-mail um código de seis dígitos. Hash BCrypt em repouso, TTL de 15 minutos, cooldown de 60 segundos entre pedidos, e cada código novo invalida os anteriores.
 2. `POST /user/deletion/confirm` checa, nesta ordem: já usado, expirado, tentativas demais (5) e então a comparação do hash. O contador de tentativas incrementa na própria transação REQUIRES_NEW, porque a exceção que segue um palpite errado desfaz a transação externa, e contar inline deixaria o teto inalcançável.
 3. Gastar o código apaga sua linha na mesma transação, o que dobra como lock: um segundo confirm em corrida bloqueia, perde e recebe um erro chaveado.
-4. A exclusão em si remove refresh tokens e tokens de reset explicitamente, as seis coleções possuídas pelo cascade do JPA (categorias, hábitos, tarefas, metas, rotinas, snapshots), os chats com a memória de IA, e as linhas de histórico por cascades no nível do banco. Os arquivos em disco são purgados depois do commit, em melhor esforço: os anexos de feedback e a foto de perfil. A foto passou batido no começo, porque as linhas do banco cascateiam e os bytes em disco não, então o JPEG sobrevivia à conta com um nome de arquivo que ainda era o id do usuário apagado.
+4. A exclusão em si remove refresh tokens e tokens de reset explicitamente, as seis coleções possuídas pelo cascade do JPA (categorias, hábitos, tarefas, metas, rotinas, snapshots), os chats com a memória de IA, as linhas de histórico por cascades no nível do banco, e os registos de humor com o texto do diário dentro, também por cascade do banco. Os arquivos em disco são purgados depois do commit, em melhor esforço: os anexos de feedback e a foto de perfil. A foto passou batido no começo, porque as linhas do banco cascateiam e os bytes em disco não, então o JPEG sobrevivia à conta com um nome de arquivo que ainda era o id do usuário apagado.
 5. O cookie de refresh só é limpo após o sucesso, então um código recusado deixa a sessão intacta.
+
+## O diário, e o que se faz com ele
+
+O diário é o único sítio do produto onde alguém escreve longamente, para si próprio, sobre a
+própria vida. Fica guardado como texto simples numa linha que lhe pertence — não há cifragem em
+repouso além da que a base de dados e o disco dão, e dizer o contrário seria pior do que dizer
+isto. O cuidado está à volta:
+
+- **Nunca chega ao armazenamento do navegador.** A slice `mood` está na blacklist do persist na
+  web, e o redux do mobile é só em memória. Uma aba fechada não deixa nada para trás. Um teste lê
+  a blacklist a partir do ficheiro-fonte, porque a falha é silenciosa: tudo funciona, e o diário
+  fica simplesmente no localStorage.
+- **O assistente não o consegue ler.** A ferramenta de histórico devolve datas, níveis e se um dia
+  tem nota. Não existe ferramenta que devolva as palavras, por isso nenhum turno as pode colocar
+  num prompt destinado a um fornecedor externo. Se a pessoa quiser falar de um dia, cola o texto.
+- **Uma mudança de humor a um toque não o apaga.** A rota que o widget do dashboard usa não tem
+  campo nenhum onde uma nota caiba; só o botão Salvar da página do diário envia o verbo que
+  substitui uma.
+- **A exportação leva-o por inteiro**, palavras incluídas. Uma exportação que resumisse o diário
+  de alguém não seria uma exportação, e a exclusão leva-o, por isso o ficheiro é a única cópia com
+  que a pessoa sai.
+- Nada disto vai para os logs. O `ServiceMethodsLogging` regista contagens de argumentos, nunca
+  valores.
 
 ## Posse: o modelo de autorização
 

@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: Mood and journaling
+  version: v0
+  description: |
+    Daily mood and journaling. One entry per user per day, carrying a level from 1 (awful)
+    to 5 (great) and an optional free-text note. Every route is authenticated by the default
+    rule; writes fall under the `write` rate-limit tier and the read under `read`.
+
+    The day is the resource, so `/mood/2026-09-06` addresses one entry and writing to it
+    twice leaves one row. What matters before calling anything here is WHICH write verb to
+    use, because the two are not interchangeable.
+
+    `PUT` replaces the day's entry, note included. A body with no note clears the note. That
+    is correct for a Save button whose text area on screen is the day's final text, and wrong
+    for anything else.
+
+    `PATCH` sets only the level and has no field that could carry a note. Any client that has
+    not loaded the day's writing — the dashboard widget, the assistant — uses this one, so it
+    is structurally unable to erase a journal entry somebody wrote that morning.
+
+    The day always comes from the account's own timezone, never the client's clock, and days
+    after the owner's today are refused with `MOOD_FUTURE_DATE`. Past days are editable.
+
+    There is no single-day GET. A day with no entry is an ordinary state rather than an
+    error, so `GET /mood?from=X&to=X` asks the same question and answers with an empty list.
+    The window may not exceed 92 days.
+
+    Nothing here awards XP. Paying for a feeling turns the scale into something to farm and
+    the data stops describing anything; the streak the clients show is counted from these
+    rows in the client.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /mood:
+    get:
+      tags:
+      - mood-controller
+      operationId: getRange
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: First day, inclusive, as yyyy-MM-dd. Defaults to `to` minus six days.
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Last day, inclusive. Defaults to the caller's today, resolved in their own timezone.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MoodEntryResponseDTO'
+      summary: The entries in a window of days, newest first
+      description: |
+        Both bounds are optional. With neither, the answer is the week ending on the caller's own
+        today, which is what the dashboard widget draws. The window may not exceed 92 days; a wider
+        one is refused rather than silently trimmed, so a client can never draw a range it did not
+        get. A day with no entry is simply absent from the list.
+  /mood/{date}:
+    put:
+      tags:
+      - mood-controller
+      operationId: upsert
+      parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+        description: The day, as yyyy-MM-dd, interpreted in the account's own timezone. Days after the
+          caller's today are refused with MOOD_FUTURE_DATE; past days are editable.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertMoodEntryDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/MoodEntryResponseDTO'
+      summary: Replace the day's entry, note included
+      description: |
+        The body describes the day's FINAL state, so a request with no note clears whatever was
+        written. Use this only where the text on screen really is the day's text — the diary page's
+        Save button. To change the level alone, use PATCH, which cannot touch the note.
+
+        Idempotent: sending the same body twice leaves one row.
+    delete:
+      tags:
+      - mood-controller
+      operationId: delete
+      parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+        description: The day, as yyyy-MM-dd, interpreted in the account's own timezone. Days after the
+          caller's today are refused with MOOD_FUTURE_DATE; past days are editable.
+      responses:
+        '200':
+          description: OK
+      summary: Remove the day's entry
+      description: |
+        Takes the level and the note together. A day that was never recorded answers
+        `MOOD_NOT_FOUND`, so a stale screen is told rather than silently succeeding.
+    patch:
+      tags:
+      - mood-controller
+      operationId: setLevel
+      parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+        description: The day, as yyyy-MM-dd, interpreted in the account's own timezone. Days after the
+          caller's today are refused with MOOD_FUTURE_DATE; past days are editable.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMoodLevelDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/MoodEntryResponseDTO'
+      summary: Set the day's level, leaving any note untouched
+      description: |
+        The one-tap path, and the only write a client should use when it has not loaded the day's
+        note. There is no field here that could carry one, so no request shaped like this can delete
+        somebody's journal entry.
+
+        Creates the entry when the day has none, so a single tap is a complete interaction.
+components:
+  schemas:
+    MoodEntryResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          description: The user's own day, as the server resolved it.
+        mood:
+          type: integer
+          format: int32
+          description: 1 (awful) to 5 (great).
+        note:
+          type: string
+          description: The journal. Null when the day has a level and nothing written.
+        updatedAt:
+          type: string
+          format: date-time
+      description: 'One day''s entry. No user id: every route is scoped to the caller.'
+    SetMoodLevelDTO:
+      type: object
+      properties:
+        mood:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+          description: 1 (awful) to 5 (great). Anything outside the scale is refused.
+      required:
+      - mood
+      description: Just the level. Deliberately has no note field — see PATCH.
+    UpsertMoodEntryDTO:
+      type: object
+      properties:
+        mood:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+          description: 1 (awful) to 5 (great).
+        note:
+          type: string
+          maxLength: 4000
+          minLength: 0
+          description: Up to 4000 characters. Null or absent clears whatever was written.
+      required:
+      - mood
+      description: The day's full state. A null note clears the note.
