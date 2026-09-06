@@ -13,7 +13,7 @@ One static calculator produces every earned XP amount:
 xp = round( 5 × (difficulty + importance) × (1 + min(streak × 1%, 50%)) )
 ```
 
-Difficulty and importance are clamped to 1 through 5, so the base range is 10 to 50, and the streak bonus (one percent per consecutive day, capped at fifty percent after day 50) stretches the ceiling to 75. The streak used is the one standing before today's check, so a check never feeds its own multiplier. An earlier formula multiplied difficulty by importance and swung 10 to 250; the additive version keeps a hard habit worth five times a trivial one instead of twenty-five.
+Difficulty and importance are clamped to 1 through 5 (a task may leave either unset; a missing value counts as 1), so the base range is 10 to 50, and the streak bonus (one percent per consecutive day, capped at fifty percent after day 50) stretches the ceiling to 75. The streak used is the one standing before today's check, so a check never feeds its own multiplier. An earlier formula multiplied difficulty by importance and swung 10 to 250; the additive version keeps a hard habit worth five times a trivial one instead of twenty-five.
 
 The amount fans out whole, not split:
 

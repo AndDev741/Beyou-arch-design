@@ -13,7 +13,7 @@ Um único calculador estático produz todo XP ganho:
 xp = round( 5 × (dificuldade + importância) × (1 + min(streak × 1%, 50%)) )
 ```
 
-Dificuldade e importância são presas entre 1 e 5, então a faixa base é 10 a 50, e o bônus de streak (um por cento por dia consecutivo, com teto de cinquenta por cento no dia 50) estica o máximo até 75. O streak usado é o que estava de pé antes do check de hoje, então um check nunca alimenta o próprio multiplicador. Uma fórmula anterior multiplicava dificuldade por importância e oscilava de 10 a 250; a versão aditiva mantém um hábito difícil valendo cinco vezes um trivial, em vez de vinte e cinco.
+Dificuldade e importância são presas entre 1 e 5 (uma tarefa pode deixar qualquer das duas em branco; um valor ausente conta como 1), então a faixa base é 10 a 50, e o bônus de streak (um por cento por dia consecutivo, com teto de cinquenta por cento no dia 50) estica o máximo até 75. O streak usado é o que estava de pé antes do check de hoje, então um check nunca alimenta o próprio multiplicador. Uma fórmula anterior multiplicava dificuldade por importância e oscilava de 10 a 250; a versão aditiva mantém um hábito difícil valendo cinco vezes um trivial, em vez de vinte e cinco.
 
 O valor se espalha inteiro, sem divisão:
 
