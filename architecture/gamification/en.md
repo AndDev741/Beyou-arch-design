@@ -105,3 +105,5 @@ The frontends detect moments by comparison, not by backend flags: a check respon
 ## What deliberately does not exist
 
 No daily completion bonus, no routine-completion payout, no weekly recap XP. The four XP paths (habit check, task check, snapshot check, goal completion) and their four reversals are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
+
+Recording a mood earns nothing either, and that one is a product decision rather than an omission. Paying for a feeling turns a five-point scale into something to farm, and a farmed scale stops describing anything — which would cost the diary the only thing it is for. The days-in-a-row count the diary shows is derived in the client from the entries themselves; it is not a streak in this system, feeds no multiplier, and nothing pays it out.

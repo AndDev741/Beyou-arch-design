@@ -59,9 +59,32 @@ A página de metas agrupa as submetas debaixo da meta principal por defeito, com
 
 `/goals/view` é a mesma meta, uma de cada vez: uma camada `fixed inset-0` por cima do shell, como o Modo Foco, com Escape como saída. Cada slide dá à motivação o espaço que o card nunca teve, um anel de progresso grande, o prazo em dias restantes, as categorias, o mesmo stepper e botão Completar do card, as submetas como uma lista que salta para o slide delas, e um caminho de volta à meta principal. A ordenação é por status por defeito (em progresso, depois não iniciadas, depois concluídas), ou por categoria, prazo, progresso ou nome, guardada por dispositivo em `viewFilters.goalsViewer`; as setas e o teclado percorrem o mesmo baralho, e `?goal=` abre num slide dado. A app mobile tem o mesmo ecrã na raiz do router, fora do grupo de abas, pela mesma razão que o ecrã de foco vive lá: a barra inferior é irmã dos ecrãs, não uma sobreposição, e um ecrã dentro do grupo não a consegue esconder.
 
-A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada.
+A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada — e o mapa do mobile é um `Record<WidgetId, …>` exaustivo, então um id novo quebra o build do mobile até o mobile o implementar. Isso é de propósito: a alternativa é um widget sobre o qual as duas plataformas discordam.
+
+A maioria dos widgets recebe os dados do dashboard. Dois buscam os próprios — o heatmap de constância e a semana de humor — porque ambos leem um intervalo de datas que mais nada na página precisa, e ambos são opcionais, então quem não os usa não deve pagar o pedido. Um widget que busca sozinho deve à coluna uma altura estável enquanto carrega: o `moodWeek` desenha a forma da semana com pontos de espera e um atributo `data-loading` em vez de escolher entre as suas duas vistas, porque escolher cedo pintava uma semana inteira de dias vazios e depois saltava, duas vezes, para quem ainda não tinha marcado o dia.
 
 A seleção mora na Configuração: uma lista com arrastar-para-reordenar que salva sozinha a cada mudança, empurrando a nova ordem para o backend e o Redux juntos, e sem gravar nada no Redux quando o servidor recusa. No celular, o dashboard renderiza os widgets em um carrossel de snap-scroll, um por tela, para widgets novos nunca empurrarem a rotina de hoje para baixo da dobra.
+
+## O diário
+
+A `/mood` é uma página comum dentro do shell, e a única cujo conteúdo é algo que a pessoa
+escreveu em vez de algo que o app registou. Quatro blocos de cima para baixo: o dia com as suas
+cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com um ponto colorido
+por dia registado, e os registos recentes.
+
+Dois detalhes sustentam o resto, e os dois são sobre não perder texto.
+
+As carinhas e o botão Salvar enviam pedidos DIFERENTES. Uma carinha envia só o nível; o Salvar
+envia o registo inteiro. É por isso que tocar numa carinha no widget do dashboard não apaga o
+diário da manhã — o pedido não tem campo para ele — e isso é imposto também no servidor, não só
+aqui.
+
+A caixa de texto é semeada a partir do registo guardado, com chave no dia E no próprio registo.
+Com chave só no dia, semeava vazia antes de o registo do dia chegar e nunca voltava a semear, por
+isso um dia com diário aparecia em branco e o Salvar apagava-o a seguir: a mesma perda de dados
+que a separação em dois verbos existe para evitar, reintroduzida uma camada acima. Também recusa
+substituir texto já escrito por nada, para que um registo vazio a chegar tarde não engula o que
+alguém está a escrever.
 
 ## O tutorial, em dois sistemas
 
