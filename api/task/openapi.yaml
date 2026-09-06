@@ -107,11 +107,15 @@ components:
           format: int32
           maximum: 5
           minimum: 1
+          description: Optional. 1 to 5 when sent; omit or send null to leave the
+            task without an importance. Missing values count as 1 for XP.
         difficulty:
           type: integer
           format: int32
           maximum: 5
           minimum: 1
+          description: Optional, same contract as importance. Missing values count
+            as 1 for XP.
         categoriesId:
           type: array
           items:
@@ -120,9 +124,7 @@ components:
         oneTimeTask:
           type: boolean
       required:
-      - difficulty
       - iconId
-      - importance
       - name
     EditTaskRequestDTO:
       type: object
@@ -143,11 +145,15 @@ components:
           format: int32
           maximum: 5
           minimum: 1
+          description: Optional. 1 to 5 when sent; omit or send null to leave the
+            task without an importance. Missing values count as 1 for XP.
         difficulty:
           type: integer
           format: int32
           maximum: 5
           minimum: 1
+          description: Optional, same contract as importance. Missing values count
+            as 1 for XP.
         categoriesId:
           type: array
           items:
@@ -155,9 +161,6 @@ components:
             format: uuid
         oneTimeTask:
           type: boolean
-      required:
-      - difficulty
-      - importance
     TaskResponseDTO:
       type: object
       properties:
@@ -173,9 +176,13 @@ components:
         importance:
           type: integer
           format: int32
+          nullable: true
+          description: Null when the user chose nothing.
         difficulty:
           type: integer
           format: int32
+          nullable: true
+          description: Null when the user chose nothing.
         categories:
           type: object
           additionalProperties:

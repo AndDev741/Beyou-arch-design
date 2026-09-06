@@ -116,7 +116,7 @@ flowchart TD
 | Field | Type | Notes |
 |-------|------|-------|
 | name / description / iconId | String | |
-| importance / dificulty | Integer | 1 to 4, same spelling as Habit |
+| importance / dificulty | Integer, nullable | Optional, unlike on a Habit: 1 to 5 when set, null when the user chose nothing. A missing value counts as 1 in the check XP formula. Same misspelling as Habit on the column; the wire accepts both spellings |
 | oneTimeTask | boolean | True for non-recurring tasks |
 | markedToDelete | LocalDate | Set on completion of one-time tasks; TaskCleanupScheduler collects them |
 

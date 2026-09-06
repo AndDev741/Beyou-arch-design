@@ -116,7 +116,7 @@ flowchart TD
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | name / description / iconId | String | |
-| importance / dificulty | Integer | 1 a 4, mesma grafia do Habit |
+| importance / dificulty | Integer, anulável | Opcionais, ao contrário do Habit: 1 a 5 quando escolhidos, null quando o usuário não escolheu nada. Um valor ausente conta como 1 na fórmula de XP do check. Mesma grafia errada do Habit na coluna; a rede aceita as duas grafias |
 | oneTimeTask | boolean | True para tarefas não recorrentes |
 | markedToDelete | LocalDate | Definido ao completar tarefas únicas; o TaskCleanupScheduler as recolhe |
 
