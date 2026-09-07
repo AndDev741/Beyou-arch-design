@@ -61,7 +61,7 @@ The goals page groups sub-goals under their main goal by default, with a flat li
 
 Widget identity is shared state: the list of ids lives in the state package (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), and both apps read it. Four render full-width. A fabric component maps id to component, so adding a widget is one entry in the map plus one entry in the shared list — and the mobile map is an exhaustive `Record<WidgetId, …>`, so a new id fails the mobile build until mobile implements it. That is deliberate: the alternative is a widget the two platforms disagree about.
 
-Most widgets are handed their data by the dashboard. Two fetch their own — the constance heatmap and the mood week — because both read a date range nothing else on the page needs, and both are optional, so a user without them should not pay for the request. A self-fetching widget owes the rail a stable height while it loads: `moodWeek` renders the week's shape with placeholder dots and a `data-loading` attribute rather than deciding between its two views, because deciding early painted a full week of blank days and then flipped, twice, for anyone who had not marked today.
+Most widgets are handed their data by the dashboard. Two fetch their own — the constance heatmap and the mood week — because both read a date range nothing else on the page needs, and both are optional, so a user without them should not pay for the request. A self-fetching widget owes the rail a stable height while it loads: `moodWeek` renders the week's shape with placeholder circles and a `data-loading` attribute rather than deciding between its two views, because deciding early painted a full week of blank days and then flipped, twice, for anyone who had not marked today. Its two states are the five faces when today is unmarked and, once it is, seven days each drawn with that day's own face — the same icons the scale and the month grid use, so the three places a mood appears say it the same way. A day nobody recorded has no face, so it keeps a muted circle, which is also what holds the row's height steady across a week with gaps.
 
 Selection lives in Configuration: a drag-to-reorder list that autosaves on every change, pushing the new order to the backend and Redux together, and rolling nothing into Redux when the server rejects. On phones the dashboard renders widgets in a snap-scroll carousel, one per screen, so adding widgets never pushes today's routine below the fold.
 
@@ -69,7 +69,7 @@ Selection lives in Configuration: a drag-to-reorder list that autosaves on every
 
 `/mood` is an ordinary page inside the shell, and the only one whose content is something the
 person wrote rather than something the app recorded. Four blocks down the page: the day with its
-five faces, the journal box with a Save button, a month calendar with a coloured dot per recorded
+five faces, the journal box with a Save button, a month calendar with a face per recorded
 day, and the recent entries.
 
 From `lg` it is two columns: the day and its month on the left, the writing and what was written
