@@ -39,7 +39,7 @@ flowchart LR
 | celebration | Uma fila FIFO de celebrações pendentes (level-ups, marcos de streak) |
 | viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves. Guarda também `goalsViewer`, a ordenação do ecrã de uma meta de cada vez, separada da ordenação da página de metas |
 | focus | O Modo Foco: em que estado a tela está, o item selecionado e se a pessoa o escolheu à mão, o timer pomodoro como hora de fim absoluta mais as quatro durações editáveis, e um cache por item das micro-tarefas do servidor |
-| mood | O diário, indexado por dia: o nível e o texto de cada dia carregado. Um mapa e não uma lista, porque a semana do widget e o mês da página se sobrepõem e duas listas teriam mostrado um dia marcado no dashboard e vazio na página |
+| mood | O diário, indexado por dia: o nível e o texto de cada dia carregado. Um mapa e não uma lista, porque a semana do widget e o mês da página se sobrepõem, e duas listas teriam mostrado um dia marcado no dashboard e vazio na página |
 | register | Um booleano para a tela de sucesso pós-cadastro |
 | errorHandler | Uma string global de erro |
 
@@ -56,7 +56,7 @@ A store do web persiste em localStorage com uma blacklist deliberada:
 | perfil | Nome, e-mail e foto são PII e não pertencem ao localStorage; o perfil re-hidrata da API a cada boot |
 | snapshot | Histórico de rotina é PII por acúmulo |
 | celebration | Transitório por definição: um level-up na fila não pode tocar de novo depois de um reload |
-| mood | Texto de diário: o dado mais pessoal que o produto guarda. A falha é silenciosa — tudo funciona e o diário de alguém fica simplesmente no localStorage depois de fechar a aba — por isso um teste lê a blacklist do código-fonte em vez de confiar que a entrada sobrevive a uma edição |
+| mood | Texto de diário, o dado mais pessoal que o produto guarda. A falha é silenciosa: tudo funciona, e o diário de alguém fica simplesmente no localStorage depois de fechar a aba. Por isso um teste lê a blacklist do código-fonte em vez de confiar que a entrada sobrevive a uma edição |
 
 Todo o resto (listas de entidades, rascunhos de edição, preferências de ordenação) persiste, então um reload pinta na hora com dados locais enquanto dados frescos carregam por trás. O app mobile não persiste nada: tokens vivem no armazenamento seguro, dados rebuscam ao montar e o logout dele zera todos os slices pelo root reducer. No web, o logout purga o persistor e navega de forma dura, o que descarta a store em memória por inteiro.
 

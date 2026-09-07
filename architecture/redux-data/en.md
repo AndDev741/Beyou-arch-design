@@ -39,7 +39,7 @@ flowchart LR
 | celebration | A FIFO queue of pending celebrations (level-ups, streak milestones) |
 | viewFilters | The per-page sort choice, hydrated through a key whitelist. Also holds `goalsViewer`, the one-goal-at-a-time screen's ordering, kept apart from the goals page's sort |
 | focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths, and a per-item cache of the server's micro-tasks |
-| mood | The diary, indexed by day: the level and the journal text for each day loaded. A map and not a list, because the widget's week and the page's month overlap and two lists would have shown a day marked on the dashboard and blank on the page |
+| mood | The diary, indexed by day: the level and the journal text for each day loaded. A map and not a list, because the widget's week and the page's month overlap, and two lists would have shown a day marked on the dashboard and blank on the page |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |
 
@@ -56,7 +56,7 @@ The web store persists to localStorage with a deliberate blacklist:
 | perfil | Name, e-mail, and photo are PII and do not belong in localStorage; the profile re-hydrates from the API on every boot |
 | snapshot | Routine history is PII by accumulation |
 | celebration | Transient by definition: a queued level-up must not replay after a reload |
-| mood | Journal text: the most personal thing the product stores. The failure mode is silent — everything works and somebody's diary simply sits in localStorage after they close the tab — so a test reads the blacklist from source rather than trusting the entry to survive an edit |
+| mood | Journal text, the most personal thing the product stores. The failure is silent: everything works, and somebody's diary simply sits in localStorage after they close the tab. A test therefore reads the blacklist from source rather than trusting the entry to survive an edit |
 
 Everything else (entity lists, edit drafts, sort preferences) persists, so a reload paints instantly from local data while fresh data loads behind it.
 

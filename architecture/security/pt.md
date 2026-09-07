@@ -259,7 +259,7 @@ Excluir a conta é a única ação onde uma sessão logada deliberadamente não 
 ## O diário, e o que se faz com ele
 
 O diário é o único sítio do produto onde alguém escreve longamente, para si próprio, sobre a
-própria vida. Fica guardado como texto simples numa linha que lhe pertence — não há cifragem em
+própria vida. Fica guardado como texto simples numa linha que lhe pertence. Não há cifragem em
 repouso além da que a base de dados e o disco dão, e dizer o contrário seria pior do que dizer
 isto. O cuidado está à volta:
 
@@ -271,7 +271,7 @@ isto. O cuidado está à volta:
   tem nota. Não existe ferramenta que devolva as palavras, por isso nenhum turno as pode colocar
   num prompt destinado a um fornecedor externo. Se a pessoa quiser falar de um dia, cola o texto.
 - **Uma mudança de humor a um toque não o apaga.** A rota que o widget do dashboard usa não tem
-  campo nenhum onde uma nota caiba; só o botão Salvar da página do diário envia o verbo que
+  campo nenhum onde uma nota caiba. Só o botão Salvar da página do diário envia o verbo que
   substitui uma.
 - **A exportação leva-o por inteiro**, palavras incluídas. Uma exportação que resumisse o diário
   de alguém não seria uma exportação, e a exclusão leva-o, por isso o ficheiro é a única cópia com
