@@ -260,7 +260,7 @@ Deleting an account is the one action where a logged-in session is deliberately 
 ## The journal, and what is done with it
 
 The diary is the one place in the product where somebody writes at length, for themselves, about
-their own life. It is stored as plain text on a row they own — there is no encryption at rest
+their own life. It is stored as plain text on a row they own. There is no encryption at rest
 beyond what the database and the disk provide, and claiming otherwise would be worse than saying
 so plainly. What surrounds it is where the care went:
 
@@ -272,7 +272,7 @@ so plainly. What surrounds it is where the care went:
   a note. There is no tool that returns the words, so no turn can put them in a prompt bound for a
   third-party provider. If the person wants a day discussed, they paste it themselves.
 - **A one-tap mood change cannot delete it.** The route the dashboard widget uses has no field
-  that could carry a note; only the diary page's Save button sends the verb that replaces one.
+  that could carry a note. Only the diary page's Save button sends the verb that replaces one.
 - **The export carries it in full**, words included. An export that summarized somebody's diary
   would not be an export, and deletion takes it, so the file is the only copy they leave with.
 - Nothing about it is logged. `ServiceMethodsLogging` records argument counts, never values.

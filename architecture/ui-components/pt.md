@@ -59,9 +59,9 @@ A página de metas agrupa as submetas debaixo da meta principal por defeito, com
 
 `/goals/view` é a mesma meta, uma de cada vez: uma camada `fixed inset-0` por cima do shell, como o Modo Foco, com Escape como saída. Cada slide dá à motivação o espaço que o card nunca teve, um anel de progresso grande, o prazo em dias restantes, as categorias, o mesmo stepper e botão Completar do card, as submetas como uma lista que salta para o slide delas, e um caminho de volta à meta principal. A ordenação é por status por defeito (em progresso, depois não iniciadas, depois concluídas), ou por categoria, prazo, progresso ou nome, guardada por dispositivo em `viewFilters.goalsViewer`; as setas e o teclado percorrem o mesmo baralho, e `?goal=` abre num slide dado. A app mobile tem o mesmo ecrã na raiz do router, fora do grupo de abas, pela mesma razão que o ecrã de foco vive lá: a barra inferior é irmã dos ecrãs, não uma sobreposição, e um ecrã dentro do grupo não a consegue esconder.
 
-A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada — e o mapa do mobile é um `Record<WidgetId, …>` exaustivo, então um id novo quebra o build do mobile até o mobile o implementar. Isso é de propósito: a alternativa é um widget sobre o qual as duas plataformas discordam.
+A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada. O mapa do mobile é um `Record<WidgetId, …>` exaustivo, então um id novo quebra o build do mobile até o mobile o implementar. Isso é de propósito: a alternativa é um widget sobre o qual as duas plataformas discordam.
 
-A maioria dos widgets recebe os dados do dashboard. Dois buscam os próprios — o heatmap de constância e a semana de humor — porque ambos leem um intervalo de datas que mais nada na página precisa, e ambos são opcionais, então quem não os usa não deve pagar o pedido. Um widget que busca sozinho deve à coluna uma altura estável enquanto carrega: o `moodWeek` desenha a forma da semana com círculos de espera e um atributo `data-loading` em vez de escolher entre as suas duas vistas, porque escolher cedo pintava uma semana inteira de dias vazios e depois saltava, duas vezes, para quem ainda não tinha marcado o dia. Os seus dois estados são as cinco carinhas quando o dia ainda não está marcado e, depois de estar, sete dias desenhados com a carinha de cada um — os mesmos ícones da escala e da grelha do mês, para os três sítios onde um humor aparece o dizerem da mesma maneira. Um dia que ninguém registou não tem carinha, por isso mantém um círculo apagado, que é também o que segura a altura da linha numa semana com falhas.
+A maioria dos widgets recebe os dados do dashboard. Dois buscam os próprios, o heatmap de constância e a semana de humor, porque ambos leem um intervalo de datas que mais nada na página precisa, e ambos são opcionais, então quem não os usa não deve pagar o pedido. Um widget que busca sozinho deve à coluna uma altura estável enquanto carrega: o `moodWeek` desenha a forma da semana com círculos de espera e um atributo `data-loading` em vez de escolher entre as suas duas vistas, porque escolher cedo pintava uma semana inteira de dias vazios e depois saltava, duas vezes, para quem ainda não tinha marcado o dia. Os seus dois estados são as cinco carinhas quando o dia ainda não está marcado e, depois de estar, sete dias desenhados com a carinha de cada um. São os mesmos ícones da escala e da grelha do mês, para os três sítios onde um humor aparece o dizerem da mesma maneira. Um dia que ninguém registou não tem carinha, por isso mantém um círculo apagado, que é também o que segura a altura da linha numa semana com falhas.
 
 A seleção mora na Configuração: uma lista com arrastar-para-reordenar que salva sozinha a cada mudança, empurrando a nova ordem para o backend e o Redux juntos, e sem gravar nada no Redux quando o servidor recusa. No celular, o dashboard renderiza os widgets em um carrossel de snap-scroll, um por tela, para widgets novos nunca empurrarem a rotina de hoje para baixo da dobra.
 
@@ -69,30 +69,29 @@ A seleção mora na Configuração: uma lista com arrastar-para-reordenar que sa
 
 A `/mood` é uma página comum dentro do shell, e a única cujo conteúdo é algo que a pessoa
 escreveu em vez de algo que o app registou. Quatro blocos de cima para baixo: o dia com as suas
-cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com uma carinha
-por dia registado, e os registos recentes.
+cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com uma carinha por
+dia registado, e os registos recentes.
 
 A partir do `lg` são duas colunas: o dia e o seu mês à esquerda, o texto e o que foi escrito à
 direita. O diário fecha, porque quem está a comparar um mês de carinhas não quer nove linhas de
 caixa de texto entre ele e o calendário, e a escolha fica guardada. A grelha do mês desenha cada
 dia registado com as mesmas cinco carinhas da escala em vez de um ponto colorido, para o mês se
 ler na linguagem que o resto da página já fala. A lista de registos é paginada e diz onde acaba,
-com um chip de filtro por nível a carregar a sua contagem — o mesmo padrão de chips que os
-horizontes de metas do dashboard usam.
+com um chip de filtro por nível a carregar a sua contagem, reaproveitando o padrão de chips dos
+horizontes de metas do dashboard.
 
 Um toque na carinha já escolhida deixa o dia sem registo. A escala é um conjunto de toggles e o
-`aria-pressed` já diz isso, por isso des-premir tem de significar algo; sem isso um dia podia ser
+`aria-pressed` já diz isso, por isso des-premir tem de significar algo. Sem isso um dia podia ser
 mudado mas nunca retirado, e a única saída era o ícone do lixo na lista de registos. Pergunta
 primeiro quando o dia tem texto, porque remover o registo remove a nota com ele e essa é a única
-coisa aqui que ninguém recupera — um dia só com nível está a um toque de ser registado outra vez,
+coisa aqui que ninguém recupera. Um dia só com nível está a um toque de ser registado outra vez,
 por isso esse passa direto em vez de abrir um diálogo sobre nada.
 
-Quatro detalhes sustentam o resto, e os quatro são sobre não perder texto.
+Quatro detalhes seguram isto, e os quatro são sobre não perder texto.
 
-As carinhas e o botão Salvar enviam pedidos DIFERENTES. Uma carinha envia só o nível; o Salvar
+As carinhas e o botão Salvar enviam pedidos DIFERENTES. Uma carinha envia só o nível. O Salvar
 envia o registo inteiro. É por isso que tocar numa carinha no widget do dashboard não apaga o
-diário da manhã — o pedido não tem campo para ele — e isso é imposto também no servidor, não só
-aqui.
+diário da manhã, já que o pedido não tem campo para ele, e o servidor impõe a mesma separação.
 
 A caixa de texto é semeada a partir do registo guardado, com chave no dia E no próprio registo.
 Com chave só no dia, semeava vazia antes de o registo do dia chegar e nunca voltava a semear, por
@@ -102,14 +101,14 @@ substituir texto já escrito por nada, para que um registo vazio a chegar tarde 
 alguém está a escrever.
 
 **A comparação que decide tudo isso corre no corpo do efeito, nunca dentro do updater do
-`setState`.** O React pode invocar um updater mais de uma vez para o mesmo estado, e enquanto a
-ref do "que dia está no ecrã" era escrita lá dentro, a segunda invocação via a mutação da
-primeira, concluía "mesmo dia" e devolvia o texto do dia ANTERIOR — por isso mudar de dia mantinha
-o registo antigo no ecrã, pronto a ser gravado na data errada. A regra que fica é a geral: um
-updater tem de ser puro, e uma ref de que uma decisão depende escreve-se uma vez, fora dele. Vale
-a pena registar porque o sintoma parecia um problema de render antigo e a causa não era. Os dois
-clientes tinham isto; os dois estão corrigidos, e um teste em `StrictMode` tranca-o, por ser a
-única condição em que a versão com o bug falhava.
+`setState`.** O React pode invocar um updater mais de uma vez para o mesmo estado. Enquanto a ref
+do "que dia está no ecrã" era escrita lá dentro, a segunda invocação via a mutação da primeira,
+concluía "mesmo dia" e devolvia o texto do dia ANTERIOR, por isso mudar de dia mantinha o registo
+antigo no ecrã, pronto a ser gravado na data errada. A regra que fica é a geral: um updater tem de
+ser puro, e uma ref de que uma decisão depende escreve-se uma vez, fora dele. O sintoma parecia um
+render antigo e a causa não era, e foi essa parte que custou tempo. Os dois clientes tinham isto,
+os dois estão corrigidos, e um teste em `StrictMode` tranca-o, por ser a única condição em que a
+versão com o bug falhava.
 
 ## O tutorial, em dois sistemas
 

@@ -16,7 +16,7 @@ info:
     for anything else.
 
     `PATCH` sets only the level and has no field that could carry a note. Any client that has
-    not loaded the day's writing — the dashboard widget, the assistant — uses this one, so it
+    not loaded the day's writing, such as the dashboard widget or the assistant, uses this one, so it
     is structurally unable to erase a journal entry somebody wrote that morning.
 
     The day always comes from the account's own timezone, never the client's clock, and days
@@ -98,8 +98,9 @@ paths:
       summary: Replace the day's entry, note included
       description: |
         The body describes the day's FINAL state, so a request with no note clears whatever was
-        written. Use this only where the text on screen really is the day's text — the diary page's
-        Save button. To change the level alone, use PATCH, which cannot touch the note.
+        written. Use this only where the text on screen really is the day's text, which means
+        the diary page's Save button. To change the level alone, use PATCH, which cannot touch
+        the note.
 
         Idempotent: sending the same body twice leaves one row.
     delete:
@@ -189,7 +190,7 @@ components:
           description: 1 (awful) to 5 (great). Anything outside the scale is refused.
       required:
       - mood
-      description: Just the level. Deliberately has no note field — see PATCH.
+      description: 'Just the level. Deliberately has no note field: see PATCH.'
     UpsertMoodEntryDTO:
       type: object
       properties:
