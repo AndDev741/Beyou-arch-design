@@ -72,7 +72,15 @@ person wrote rather than something the app recorded. Four blocks down the page: 
 five faces, the journal box with a Save button, a month calendar with a coloured dot per recorded
 day, and the recent entries.
 
-Two details are load-bearing, and both are about not losing writing.
+From `lg` it is two columns: the day and its month on the left, the writing and what was written
+on the right. The journal collapses, because somebody comparing a month of faces does not want
+nine rows of textarea between them and the calendar, and the choice is remembered. The month grid
+draws each recorded day with the same five faces the scale uses rather than a coloured dot, so a
+month reads in the language the rest of the page already speaks. The entry list is paged and says
+where it ends, with one filter chip per level carrying its count — the same chip pattern the
+dashboard's goal horizons use.
+
+Three details are load-bearing, and all three are about not losing writing.
 
 The faces and the Save button send DIFFERENT requests. A face sends the level alone; Save sends
 the whole entry. That is why tapping a face on the dashboard widget cannot wipe the morning's
@@ -83,6 +91,16 @@ day alone it seeded empty before the day's entry had arrived and never re-seeded
 journal showed blank and Save then cleared it: the same data loss the two-verb split exists to
 prevent, reintroduced one layer up. It also refuses to replace typed text with nothing, so a
 late-arriving empty entry cannot swallow what somebody is in the middle of writing.
+
+**The comparison that decides all of that runs in the effect body, never inside the `setState`
+updater.** React may invoke an updater more than once for the same state, and while the "which day
+is on screen" ref was written inside it, the second invocation saw the first one's mutation,
+concluded "same day", and returned the PREVIOUS day's text — so moving to another day kept the old
+entry on screen, ready to be saved onto the wrong date. The rule this leaves behind is the general
+one: an updater has to be pure, and a ref that a decision depends on is written once, outside it.
+It is worth stating because the symptom looked like a stale-render problem and the cause was not.
+Both clients had it; both are fixed, and a `StrictMode` test holds it, since that is the only
+condition under which the buggy version failed.
 
 ## The tutorial, in two systems
 

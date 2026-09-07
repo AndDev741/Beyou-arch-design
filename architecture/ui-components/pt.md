@@ -72,7 +72,15 @@ escreveu em vez de algo que o app registou. Quatro blocos de cima para baixo: o 
 cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com um ponto colorido
 por dia registado, e os registos recentes.
 
-Dois detalhes sustentam o resto, e os dois são sobre não perder texto.
+A partir do `lg` são duas colunas: o dia e o seu mês à esquerda, o texto e o que foi escrito à
+direita. O diário fecha, porque quem está a comparar um mês de carinhas não quer nove linhas de
+caixa de texto entre ele e o calendário, e a escolha fica guardada. A grelha do mês desenha cada
+dia registado com as mesmas cinco carinhas da escala em vez de um ponto colorido, para o mês se
+ler na linguagem que o resto da página já fala. A lista de registos é paginada e diz onde acaba,
+com um chip de filtro por nível a carregar a sua contagem — o mesmo padrão de chips que os
+horizontes de metas do dashboard usam.
+
+Três detalhes sustentam o resto, e os três são sobre não perder texto.
 
 As carinhas e o botão Salvar enviam pedidos DIFERENTES. Uma carinha envia só o nível; o Salvar
 envia o registo inteiro. É por isso que tocar numa carinha no widget do dashboard não apaga o
@@ -85,6 +93,16 @@ isso um dia com diário aparecia em branco e o Salvar apagava-o a seguir: a mesm
 que a separação em dois verbos existe para evitar, reintroduzida uma camada acima. Também recusa
 substituir texto já escrito por nada, para que um registo vazio a chegar tarde não engula o que
 alguém está a escrever.
+
+**A comparação que decide tudo isso corre no corpo do efeito, nunca dentro do updater do
+`setState`.** O React pode invocar um updater mais de uma vez para o mesmo estado, e enquanto a
+ref do "que dia está no ecrã" era escrita lá dentro, a segunda invocação via a mutação da
+primeira, concluía "mesmo dia" e devolvia o texto do dia ANTERIOR — por isso mudar de dia mantinha
+o registo antigo no ecrã, pronto a ser gravado na data errada. A regra que fica é a geral: um
+updater tem de ser puro, e uma ref de que uma decisão depende escreve-se uma vez, fora dele. Vale
+a pena registar porque o sintoma parecia um problema de render antigo e a causa não era. Os dois
+clientes tinham isto; os dois estão corrigidos, e um teste em `StrictMode` tranca-o, por ser a
+única condição em que a versão com o bug falhava.
 
 ## O tutorial, em dois sistemas
 
