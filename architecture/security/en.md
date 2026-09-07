@@ -231,7 +231,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 | write | any other POST/PUT/DELETE | 30 / min | user |
 | read | any other GET | 60 / min | user |
 
-The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response — every category, habit, task, goal, routine, feedback thread and assistant conversation, assembled in memory and serialized in one go. Sixty a minute of that is a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
+The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response — every category, habit, task, goal, routine, mood entry, feedback thread and assistant conversation, assembled in memory and serialized in one go. Sixty a minute of that is a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
 
 Rejections answer 429 with a `Retry-After` header; successes carry `X-Rate-Limit-Remaining`. Both are named in `Access-Control-Expose-Headers`, without which a browser cannot read either one: neither is on the CORS safelist, so the wait was on the wire and unreachable by the web client.
 
@@ -254,8 +254,28 @@ Deleting an account is the one action where a logged-in session is deliberately 
 1. `POST /user/deletion/code` mails a six-digit code. BCrypt-hashed at rest, 15-minute TTL, 60-second cooldown between requests, and each new code invalidates the previous ones.
 2. `POST /user/deletion/confirm` checks, in order: already used, expired, too many attempts (5), then the hash comparison. The attempts counter increments in its own REQUIRES_NEW transaction, because the exception that follows a wrong guess rolls the outer transaction back, and counting inline would have left the cap unreachable.
 3. Spending the code deletes its row inside the same transaction, which doubles as a lock: a racing second confirm blocks, loses, and gets a keyed error.
-4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, and history rows through database-level cascades. Files on disk are purged after commit, best-effort: feedback attachments and the profile photo. The photo was missed at first, because the database rows cascade and the bytes on disk do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
+4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, history rows through database-level cascades, and the mood entries with the journal text in them, also by database cascade. Files on disk are purged after commit, best-effort: feedback attachments and the profile photo. The photo was missed at first, because the database rows cascade and the bytes on disk do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
 5. The refresh cookie is cleared only after success, so a refused code leaves the session intact.
+
+## The journal, and what is done with it
+
+The diary is the one place in the product where somebody writes at length, for themselves, about
+their own life. It is stored as plain text on a row they own — there is no encryption at rest
+beyond what the database and the disk provide, and claiming otherwise would be worse than saying
+so plainly. What surrounds it is where the care went:
+
+- **It never reaches browser storage.** The `mood` slice is on the web persist blacklist, and
+  mobile redux is in-memory only. A closed tab leaves nothing behind. A test reads the blacklist
+  out of the source file, because the failure is silent: everything works, and the diary simply
+  sits in localStorage.
+- **The assistant cannot read it.** Its history tool returns dates, levels and whether a day has
+  a note. There is no tool that returns the words, so no turn can put them in a prompt bound for a
+  third-party provider. If the person wants a day discussed, they paste it themselves.
+- **A one-tap mood change cannot delete it.** The route the dashboard widget uses has no field
+  that could carry a note; only the diary page's Save button sends the verb that replaces one.
+- **The export carries it in full**, words included. An export that summarized somebody's diary
+  would not be an export, and deletion takes it, so the file is the only copy they leave with.
+- Nothing about it is logged. `ServiceMethodsLogging` records argument counts, never values.
 
 ## Ownership: the authorization model
 

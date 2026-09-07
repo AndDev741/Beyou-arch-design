@@ -105,3 +105,5 @@ Os frontends detectam momentos por comparação, não por flag do backend: a res
 ## O que deliberadamente não existe
 
 Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os quatro caminhos de XP (check de hábito, check de tarefa, check de snapshot, conclusão de meta) e suas quatro reversões são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
+
+Registar um humor também não paga nada, e essa é uma decisão de produto e não um esquecimento. Pagar por um sentimento transforma uma escala de cinco pontos em algo para farmar, e uma escala farmada deixa de descrever o que quer que seja — o que custaria ao diário a única coisa para que ele serve. A contagem de dias seguidos que o diário mostra é derivada no cliente a partir dos próprios registos; não é um streak deste sistema, não alimenta multiplicador nenhum e nada a paga.
