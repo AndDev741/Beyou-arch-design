@@ -61,7 +61,7 @@ A página de metas agrupa as submetas debaixo da meta principal por defeito, com
 
 A identidade dos widgets é estado compartilhado: a lista de ids vive no pacote de state (worstArea, constance, constanceHeatmap, betterArea, dailyProgress, fastTips, levelProgress, categoryBalance, moodWeek), e os dois apps a leem. Quatro renderizam em largura cheia. Um componente fábrica mapeia id para componente, então adicionar um widget é uma entrada no mapa mais uma na lista compartilhada — e o mapa do mobile é um `Record<WidgetId, …>` exaustivo, então um id novo quebra o build do mobile até o mobile o implementar. Isso é de propósito: a alternativa é um widget sobre o qual as duas plataformas discordam.
 
-A maioria dos widgets recebe os dados do dashboard. Dois buscam os próprios — o heatmap de constância e a semana de humor — porque ambos leem um intervalo de datas que mais nada na página precisa, e ambos são opcionais, então quem não os usa não deve pagar o pedido. Um widget que busca sozinho deve à coluna uma altura estável enquanto carrega: o `moodWeek` desenha a forma da semana com pontos de espera e um atributo `data-loading` em vez de escolher entre as suas duas vistas, porque escolher cedo pintava uma semana inteira de dias vazios e depois saltava, duas vezes, para quem ainda não tinha marcado o dia.
+A maioria dos widgets recebe os dados do dashboard. Dois buscam os próprios — o heatmap de constância e a semana de humor — porque ambos leem um intervalo de datas que mais nada na página precisa, e ambos são opcionais, então quem não os usa não deve pagar o pedido. Um widget que busca sozinho deve à coluna uma altura estável enquanto carrega: o `moodWeek` desenha a forma da semana com círculos de espera e um atributo `data-loading` em vez de escolher entre as suas duas vistas, porque escolher cedo pintava uma semana inteira de dias vazios e depois saltava, duas vezes, para quem ainda não tinha marcado o dia. Os seus dois estados são as cinco carinhas quando o dia ainda não está marcado e, depois de estar, sete dias desenhados com a carinha de cada um — os mesmos ícones da escala e da grelha do mês, para os três sítios onde um humor aparece o dizerem da mesma maneira. Um dia que ninguém registou não tem carinha, por isso mantém um círculo apagado, que é também o que segura a altura da linha numa semana com falhas.
 
 A seleção mora na Configuração: uma lista com arrastar-para-reordenar que salva sozinha a cada mudança, empurrando a nova ordem para o backend e o Redux juntos, e sem gravar nada no Redux quando o servidor recusa. No celular, o dashboard renderiza os widgets em um carrossel de snap-scroll, um por tela, para widgets novos nunca empurrarem a rotina de hoje para baixo da dobra.
 
@@ -69,7 +69,7 @@ A seleção mora na Configuração: uma lista com arrastar-para-reordenar que sa
 
 A `/mood` é uma página comum dentro do shell, e a única cujo conteúdo é algo que a pessoa
 escreveu em vez de algo que o app registou. Quatro blocos de cima para baixo: o dia com as suas
-cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com um ponto colorido
+cinco carinhas, a caixa do diário com um botão Salvar, um calendário do mês com uma carinha
 por dia registado, e os registos recentes.
 
 A partir do `lg` são duas colunas: o dia e o seu mês à esquerda, o texto e o que foi escrito à
