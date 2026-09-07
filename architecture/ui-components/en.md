@@ -80,7 +80,14 @@ month reads in the language the rest of the page already speaks. The entry list 
 where it ends, with one filter chip per level carrying its count — the same chip pattern the
 dashboard's goal horizons use.
 
-Three details are load-bearing, and all three are about not losing writing.
+A tap on the face that is already chosen leaves the day unrecorded. The scale is a set of
+toggles and `aria-pressed` already says so, so un-pressing has to mean something; without it a day
+could be changed but never taken back, and the only way out was the trash icon in the entry list.
+It asks first when the day carries writing, because removing the entry removes the note with it
+and that is the one thing here nobody can get back — a day with only a level is one tap from being
+re-recorded, so that goes straight through rather than opening a dialog about nothing.
+
+Four details are load-bearing, and all four are about not losing writing.
 
 The faces and the Save button send DIFFERENT requests. A face sends the level alone; Save sends
 the whole entry. That is why tapping a face on the dashboard widget cannot wipe the morning's

@@ -80,7 +80,14 @@ ler na linguagem que o resto da página já fala. A lista de registos é paginad
 com um chip de filtro por nível a carregar a sua contagem — o mesmo padrão de chips que os
 horizontes de metas do dashboard usam.
 
-Três detalhes sustentam o resto, e os três são sobre não perder texto.
+Um toque na carinha já escolhida deixa o dia sem registo. A escala é um conjunto de toggles e o
+`aria-pressed` já diz isso, por isso des-premir tem de significar algo; sem isso um dia podia ser
+mudado mas nunca retirado, e a única saída era o ícone do lixo na lista de registos. Pergunta
+primeiro quando o dia tem texto, porque remover o registo remove a nota com ele e essa é a única
+coisa aqui que ninguém recupera — um dia só com nível está a um toque de ser registado outra vez,
+por isso esse passa direto em vez de abrir um diálogo sobre nada.
+
+Quatro detalhes sustentam o resto, e os quatro são sobre não perder texto.
 
 As carinhas e o botão Salvar enviam pedidos DIFERENTES. Uma carinha envia só o nível; o Salvar
 envia o registo inteiro. É por isso que tocar numa carinha no widget do dashboard não apaga o
