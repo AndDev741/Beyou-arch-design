@@ -74,3 +74,5 @@ Os e-mails de engajamento estão prontos e desligados. O disparo, o consentiment
 Notificações push seguem sendo a maior ausência. Uma constância prestes a quebrar é exatamente o momento em que um lembrete valeria a pena, e o Beyou não tem nada ali ainda.
 
 A listagem na Play Store também não está no ar. O bundle assinado é gerado sob demanda. O resto é papelada.
+
+*Atualização, 9 de setembro de 2026: a listagem entrou no ar. O Beyou está na [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).*
