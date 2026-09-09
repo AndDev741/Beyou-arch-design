@@ -57,3 +57,5 @@ E o monorepo continua pagando no CI: o workflow de build do Android dispara em m
 O app mobile cobre o núcleo do Beyou: o dashboard com check-ins e celebrações, hábitos com o seletor de ícones, rotinas com o builder e os agendamentos, o tutorial de onboarding e o assistente de IA. Cada merge constrói um APK assinado publicado em um release rolante do GitHub. Sem loja de aplicativos ainda; o link de download basta para esta fase.
 
 Arrependimentos, até agora: nenhum. Me pergunte de novo depois do upgrade para o React 19.
+
+*Atualização, 9 de setembro de 2026: a fase da loja chegou. O Beyou está na [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).*

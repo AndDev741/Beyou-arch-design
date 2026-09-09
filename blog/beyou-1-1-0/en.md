@@ -74,3 +74,5 @@ Engagement emails are built and switched off. The sender, the consent, the prefe
 Push notifications remain the biggest thing missing. A streak about to break is exactly the moment a reminder would earn its keep, and Beyou has nothing there yet.
 
 The Play Store listing is not live either. The signed bundle builds on demand. The rest of it is paperwork.
+
+*Update, 9 September 2026: the listing went live. Beyou is on [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).*
