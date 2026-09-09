@@ -70,6 +70,8 @@ O `xpByLevel` cacheia a curva de levels, uma entrada por level, com a anotação
 
 Oito caches, dois por área de documentação (lista + detalhe), criados de forma preguiçosa no primeiro pedido e chaveados por locale normalizado (a lista do blog também chaveia por categoria e tag). A normalização de locale existe porque `?locale=EN`, `?locale=en` e nenhum locale precisam dividir uma entrada, e porque uma chave nula crua devolvia 400 em toda listagem de docs. Esses caches só são evictados por uma importação de docs, que os limpa por inteiro.
 
+As expressões de chave chegam ao normalizador como bean, `@docsLocale.normalize(#locale)`, e essa forma é regra, não estilo. A versão anterior, `T(beyou.beyouapp.backend.docs.DocsLocale).normalize(...)`, derrubou o site de docs em 9 de setembro de 2026 com `EL1005E: Type cannot be found`. A camada de cache do Spring compartilha um único contexto de avaliação e cria o localizador de tipos na primeira operação de cache depois do boot, a partir do class loader de contexto da thread que calhou de executá-la. No jar empacotado só o loader do launcher do Boot enxerga as classes da aplicação, então uma primeira thread com o loader do sistema quebra toda consulta `T(...)` até o próximo restart. O classpath explodido usado localmente e no e2e nunca mostra isso. Uma referência a bean resolve pelo bean factory e não carrega classe nenhuma, e um teste de integração agora fixa o localizador a partir de um loader estranho de propósito para manter assim.
+
 ## Como a evicção funciona
 
 Uma ação do usuário pode tocar metade do domínio: marcar um hábito atualiza o hábito, a rotina, o usuário e cada categoria ligada. Perseguir entradas individuais seria frágil, então o design vai no amplo.

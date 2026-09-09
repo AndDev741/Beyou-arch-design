@@ -70,6 +70,8 @@ All cached methods return DTOs, never JPA entities, so nothing lazy or detached 
 
 Eight caches, two per docs area (list + detail), created lazily on first request and keyed by normalized locale (the blog list also keys by category and tag). The locale normalization exists because `?locale=EN`, `?locale=en`, and no locale at all must share one entry, and because a raw null key used to 400 every docs list request. These caches are only evicted by a docs import, which clears them wholesale.
 
+The key expressions reach the normalizer as a bean, `@docsLocale.normalize(#locale)`, and that form is a rule, not a style. The earlier `T(beyou.beyouapp.backend.docs.DocsLocale).normalize(...)` took the docs site down on 9 September 2026 with `EL1005E: Type cannot be found`. Spring's cache layer shares one evaluation context and creates its type locator on the first cache operation after boot, from the context class loader of whichever thread runs it. In the packaged jar only Boot's launcher loader sees the application classes, so a first thread carrying the system loader breaks every `T(...)` lookup until restart. The exploded classpath used locally and in e2e never shows it. A bean reference resolves through the bean factory and loads nothing, and an integration test now pins the locator from a foreign loader on purpose to keep it that way.
+
 ## How eviction works
 
 One user action can touch half the domain: checking a habit updates the habit, the routine, the user, and every linked category. Chasing individual entries would be fragile, so the design goes broad.
