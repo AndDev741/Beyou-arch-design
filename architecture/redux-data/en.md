@@ -37,8 +37,8 @@ flowchart LR
 | todayRoutine | Today's scheduled routine, with refreshItemGroup applying a check result without a refetch |
 | snapshot | Historical routine snapshots by date, plus the selected date |
 | celebration | A FIFO queue of pending celebrations (level-ups, streak milestones) |
-| viewFilters | The per-page sort choice, hydrated through a key whitelist. Also holds `goalsViewer`, the one-goal-at-a-time screen's ordering, kept apart from the goals page's sort |
-| focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths, and a per-item cache of the server's micro-tasks |
+| viewFilters | The per-page sort choice, hydrated through a key whitelist. Also holds `goalsViewer`, the one-goal-at-a-time screen's ordering, kept apart from the goals page's sort, and `goalsViewerLayout`, whether that screen walks the main goals only (grouped) or every goal as its own slide (list) |
+| focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths and the two cycle-end alert switches (sound, notification), and a per-item cache of the server's micro-tasks |
 | mood | The diary, indexed by day: the level and the journal text for each day loaded. A map and not a list, because the widget's week and the page's month overlap, and two lists would have shown a day marked on the dashboard and blank on the page |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |
