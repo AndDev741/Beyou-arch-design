@@ -53,6 +53,16 @@ Os formulários validam por schemas zod que vivem no pacote compartilhado de val
 
 O dashboard compõe um card de perfil, atalhos, a rotina de hoje com seu fluxo de check-in, um trilho de metas e a área configurável de widgets.
 
+## O diálogo de novo dia
+
+A primeira abertura do painel num dia pode levantar o Resumo do Dia: um `Modal` partilhado na web, um `BottomSheet` no telemóvel, duas colunas a partir de `lg` e empilhadas abaixo disso, com a metade acionável à frente nos dois eixos.
+
+A metade esquerda é a única parte em que se pode agir: os itens de ontem que não estão marcados nem pulados, cada um com o check e o skip que os endpoints de snapshot já oferecem. Pular fica fora dessa lista porque é uma resposta que o usuário já deu; aparece antes na linha de resumo. Dois estados vazios diferentes partilham o espaço e não podem ser juntos num só, porque um dia que o usuário fechou e um dia em que nada estava marcado não são o mesmo resultado e só o primeiro merece o destaque. Dias mais antigos ainda recuperáveis ficam atrás de uma dobra, já que o painel é sobre ontem e sete dias de atraso todas as manhãs é como se ensina alguém a fechar um diálogo sem o ler.
+
+A metade direita são duas páginas atrás de um paginador: o que hoje traz, depois como correu ontem. Vira-se sozinha uma vez, ao fim de trinta segundos, e nunca mais — cancelada por qualquer toque no paginador e nem sequer armada sob `prefers-reduced-motion`, porque conteúdo que continua a mexer debaixo de quem lê é um problema de WCAG 2.2.2. Na web a bolinha ativa enche-se ao longo da contagem para anunciar a mudança antes de ela acontecer, e esse enchimento é um transform de CSS e não uma animação em JS: trinta segundos de animação em JS voltariam a renderizar o diálogo enquanto ele estivesse no ecrã.
+
+Se o diálogo abre sequer é decidido no `@beyou/state`, não em cada app. Fica fechado quando o servidor diz que o dia já foi reconhecido, quando não há nada que valha a pena dizer, enquanto qualquer fase do tutorial é dona do ecrã, e depois de o usuário o ter fechado nesta sessão. Também só é montado enquanto deve estar visível, para que um formato de resposta que ninguém esperava não possa chegar a um render no ecrã inicial da app.
+
 ## Metas: a árvore e a vitrine
 
 A página de metas agrupa as submetas debaixo da meta principal por defeito, com a lista plana a um toque de distância. Um card com submetas traz um chip "n/m submetas", uma segunda barra fina com a média do progresso das filhas e uma dobra que as lista como linhas compactas com o seu próprio stepper, cujo contador abre o mesmo diálogo de quantidade da meta principal (somar ou tirar qualquer valor, não só um); quando todas as filhas estão concluídas o card oferece completar o pai, porque isso continua a ser a única coisa que paga o XP dele. A pesquisa e o deep link olham através da hierarquia: um acerto numa submeta mantém a meta principal na página, esbatida quando só passou por causa da filha. O seletor "Meta principal" do formulário é pré-filtrado com a mesma regra que o servidor impõe (não ela própria, não uma descendente, três níveis), e "Adicionar submeta" num card abre-o já com o pai, as categorias e o prazo dele preenchidos. Apagar um pai avisa que as filhas passam a metas principais.

@@ -1,0 +1,310 @@
+openapi: 3.1.0
+info:
+  title: Daily Briefing
+  version: v0
+  description: |
+    The dialog a user meets on the first dashboard open of a new day: what is still open from
+    yesterday, and what today holds.
+
+    **Neither route takes a date.** The day is always the caller's own today, resolved from the
+    account's timezone. Letting a client name it would put the device's clock in charge of which
+    day is described and which row `seen` marks, and the two clients would disagree the moment
+    one of them sat in a different zone from the account.
+
+    **The response has two halves with different guarantees, and telling them apart is the whole
+    design.** `yesterday` and `today` are computed from the database on every read and always
+    arrive. `narrative` is generated prose and often will not; its `status` says why. A client
+    that finds no lines renders its own translated copy rather than an empty panel.
+
+    Every figure a user reads is computed on the server, never by the model. A free-tier model
+    asked to work out which goals are at risk gets the arithmetic wrong, invents goals, and
+    answers differently each morning for identical data. The model receives finished numbers and
+    is asked only to phrase them, which means the numbers on screen are always right AND that a
+    morning with the whole LLM chain in cooldown still produces a usable dialog.
+
+    That is also why this endpoint never answers `AI_UNAVAILABLE` the way
+    `POST /onboarding/suggestions` does. There, the suggestions ARE the response; here the prose
+    is the optional half, so the answer is 200 whatever the chain does.
+
+    **The prose is generated once per day, on demand, and cached.** Deliberately not in the
+    nightly day-close pass: that walks every account that exists, so a model call inside it would
+    spend the quota of people who open the app on people who do not, and it would write the
+    "today" half at 02:00 before anything about today had happened. An account that never opens
+    the dialog creates no row at all.
+
+    **Acting on an open item does NOT happen here.** Each entry in `openItems` carries the
+    `snapshotId` and `snapshotCheckId` that `POST /routine/snapshot/check` and
+    `POST /routine/snapshot/skip` already take. Those endpoints own the retroactive rules (XP
+    decay, the outcome stamped on the snapshot's own date, the ownership check), and the briefing
+    hands over the ids rather than growing a second way to do the same thing.
+
+    `GET` sits in its own `briefing` rate-limit tier at 10 an hour rather than the generic 60 a
+    minute for reads: the first call of a day creates a row and may hold the request for up to
+    eight seconds waiting on the model. `POST /seen` stays in the generic `write` tier, being a
+    single-column update with no model behind it.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /daily-briefing:
+    get:
+      tags:
+      - daily-briefing-controller
+      operationId: getBriefing
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/DailyBriefingResponseDTO'
+      summary: The caller's briefing for their own today
+      description: |
+        Get-or-create. The first call of a user's day computes the facts, persists a row and
+        starts the narration; every later call recomputes the facts and reads the prose off the
+        row.
+
+        The facts are deliberately NOT cached. The user can change them from inside the dialog:
+        checking a forgotten habit moves the counts underneath, so a cached copy would need
+        invalidating from every check path, which is a worse trade than a handful of indexed
+        queries.
+
+        The narration is bounded rather than awaited: about eight seconds, after which the
+        response carries `PENDING` and the call is left running to store itself, so the next open
+        of the same day usually finds it `READY`. Concurrent callers join one in-flight call, so
+        two devices opening together cannot buy the same paragraph twice.
+
+        A briefing with nothing in it (no routine yesterday, nothing scheduled today, no goal
+        near due and no expiring day) still answers 200, but creates no row and is not worth
+        showing. Both clients apply the same rule and stay silent. A dialog that greets somebody
+        every morning with "nothing happened" is how you teach them to close it unread.
+  /daily-briefing/seen:
+    post:
+      tags:
+      - daily-briefing-controller
+      operationId: markSeen
+      responses:
+        '204':
+          description: No Content
+      summary: Records that the user has seen today's dialog
+      description: |
+        Server-side rather than in each client's local storage, which is the entire reason this
+        route exists: closing yesterday's loose ends on a phone has to close the dialog on the
+        web too.
+
+        Idempotent, and the FIRST acknowledgement is the one kept. Re-stamping on every call
+        would make the value useless for telling how long somebody took to open the app.
+
+        A day with no row is a no-op: nothing has been shown, so there is nothing to acknowledge.
+
+        204 because there is nothing useful to return. The client already knows what it just did,
+        and a body would only invite it to re-render.
+components:
+  schemas:
+    BriefingOpenItemDTO:
+      type: object
+      description: |
+        One thing a past day is still waiting on. `snapshotId` and `snapshotCheckId` are exactly
+        what the snapshot check and skip routes take.
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        snapshotCheckId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          description: The day this belongs to. Not always yesterday, since older days arrive under `today.recovery`.
+        routineId:
+          type: string
+          format: uuid
+        routineName:
+          type: string
+        itemType:
+          type: string
+          enum:
+          - HABIT
+          - TASK
+        itemName:
+          type: string
+        itemIconId:
+          type: string
+        sectionName:
+          type: string
+        xpIfCheckedNow:
+          type: number
+          format: double
+          description: |
+            What checking this right now would actually pay, after the account's XP decay
+            strategy. Both clients show it. Somebody who checks a forgotten habit and watches a
+            smaller number than usual land, with no explanation, reads it as a bug rather than as
+            the rule it is.
+    BriefingYesterdayRecapDTO:
+      type: object
+      description: |
+        The day that just ended, read entirely from its `RoutineSnapshot` rows. After the midnight
+        pass the live checks for the date are deleted, so the snapshot is not merely the
+        convenient source, it is the only one.
+      properties:
+        date:
+          type: string
+          format: date
+        hadRoutine:
+          type: boolean
+          description: |
+            Whether any routine covered the day. False means nothing was ASKED of the user, which
+            is not the same as a day they ignored, and must never be rendered as a failure.
+        complete:
+          type: boolean
+          description: Every routine of the day finished, under the account's own constance setting.
+        doneCount:
+          type: integer
+          format: int32
+        skippedCount:
+          type: integer
+          format: int32
+          description: Deliberate skips. A choice the user made; never counted against them.
+        xpEarned:
+          type: number
+          format: double
+        openItems:
+          type: array
+          description: Neither checked nor skipped, and therefore still actionable.
+          items:
+            $ref: '#/components/schemas/BriefingOpenItemDTO'
+        focusCycles:
+          type: integer
+          format: int32
+        moodLevel:
+          type: integer
+          format: int32
+          description: The 1-5 mood logged for the day, or absent if none was.
+    BriefingGoalAheadDTO:
+      type: object
+      description: |
+        A goal close enough to its end date to be worth mentioning. Overdue goals are kept rather
+        than hidden: a goal whose date has passed with the target unmet is the most useful thing
+        this panel can say.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        currentValue:
+          type: number
+          format: double
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        endDate:
+          type: string
+          format: date
+        daysRemaining:
+          type: integer
+          format: int64
+          description: Whole days from today. Negative means overdue.
+        percentComplete:
+          type: integer
+          format: int32
+    BriefingRecoveryWindowDTO:
+      type: object
+      description: |
+        Days older than yesterday that a retroactive check would still be accepted for. Absent
+        when there are none, so a client renders no affordance rather than an empty one.
+        Yesterday itself is excluded: it is the main list's own subject.
+      properties:
+        oldestOpenDay:
+          type: string
+          format: date
+        daysUntilExpiry:
+          type: integer
+          format: int64
+          description: Days before `oldestOpenDay` falls out of the backfill window. 1 means tonight is the last chance.
+        remainingXpPercent:
+          type: integer
+          format: int32
+          description: What a check on that day still pays, as a percentage. Legitimately 0 under the TIME_WINDOW strategy.
+        openItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/BriefingOpenItemDTO'
+    BriefingTodayAheadDTO:
+      type: object
+      properties:
+        scheduledItemCount:
+          type: integer
+          format: int32
+        scheduledToday:
+          type: boolean
+          description: |
+            Whether any routine covers today. False means nothing is at risk: the account streak
+            counts scheduled days, so a day with nothing on it cannot break one.
+        currentStreak:
+          type: integer
+          format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        goalsApproaching:
+          type: array
+          description: Soonest first, capped at three.
+          items:
+            $ref: '#/components/schemas/BriefingGoalAheadDTO'
+        recovery:
+          $ref: '#/components/schemas/BriefingRecoveryWindowDTO'
+    BriefingNarrativeDTO:
+      type: object
+      description: |
+        The generated half: a few lines per carousel page, and nothing else. The model writes
+        prose and never numbers.
+      properties:
+        status:
+          type: string
+          enum:
+          - PENDING
+          - READY
+          - UNAVAILABLE
+          description: |
+            `PENDING`: asked for, and the model had not answered by the request's deadline. It
+            may still land, and the next read of the same day usually finds it.
+            `READY`: the lines below are real.
+            `UNAVAILABLE`: the chain refused or failed. Not retried for the rest of the day, since a
+            chain in cooldown refuses the retry too and the panel reads identically either way.
+            None of the three is an error.
+        todayLines:
+          type: array
+          description: At most three lines for the "what is coming" page. Empty unless READY.
+          items:
+            type: string
+        yesterdayLines:
+          type: array
+          description: At most three lines for the recap page. Empty unless READY.
+          items:
+            type: string
+    DailyBriefingResponseDTO:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: The account's own day this briefing describes.
+        yesterday:
+          $ref: '#/components/schemas/BriefingYesterdayRecapDTO'
+        today:
+          $ref: '#/components/schemas/BriefingTodayAheadDTO'
+        narrative:
+          $ref: '#/components/schemas/BriefingNarrativeDTO'
+        seenAt:
+          type: string
+          format: date-time
+          description: |
+            When the user last acknowledged this day's dialog, or absent if never. Both clients
+            read this rather than their own storage, so closing the dialog on one device closes
+            it on the other.

@@ -220,6 +220,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 | Tier | Endpoints | Limit | Keyed by |
 |------|-----------|-------|----------|
 | auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
+| unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hour | user |
 | docs | /docs/* (public) | 30 / min | IP |
 | photo | GET /user/photo/* | 120 / min | IP |
@@ -228,8 +229,11 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 | feedback | POST /feedback | 10 / hour | user |
 | feedback-attachment | POST /feedback/*/attachments | 20 / hour | user |
 | export | GET /user/export | 5 / hour | user |
+| briefing | GET /daily-briefing | 10 / hour | user |
 | write | any other POST/PUT/DELETE | 30 / min | user |
 | read | any other GET | 60 / min | user |
+
+The Daily Briefing sits above the generic read tier for its own reason: the first call of a user's day creates a row and may hold the request for up to eight seconds waiting on the LLM that writes the briefing's prose, and the 60-a-minute read budget is sized for list reads. Ten an hour covers two clients, a reload and a retry, against an answer that is cached on the row for the rest of the day. Its sibling `POST /daily-briefing/seen` deliberately stays in the generic write tier, being a single-column update with no model behind it.
 
 The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response — every category, habit, task, goal, routine, mood entry, feedback thread and assistant conversation, assembled in memory and serialized in one go. Sixty a minute of that is a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
 

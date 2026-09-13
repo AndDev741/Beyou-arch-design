@@ -45,7 +45,9 @@ flowchart LR
 
 The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps eighteen slices from stepping on each other in two apps.
 
-Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, and the onboarding entity-creation helpers.
+Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, the onboarding entity-creation helpers, and the Daily Briefing's rules.
+
+The briefing deliberately adds no slice. Its dialog is the only consumer of its data, so the response lives in component state and dies with the dialog. What IS shared is the judgement around it — whether the dialog should open at all, and what happens to the list when the user resolves a row. Those are exactly the decisions that get a subtly different answer on each platform within a month of shipping, and the difference stays invisible until somebody says the phone nags them and the web does not.
 
 ## Persistence, and what refuses to persist
 

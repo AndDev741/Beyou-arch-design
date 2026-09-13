@@ -53,6 +53,16 @@ Forms resolve through zod schemas that live in the shared validation package, wr
 
 The dashboard composes a profile card, shortcut links, today's routine with its check-in flow, a goals rail, and the configurable widget area.
 
+## The new-day dialog
+
+The first dashboard open of a day can raise the Daily Briefing: a shared `Modal` on web, a `BottomSheet` on mobile, two columns from `lg` and stacked below it, with the actionable half leading on both axes.
+
+The left half is the only part you can act on: yesterday's items that are neither checked nor skipped, each with the check and skip the snapshot endpoints already provide. A skip stays out of that list because it is an answer the user already gave; it shows in the summary line instead. Two different empty states share the space and must not be collapsed into one, because a day the user finished and a day nothing was scheduled on are not the same result and only the first deserves the accent. Older recoverable days sit behind a disclosure, since the panel is about yesterday and seven days of arrears every morning is how you teach somebody to close a dialog unread.
+
+The right half is two pages behind a pager: what today holds, then how yesterday went. It turns itself over once, after thirty seconds, and then never again — cancelled by any touch of the pager and not armed at all under `prefers-reduced-motion`, because content that keeps moving under a reader is a WCAG 2.2.2 problem. On web the active bullet fills over the countdown so the change is announced before it happens, and that fill is a CSS transform rather than a motion tween: a thirty-second JS animation would re-render the dialog for as long as it was on screen.
+
+Whether the dialog opens at all is decided in `@beyou/state`, not in either app. It stays shut when the server says the day was already acknowledged, when there is nothing worth saying, while any tutorial phase owns the screen, and after the user has closed it in this session. It is also only mounted while it should be visible, so a response shape nobody expected cannot reach a render on the app's home screen.
+
 ## Goals: the tree and the viewer
 
 The goals page groups sub-goals under their main goal by default, with a flat list one toggle away. A card with sub-goals carries a "n/m sub-goals" chip, a thin second bar for the children's mean progress, and a fold that lists them as compact rows with their own stepper, whose counter opens the same amount dialog the main goal has (add or remove any amount, not just one); when every child is complete the card offers to complete the parent, because that is still the only thing that pays the parent's XP. Search and the deep link look through the hierarchy: a match on a sub-goal keeps its main goal on the page, dimmed when it only made it through the child. The form's "Main goal" picker is pre-filtered with the same rule the server enforces (not itself, not a descendant, three levels), and "Add sub-goal" on a card opens it with the parent, its categories and its deadline already filled in. Deleting a parent warns that the children become main goals.

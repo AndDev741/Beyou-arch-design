@@ -431,6 +431,20 @@ sequenceDiagram
 | **Single table** | Routine → DiaryRoutine | One table with a dtype discriminator. Fast queries; tolerable NOT NULL embedded columns only because there is a single subclass. |
 | **Joined** | ItemGroup → HabitGroup / TaskGroup, BaseCheck → HabitGroupCheck / TaskGroupCheck | Base table plus child tables joined by foreign key. Cleaner schema, one more join per query. |
 
+## Daily Briefing
+
+**Product role**: the dialog a user meets on the first dashboard open of a new day. What is still open from yesterday, and what today holds.
+
+**DailyBriefing** (table daily_briefing): at most one row per user per day, added in V32.
+
+- **What this table does NOT hold is the point of it.** The briefing's facts — what was missed yesterday, which goals are close, where the streak stands — are recomputed from the live tables on every read, because they are three or four indexed queries AND because the user can change them from inside the dialog itself. Caching those would mean either a stale panel or an invalidation hook on every check path, and both are worse than asking again.
+- The narrative is the opposite: an LLM call against a free-tier chain with cooldown windows, prose rather than data, and nothing the user does during the day makes yesterday's recap wrong enough to pay for again. So it is written once per day and read from here afterwards.
+- `UNIQUE (user_id, briefing_date)` carries the model. The service reads before it writes, but two clients opening within the same second race past that read, and the constraint is what makes the loser retry against the winner's row instead of buying a second paragraph.
+- `narrative_status` is `PENDING | READY | UNAVAILABLE` as a varchar with a CHECK, following V19 and V27. None of the three is an error: the facts half always answers, so a null narrative is a normal state and the clients render their own translated copy.
+- Generated **on demand**, at the first dashboard open, and deliberately NOT in the nightly day-close pass. That pass walks every account that exists; a model call inside it would spend the quota of people who open the app on people who do not, and it would write the "today" half at 02:00 before anything about today had happened. An account that never opens the dialog creates no row at all.
+- `briefing_date` is the account's own day, resolved through `UserDateResolver` like every other date in this schema.
+- **No new write path for the items themselves.** Each open item carries the `snapshotId` and `snapshotCheckId` that `POST /routine/snapshot/check` and `/skip` already take, so the retroactive rules — XP decay, the outcome stamped on the snapshot's own date, the ownership check — stay in the one service that already enforces them.
+
 ## Cascade and deletion rules
 
 Understanding the cascades matters most at account deletion, which relies on them end to end.
@@ -446,6 +460,7 @@ Understanding the cascades matters most at account deletion, which relies on the
 | HabitGroup / TaskGroup | Checks | ALL | No. Check history is preserved |
 | Goal (DB level) | Sub-goals | ON DELETE SET NULL | Children are promoted to top level, never deleted with the parent. The UI says so before the delete |
 | RoutineSnapshot | SnapshotChecks | ALL | Yes |
+| User (DB level) | DailyBriefing rows | ON DELETE CASCADE | Handled by the database FK. A briefing is derived data with no meaning past the account |
 
 ## Database tables summary
 
@@ -485,6 +500,7 @@ flowchart LR
     snapshot_check
     focus_cycles
     focus_micro_tasks
+    daily_briefing
   end
 
   subgraph support["Feedback & AI"]

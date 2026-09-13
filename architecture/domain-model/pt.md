@@ -429,6 +429,20 @@ sequenceDiagram
 | **Single table** | Routine → DiaryRoutine | Uma tabela com discriminador dtype. Consultas rápidas; colunas embutidas NOT NULL só toleráveis porque há uma única subclasse. |
 | **Joined** | ItemGroup → HabitGroup / TaskGroup, BaseCheck → HabitGroupCheck / TaskGroupCheck | Tabela base mais tabelas filhas unidas por chave estrangeira. Schema mais limpo, um join a mais por consulta. |
 
+## Resumo do Dia
+
+**Papel no produto**: o diálogo que o usuário encontra na primeira abertura do painel num dia novo. O que ficou aberto de ontem, e o que vem hoje.
+
+**DailyBriefing** (tabela daily_briefing): no máximo uma linha por usuário por dia, adicionada na V32.
+
+- **O que esta tabela NÃO guarda é o ponto dela.** Os factos do resumo — o que faltou ontem, que metas estão perto, onde está a constância — são recalculados a partir das tabelas vivas em cada leitura, porque são três ou quatro consultas indexadas E porque o usuário pode mudá-los de dentro do próprio diálogo. Guardá-los em cache daria ou um painel desatualizado ou um gancho de invalidação em cada caminho de check, e ambos são piores do que perguntar de novo.
+- O texto gerado é o contrário: uma chamada a um LLM de camada gratuita com janelas de arrefecimento, prosa e não dados, e nada do que o usuário faz durante o dia torna o resumo de ontem errado ao ponto de valer pagar outra vez. Por isso é escrito uma vez por dia e lido daqui depois.
+- `UNIQUE (user_id, briefing_date)` carrega o modelo. O serviço lê antes de escrever, mas dois clientes que abrem no mesmo segundo passam os dois por essa leitura, e a restrição é o que faz o perdedor tentar de novo contra a linha do vencedor em vez de comprar um segundo parágrafo.
+- `narrative_status` é `PENDING | READY | UNAVAILABLE`, um varchar com CHECK, seguindo a V19 e a V27. Nenhum dos três é erro: a metade dos factos responde sempre, então um texto nulo é um estado normal e os clientes mostram a própria cópia traduzida.
+- Gerado **a pedido**, na primeira abertura do painel, e de propósito NÃO na passagem noturna de fecho do dia. Essa passagem percorre todas as contas que existem; uma chamada ao modelo lá dentro gastaria a quota de quem abre a app com quem não abre, e escreveria a metade de "hoje" às 02:00, antes de ter acontecido seja o que for hoje. Uma conta que nunca abre o diálogo não cria linha nenhuma.
+- `briefing_date` é o dia da própria conta, resolvido pelo `UserDateResolver` como qualquer outra data neste esquema.
+- **Nenhum caminho de escrita novo para os próprios itens.** Cada item aberto carrega o `snapshotId` e o `snapshotCheckId` que o `POST /routine/snapshot/check` e o `/skip` já aceitam, portanto as regras retroativas — decaimento de XP, o resultado carimbado no dia do próprio snapshot, a verificação de dono — ficam no único serviço que já as aplica.
+
 ## Regras de cascade e exclusão
 
 Entender os cascades importa acima de tudo na exclusão de conta, que depende deles de ponta a ponta.
@@ -444,6 +458,7 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | HabitGroup / TaskGroup | Checks | ALL | Não. O histórico de checks é preservado |
 | Goal (nível de banco) | Submetas | ON DELETE SET NULL | As filhas sobem para o nível principal, nunca são apagadas com o pai. A UI avisa antes de apagar |
 | RoutineSnapshot | SnapshotChecks | ALL | Sim |
+| User (nível BD) | Linhas DailyBriefing | ON DELETE CASCADE | Tratado pela FK do banco. Um resumo é dado derivado, sem sentido depois da conta |
 
 ## Resumo das tabelas do banco
 
@@ -483,6 +498,7 @@ flowchart LR
     snapshot_check
     focus_cycles
     focus_micro_tasks
+    daily_briefing
   end
 
   subgraph support["Feedback & IA"]
