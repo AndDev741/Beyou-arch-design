@@ -66,8 +66,8 @@ paths:
 
         The facts are deliberately NOT cached. The user can change them from inside the dialog:
         checking a forgotten habit moves the counts underneath, so a cached copy would need
-        invalidating from every check path, which is a worse trade than a handful of indexed
-        queries.
+        invalidating from every check path, which is a worse trade than the ten or so indexed
+        queries a fresh read costs.
 
         The narration is bounded rather than awaited: about eight seconds, after which the
         response carries `PENDING` and the call is left running to store itself, so the next open

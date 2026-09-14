@@ -47,7 +47,7 @@ O barrel do pacote é curado: nomes de action que colidem entre slices não são
 
 Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh, os helpers de criação de entidades do onboarding e as regras do Resumo do Dia.
 
-O resumo não acrescenta slice nenhum, de propósito. O diálogo dele é o único consumidor dos seus dados, portanto a resposta vive em estado de componente e morre com o diálogo. O que É partilhado é o julgamento à volta: se o diálogo deve sequer abrir, e o que acontece à lista quando o usuário resolve uma linha. São exactamente as decisões que ganham uma resposta subtilmente diferente em cada plataforma no espaço de um mês, e a diferença fica invisível até alguém dizer que o telemóvel chateia e a web não.
+O resumo não acrescenta slice nenhum, de propósito. O diálogo dele é o único consumidor dos seus dados, portanto a resposta vive em estado de componente e morre com o diálogo. O que é partilhado é o julgamento à volta: se o diálogo deve sequer abrir, e o que acontece à lista quando o usuário resolve uma linha. São exactamente as decisões que ganham uma resposta subtilmente diferente em cada plataforma no espaço de um mês, e a diferença fica invisível até alguém dizer que o telemóvel chateia e a web não.
 
 ## Persistência, e o que se recusa a persistir
 

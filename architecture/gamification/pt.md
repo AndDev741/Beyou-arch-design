@@ -88,7 +88,7 @@ Dias passados vivem nos snapshots de rotina, e marcar um ainda paga, mas por um 
 | FLAT | 0,5 seja qual for o atraso |
 | TIME_WINDOW | XP cheio até dois dias de atraso, nada depois |
 
-O decaimento era algo que o usuário descobria ao reparar num número menor. O Resumo do Dia passa a dizê-lo antes do toque: cada item aberto no diálogo de novo dia carrega quanto marcá-lo agora pagaria de facto, calculado pela mesma calculadora e pelo mesmo relógio que o caminho de check lê, para que o valor anunciado e o pago não possam divergir. Um teste de integração corre os dois e compara-os.
+Sem um sítio onde o dizer, o decaimento é algo que o usuário só descobre ao reparar num número menor do que o habitual. O Resumo do Dia di-lo antes do toque: cada item aberto no diálogo de novo dia carrega quanto marcá-lo agora pagaria de facto, calculado pela mesma calculadora e pelo mesmo relógio que o caminho de check lê, para que o valor anunciado e o pago não possam divergir. Um teste de integração corre os dois e compara-os.
 
 Checks atrasados nunca recebem bônus de streak (o streak já tinha quebrado na falta), e dificuldade e importância vêm congeladas do snapshot, não do hábito como ele é hoje. O que um check atrasado faz é reparar a história: o dia perdido vira DONE e a caminhada do streak reconecta por cima dele, então duas sequências de cinco dias separadas por uma falta reparada viram um streak de onze dias, comportamento fixado em teste. Desmarcar devolve o dia e deixa o recorde de pé. Quando o hábito ou a rotina originais já foram apagados, o XP ainda paga em camadas que encolhem: distribuição completa, depois usuário mais rotina, depois só o usuário.
 

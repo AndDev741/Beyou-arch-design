@@ -88,7 +88,7 @@ Past days live in routine snapshots, and checking one still pays, but through a 
 | FLAT | 0.5 regardless of delay |
 | TIME_WINDOW | Full XP up to two days late, nothing after |
 
-The decay used to be something a user discovered by noticing a smaller number. The Daily Briefing now states it before the tap: each open item on the new-day dialog carries what checking it right now would actually pay, computed from the same calculator and the same clock the check path reads, so the advertised figure and the paid one cannot drift. An integration test runs both and compares them.
+Without somewhere to say so, the decay is something a user only discovers by noticing a smaller number than usual. The Daily Briefing states it before the tap: each open item on the new-day dialog carries what checking it right now would actually pay, computed from the same calculator and the same clock the check path reads, so the advertised figure and the paid one cannot drift. An integration test runs both and compares them.
 
 Late checks never receive a streak bonus (the streak was already broken by the miss), and difficulty and importance come frozen from the snapshot, not from the habit as it is today. What a late check does do is repair history: the missed day flips to DONE and the streak walk reconnects across it, so two five-day runs separated by one repaired miss become an eleven-day streak, a behavior pinned by tests. Unchecking flips the day back and leaves the best-streak record standing. When the original habit or routine has since been deleted, the XP still pays out in shrinking tiers: full distribution, then user plus routine, then user alone.
 
