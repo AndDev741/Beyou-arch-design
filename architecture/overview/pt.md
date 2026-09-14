@@ -134,9 +134,12 @@ sequenceDiagram
 | **Rotinas** | Routine, Schedule, Snapshot | /routine, /schedule, /routine/snapshot |
 | **Histórico** | CheckHistory, XpHistory | /check-history, /xp |
 | **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
+| **Diário** | Mood | /mood |
+| **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
 | **IA** | AiAgent, Onboarding | /ai/agent, /onboarding |
 | **Feedback** | Feedback, FeedbackAdmin | /feedback, /feedback/admin |
+| **Notificações** | NotificationPreferences | /notification/preferences, /notification/unsubscribe |
 | **Docs** | Architecture, Blog, Api, Project, Search, Import | /docs/* |
 
 ### Padrão de requisição/resposta

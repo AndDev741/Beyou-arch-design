@@ -219,6 +219,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 | Faixa | Endpoints | Limite | Chaveado por |
 |-------|-----------|--------|--------------|
 | auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
+| unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hora | usuário |
 | docs | /docs/* (público) | 30 / min | IP |
 | photo | GET /user/photo/* | 120 / min | IP |
@@ -227,8 +228,11 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 | feedback | POST /feedback | 10 / hora | usuário |
 | feedback-attachment | POST /feedback/*/attachments | 20 / hora | usuário |
 | export | GET /user/export | 5 / hora | usuário |
+| briefing | GET /daily-briefing | 10 / hora | usuário |
 | write | qualquer outro POST/PUT/DELETE | 30 / min | usuário |
 | read | qualquer outro GET | 60 / min | usuário |
+
+O Resumo do Dia fica acima da faixa de leitura genérica pelo motivo dele: a primeira chamada do dia de um usuário cria uma linha e pode segurar o pedido por até oito segundos à espera do LLM que escreve o texto do resumo, e o orçamento de 60 por minuto foi dimensionado para leituras de lista. Dez por hora cobre dois clientes, um reload e uma repetição, contra uma resposta que fica guardada na linha pelo resto do dia. O irmão `POST /daily-briefing/seen` fica de propósito na faixa de escrita genérica, por ser uma atualização de uma coluna sem modelo nenhum atrás.
 
 O export fica acima da faixa de leitura genérica por um motivo que vale registrar: é um GET, mas devolve a conta inteira em uma resposta — cada categoria, hábito, tarefa, meta, rotina, registo de humor, conversa de feedback e conversa com o assistente, montadas em memória e serializadas de uma vez. Sessenta por minuto disso é um jeito de segurar a heap, e ninguém que está levando os próprios dados precisa de uma sexta cópia dentro da hora.
 
