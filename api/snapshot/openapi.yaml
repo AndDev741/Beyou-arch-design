@@ -238,9 +238,14 @@ components:
         difficulty:
           type: integer
           format: int32
+          description: Frozen at snapshot time, never read back from the item.
+            Always present and always 1 to 5. A task may leave its own difficulty
+            unset, and the missing value is stored here as 1, the same number the
+            check XP formula would have used.
         importance:
           type: integer
           format: int32
+          description: Same contract as difficulty.
         checked:
           type: boolean
         skipped:

@@ -95,8 +95,8 @@ flowchart TD
 | Field | Type | Notes |
 |-------|------|-------|
 | name / description / iconId | String | |
-| importance | Integer | 1 to 4 |
-| dificulty | Integer | 1 to 4. Yes, misspelled: it is the real field, column, and wire-format name |
+| importance | Integer | 1 to 5 |
+| dificulty | Integer | 1 to 5. Yes, misspelled: it is the real field, column, and wire-format name |
 | motivationalPhrase | String | Optional |
 
 **Embedded**: XpProgress and CheckProgress. The old standalone `constance` counter is gone; CheckProgress replaced it.
@@ -281,6 +281,7 @@ The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_
 **SnapshotCheck** (table snapshot_check): one row per habit or task group in the frozen routine.
 
 - Denormalized copies of the item's name, icon, difficulty, and importance, plus its section name.
+- Difficulty and importance are always a number here, even for a task that left its own unset: the snapshot columns are not nullable, so the missing-counts-as-1 rule is applied on the way in rather than by every reader afterwards.
 - originalItemId and originalGroupId are loose UUIDs with no foreign keys, the same pattern as the history tables: the snapshot must survive edits and deletions of what it points at.
 - Mutable state: checked, skipped, checkTime, xpGenerated. Item type is HABIT or TASK.
 
