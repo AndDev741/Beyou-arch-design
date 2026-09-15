@@ -95,8 +95,8 @@ flowchart TD
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | name / description / iconId | String | |
-| importance | Integer | 1 a 4 |
-| dificulty | Integer | 1 a 4. Sim, com erro de grafia: é o nome real do campo, da coluna e do formato de rede |
+| importance | Integer | 1 a 5 |
+| dificulty | Integer | 1 a 5. Sim, com erro de grafia: é o nome real do campo, da coluna e do formato de rede |
 | motivationalPhrase | String | Opcional |
 
 **Embutidos**: XpProgress e CheckProgress. O antigo contador avulso `constance` se foi; o CheckProgress o substituiu.
@@ -279,6 +279,7 @@ A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabe
 **SnapshotCheck** (tabela snapshot_check): uma linha por grupo de hábito ou tarefa da rotina congelada.
 
 - Cópias desnormalizadas do nome, ícone, dificuldade e importância do item, mais o nome da seção.
+- Dificuldade e importância sempre têm um número aqui, mesmo para uma tarefa que deixou as suas em branco: as colunas do snapshot não são anuláveis, então a regra do ausente vale 1 é aplicada na entrada, e não por cada leitor depois.
 - originalItemId e originalGroupId são UUIDs soltos, sem chaves estrangeiras, o mesmo padrão das tabelas de histórico: o snapshot precisa sobreviver a edições e exclusões daquilo que aponta.
 - Estado mutável: checked, skipped, checkTime, xpGenerated. O tipo do item é HABIT ou TASK.
 
