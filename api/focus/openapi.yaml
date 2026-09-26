@@ -115,8 +115,12 @@ paths:
       operationId: addMicroTask
       description: |
         A micro-task on one item, today. Idempotent on the name: asking twice for "stretch"
-        on the same item returns the existing row rather than a 500 from the unique
+        on the same item returns the existing row rather than a 409 from the unique
         constraint, which is what lets a client retry a request whose response it lost.
+        That holds for two requests arriving at the same moment too (two tabs, the phone and
+        the web, a double submit): every insert into one item's list takes a transaction-scoped
+        advisory lock on (user, item) first, so the second reads the list after the first has
+        committed and gets the same row back, also as a 201.
       requestBody:
         content:
           application/json:
