@@ -149,7 +149,7 @@ Three pieces turn a routine check into visible progress:
 - **CelebrationOverlay**: a global overlay draining a FIFO queue of celebrations (level-ups and streak milestones), auto-dismissing after four seconds, dismissable by click or Escape.
 - **The RefreshUI flow**: check responses carry a RefreshUI payload, and a shared apply function updates the profile, categories, habit, and routine slices in one pass, deciding on the way whether a celebration belongs in the queue. The details live in the [Redux and data topic](/architecture/redux-data).
 
-Data freshness is handled by a shared auto-refresh policy with three prompts: returning to the tab, the local day rolling over, and a five-minute interval while visible. Single-flight, silent on failure, and paused entirely while the tab is hidden or a check animation is mid-flight.
+Data freshness is handled by a shared auto-refresh policy with three prompts: returning to the tab, the local day rolling over, and a five-minute interval while visible. Single-flight, silent on failure, and paused entirely while the tab is hidden or a check animation is mid-flight. A refresh replaces the list in Redux with new objects for the same rows, so a form must never re-seed itself on an object's identity. The create-goal form opened from "Add sub-goal" did, and every return to the tab wiped what had been typed. Forms now borrow from the list once per opening, keyed on the id, and never over a field the person already filled.
 
 ## Code splitting
 

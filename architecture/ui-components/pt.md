@@ -150,7 +150,7 @@ Três peças transformam um check de rotina em progresso visível:
 - **CelebrationOverlay**: um overlay global drenando uma fila FIFO de celebrações (level-ups e marcos de streak), fechando sozinho em quatro segundos, dispensável por clique ou Escape.
 - **O fluxo RefreshUI**: respostas de check carregam um payload RefreshUI, e uma função compartilhada de aplicação atualiza os slices de perfil, categorias, hábito e rotina em uma passada, decidindo no caminho se uma celebração entra na fila. Os detalhes vivem no [tópico de Redux e dados](/architecture/redux-data).
 
-A frescura dos dados fica com uma política compartilhada de auto-refresh com três gatilhos: voltar para a aba, o dia local virar e um intervalo de cinco minutos enquanto visível. Voo único, silenciosa em falha e totalmente pausada com a aba escondida ou uma animação de check no meio.
+A frescura dos dados fica com uma política compartilhada de auto-refresh com três gatilhos: voltar para a aba, o dia local virar e um intervalo de cinco minutos enquanto visível. Voo único, silenciosa em falha e totalmente pausada com a aba escondida ou uma animação de check no meio. Um refresh troca a lista no Redux por objetos novos para as mesmas linhas, então um formulário nunca deve se preencher de novo pela identidade de um objeto. O formulário de criar meta aberto por "Adicionar submeta" fazia isso, e cada volta para a aba apagava o que já tinha sido digitado. Agora os formulários pegam da lista uma vez por abertura, pelo id, e nunca por cima de um campo que a pessoa já preencheu.
 
 ## Code splitting
 
