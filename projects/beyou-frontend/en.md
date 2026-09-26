@@ -12,7 +12,7 @@ The state (17 Redux slices and the gamification logic), the API layer behind a n
 
 ## How it ships
 
-One CI graph typechecks, builds, and tests every workspace, then runs the Playwright e2e suite against the full stack. A push to main publishes the web image to GHCR (Watchtower deploys it) and, when the mobile app or any shared package changed, builds a signed Android APK published to a rolling GitHub release. The store build is a separate workflow that produces the App Bundle uploaded to the Play Console; the app is on [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).
+One CI graph typechecks, builds, and tests every workspace, then runs the Playwright e2e suite against the full stack. A push to main publishes the web image to GHCR (Watchtower deploys it) and, when the mobile app or any shared package changed, builds the signed Android App Bundle and uploads it to the Google Play internal testing track. Production releases go out from that same workflow on a manual run; the app is on [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).
 
 ## Deep dives
 
