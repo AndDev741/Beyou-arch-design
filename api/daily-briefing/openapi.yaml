@@ -254,7 +254,7 @@ components:
           format: int32
         goalsApproaching:
           type: array
-          description: Soonest first, capped at three.
+          description: Soonest first, capped at three. Completed and archived goals are left out.
           items:
             $ref: '#/components/schemas/BriefingGoalAheadDTO'
         recovery:

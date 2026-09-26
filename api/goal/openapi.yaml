@@ -94,6 +94,44 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/GoalResponseDTO'
+  /goal/archive:
+    put:
+      tags:
+      - goal-controller
+      operationId: setArchived
+      description: |
+        Archive a goal (put it away without deleting it) or restore it. Archiving is not an
+        outcome: it moves no XP and leaves status, complete and xpReward alone, so a finished
+        goal and an abandoned one archive the same way.
+
+        The sub-goals go with it. Every not-yet-archived descendant is stamped with the SAME
+        archivedAt as the goal, and restoring clears the goal and exactly the descendants that
+        carry that instant: a sub-goal archived on its own earlier keeps its own stamp and stays
+        archived. Asking for the state a goal is already in changes nothing (re-archiving does
+        not re-stamp, which would cut that link).
+
+        The body names the state wanted rather than asking for a toggle, so a double tap is
+        harmless. GET /goal keeps returning archived goals, with the field set: the clients
+        filter, which keeps one cached list and one query.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveGoalRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: Every goal whose state changed, the goal itself first.
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GoalResponseDTO'
+        '400':
+          description: >-
+            Missing goalId or archived, the goal does not exist (GOAL_NOT_FOUND), or it belongs
+            to another user (GOAL_NOT_OWNED).
   /goal/complete:
     put:
       tags:
@@ -220,7 +258,9 @@ components:
             user (GOAL_NOT_OWNED), must not be the goal itself or one of its descendants
             (GOAL_PARENT_CYCLE), and the resulting chain may be at most three goals deep
             counting ancestors above the parent and the subtree already hanging under the
-            goal (GOAL_DEPTH_EXCEEDED). Omit or send null for a top-level goal.
+            goal (GOAL_DEPTH_EXCEEDED). An archived goal takes no NEW sub-goals
+            (GOAL_PARENT_ARCHIVED); a link that already exists is kept, since an edit always
+            sends the parent back. Omit or send null for a top-level goal.
       required:
       - categoriesId
       - currentValue
@@ -291,7 +331,8 @@ components:
           nullable: true
           description: >-
             The parent goal after the edit. Always send it: an absent or null value detaches the
-            goal to the top level. Same rules as on create (owner, cycle, three levels).
+            goal to the top level. Same rules as on create (owner, cycle, three levels, no new link
+            to an archived goal); the parent the goal already has is always accepted back.
       required:
       - categoriesId
       - complete
@@ -364,6 +405,15 @@ components:
             Id of the goal this one sits under, or null for a top-level goal. The response is
             flat on purpose: clients rebuild the tree from this field over the full list that
             GET /goal already returns, so no extra request is needed for children or summaries.
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            When the goal was archived, or null while it is active. Clients leave archived goals
+            out of the goals page (except its Archived view), the viewer, the dashboard and the
+            parent pickers; the server leaves them out of the briefing's goals ahead, the category
+            card's goal list and the agent's plans. Goals archived together share one instant.
     RefreshItemCheckedDTO:
       type: object
       properties:
@@ -435,6 +485,18 @@ components:
         nextLevelXp:
           type: number
           format: double
+    ArchiveGoalRequestDTO:
+      type: object
+      properties:
+        goalId:
+          type: string
+          format: uuid
+        archived:
+          type: boolean
+          description: true to archive, false to restore. The state wanted, not a toggle.
+      required:
+      - archived
+      - goalId
     UpdateGoalValueDTO:
       type: object
       properties:
