@@ -144,6 +144,7 @@ components:
             type: string
         goals:
           type: object
+          description: Goal id to name, for the card. Archived goals keep their category link but are not listed.
           additionalProperties:
             type: string
         xp:

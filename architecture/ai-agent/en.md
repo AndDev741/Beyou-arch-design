@@ -1,6 +1,6 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 47 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 51 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
 ---
 
 This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
@@ -74,7 +74,7 @@ The assistant is optional end to end. Nothing reaches a provider for a user who 
 
 ## The tools
 
-Fifty tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease, and a move-under tool that re-parents a goal in the tree by name without resending every field), routine building (create, targeted edits, full-replace edit, item add and remove), list routines (create and full-replace, both taking a flat item array and no times), schedules, today's routine with check and skip, Focus Mode's micro-tasks (list, add, tick, pin, delete, reorder) and its day view, user configuration reads and patches, daily mood (one writer and one reader), two memory writers, and feedback submission.
+Fifty-one tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease, archive and restore, and a move-under tool that re-parents a goal in the tree by name without resending every field), routine building (create, targeted edits, full-replace edit, item add and remove), list routines (create and full-replace, both taking a flat item array and no times), schedules, today's routine with check and skip, Focus Mode's micro-tasks (list, add, tick, pin, delete, reorder) and its day view, user configuration reads and patches, daily mood (one writer and one reader), two memory writers, and feedback submission.
 
 Three absences in that list are deliberate. **A timer cycle cannot be written.** A cycle is the record that somebody actually sat through one, and the client only reports a cycle that ran out, so a tool able to file them would let the agent invent history the person never lived — the same reasoning that keeps check-ins behind an explicit request. Cycles are readable through the day view and nothing more. And **no tool guesses which routine entry a micro-task belongs to**: a missing entry id is refused rather than defaulted, because a row written onto the wrong entry is silent and the person only finds it later with nothing to explain it. The refusal names the entry they have open in Focus Mode, when there is one, which is usually the one the model meant. And **the journal itself is not readable**: the history tool returns each day's date, its level, and whether something was written, never the words. Somebody writing at length for themselves has not asked a model to read it, and a tool that could would make every entry part of the next prompt. If they want the assistant to see a day, they paste it.
 
