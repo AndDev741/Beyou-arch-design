@@ -5,11 +5,11 @@ flowchart TD
   APP --> PROT["ProtectedRoute · layout route"]
 
   PROT --> SHELL["Shell (mounted once)<br/>Sidebar · BottomNav · AgentWidget"]
-  SHELL --> PAGES["8 lazy pages<br/>dashboard → feedback"]
+  SHELL --> PAGES["16 lazy pages<br/>dashboard → notebook → feedback"]
   PROT --> ADM["AdminRoute (lazy)<br/>/admin/feedback"]
 
   PAGES --> QUARTET["Entity quartet<br/>createX/editX → XForm → xBox → renderXs"]
-  PAGES --> WIDG["Widget fabric<br/>8 shared ids · carousel on phones"]
+  PAGES --> WIDG["Widget fabric<br/>9 shared ids · carousel on phones"]
   PAGES --> TUT["Tutorial phase machine<br/>intro → ai-onboarding → tours → done"]
 
   QUARTET --> UIP["ui/ primitives<br/>Card · Ring · XpBar · Modal ..."]

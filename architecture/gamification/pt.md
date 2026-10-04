@@ -1,6 +1,6 @@
 ---
 title: "Gamificação"
-summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento, o livro-razão diário assinado que torna cada número auditável, e como o fuso da própria conta decide em que dia tudo isso cai."
+summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento, o livro-razão diário assinado que torna cada número auditável, como o fuso da própria conta decide em que dia tudo isso cai, e as três recompensas de pagamento único do caderno de estudos."
 ---
 
 Tudo na gamificação do Beyou serve a um comportamento: aparecer todo dia. Este documento explica a mecânica exata, fórmula por fórmula, incluindo de onde os números vêm e o que deliberadamente não existe.
@@ -98,6 +98,20 @@ Checks atrasados nunca recebem bônus de streak (o streak já tinha quebrado na 
 
 Metas pagam uma vez, pelo endpoint explícito de conclusão, calculadas por tamanho do alvo, dificuldade, urgência e terminar antes do prazo (a tabela completa de fatores vive no tópico do modelo de domínio). A recompensa vai para o usuário e as categorias da meta; metas não têm level próprio. Completar é um toggle: descompletar devolve o XP e retorna a meta a em-progresso. Atualizações de progresso não pagam nada, e é isso que torna uma meta falsa pré-completada inútil. Metas aninhadas mantêm a mesma regra em cada nível: uma submeta paga quando é concluída, o pai paga quando é concluído, e não há bónus por fechar uma árvore inteira, pela mesma razão que o pomodoro não paga nada por cima do check que embrulha. A única coisa que uma submeta faz ao pai é começá-lo: o primeiro increment numa filha move um pai NOT_STARTED para IN_PROGRESS.
 
+## O caderno de estudos
+
+O caderno paga três valores fixos, todos guardados no `NotebookRewards`, e nenhum depende de dificuldade, importância ou streak:
+
+| Evento | XP | O que impede pagar duas vezes |
+|--------|----|-------------------------------|
+| Uma página chega a DONE pela primeira vez | 15 | `done_xp_at` na página, gravado uma vez e nunca limpo |
+| Um quiz aprovado pela primeira vez (70% ou mais) | 20 | `passed_at` no quiz |
+| Um flashcard revisado | 1, no máximo 30 por dia | `xp_paid` na linha de revisão, coletado quando a sessão termina |
+
+O XP vai para o usuário e para a categoria do tópico da página, e um tópico sem categoria paga só o usuário. Ele cai no mesmo livro-razão de todo outro pagamento. São pagamentos de mão única. Desmarcar uma página não tira nada, e marcá-la de novo não paga nada, porque a coluna que guarda o pagamento nunca é limpa. Um status que pagasse a cada transição seria um botão de XP. Concluir o último nó de uma página conclui a página que segura o quadro, e cada página paga seus próprios 15 nessa mesma chamada, o único lugar em que o caderno paga por uma árvore inteira.
+
+As revisões são contadas por dia no fuso do usuário. Passado o teto de 30, revisar continua movendo o cronograma de cada card e não paga nada. Um dia que termina sem a sessão ser coletada fica sem pagamento, e não há pagamento retroativo. A sequência de revisão que o caderno mostra conta dias com revisão; é um número próprio, não alimenta multiplicador nenhum e não paga nada.
+
 ## O livro-razão
 
 Todo movimento de XP, nas duas direções, escreve um delta com sinal em um razão por dono e por dia, gravado com soma dentro do banco para check-ins simultâneos entrarem na fila em vez de se sobrescreverem. Somar as linhas de um dono reproduz seu total exato; desmarcar faz o dia devolver o XP em vez de lembrar a marca d'água. O razão alimenta o endpoint de histórico de XP, que devolve séries densas (um valor para cada dia da janela, zeros incluídos) para os gráficos do dashboard. A tabela paralela de desfechos faz o mesmo para os checks. As duas tabelas usam referências de dono sem chave estrangeira de propósito: a história precisa sobreviver ao que a produziu.
@@ -108,6 +122,6 @@ Os frontends detectam momentos por comparação, não por flag do backend: a res
 
 ## O que deliberadamente não existe
 
-Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os quatro caminhos de XP (check de hábito, check de tarefa, check de snapshot, conclusão de meta) e suas quatro reversões são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
+Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os quatro caminhos de XP com reversão (check de hábito, check de tarefa, check de snapshot, conclusão de meta) e as três recompensas de pagamento único do caderno são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
 
 Registar um humor também não paga nada, e essa é uma decisão de produto e não um esquecimento. Pagar por um sentimento transforma uma escala de cinco pontos em algo para farmar, e uma escala farmada deixa de descrever o que quer que seja, o que custaria ao diário a única coisa para que ele serve. A contagem de dias seguidos que o diário mostra é derivada no cliente a partir dos próprios registos. Não é um streak deste sistema, não alimenta multiplicador nenhum e nada a paga.

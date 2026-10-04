@@ -42,7 +42,7 @@ O site de marketing fica na raiz do repositório, fora do glob do workspace de p
 |--------|--------|--------------------|
 | types | Tipos de domínio e DTOs | Tudo |
 | api | A interface HttpClient, cada repositório de API, modelo de erro, costura de logging | O pacote mais compartilhado em contagem de imports |
-| state | 17 slices Redux, o root reducer e a lógica pura que os dois apps rodam: aplicação de gamificação, ids de widgets, ordenadores, helpers de data | Web e mobile por igual |
+| state | 20 slices Redux, o root reducer e a lógica pura que os dois apps rodam: aplicação de gamificação, ids de widgets, ordenadores, helpers de data | Web e mobile por igual |
 | theme | O modelo de tokens, os pacotes de acento, o mapa tema-para-variáveis | Os dois provedores de tema |
 | i18n | Os JSONs de tradução en e pt | As duas inicializações do i18next |
 | validation | Schemas zod por formulário, como fábricas cientes de tradução | Todo formulário nas duas plataformas |

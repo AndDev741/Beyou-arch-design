@@ -12,7 +12,7 @@ flowchart TD
     P4 -.-> P5["DeepSeek<br/>blocked in prod · CN"]
   end
 
-  CHAIN --> TOOLS["🛠️ 33 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
+  CHAIN --> TOOLS["🛠️ 54 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
   TOOLS --> DOM["⚙️ Same domain services<br/>as the REST API"]
 
   SVC -->|"token · tool · done events<br/>persist before done"| C

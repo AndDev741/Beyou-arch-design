@@ -32,7 +32,10 @@ paths:
         Report one completed cycle. The date is NOT in the body: the server files the cycle
         under the owner's local day, resolved from their timezone, the same way every check
         does, so a client with a wrong clock cannot put a cycle on the wrong day.
-        `itemGroupId` may be null for a cycle run with nothing selected.
+        `itemGroupId` may be null for a cycle run with nothing selected. `notebookPageId` is set
+        when the cycle was started from a study notebook page, so the page can show how long was
+        spent on it. Starting there checks nothing in: the timer only preselects the topic habit's
+        routine item when it is on today's routine, and the check stays the person's.
       requestBody:
         content:
           application/json:
@@ -49,9 +52,10 @@ paths:
         '400':
           description: |
             Ends before it starts, minutes outside 1..180 — or the item group belongs to another
-            user. Ownership refusals come back as 400 with the `ROUTINE_NOT_OWNED` error key, not
-            403: every `BusinessException` in this API maps to 400, and a client branching on the
-            status alone would mis-handle the refusal.
+            user, or the notebook page does. Ownership refusals come back as 400 with the
+            `ROUTINE_NOT_OWNED` or `NOTEBOOK_PAGE_NOT_OWNED` error key, not 403: every
+            `BusinessException` in this API maps to 400, and a client branching on the status
+            alone would mis-handle the refusal.
   /focus/day:
     get:
       tags:
@@ -282,6 +286,12 @@ components:
           minimum: 1
           maximum: 180
           description: The clamp the clients already apply, restated where it cannot be bypassed
+        notebookPageId:
+          type: string
+          format: uuid
+          description: The study notebook page the cycle was run on, sent by the notebook's focus
+            button. Optional. A page that is not the caller's is refused like a foreign routine item,
+            with NOTEBOOK_PAGE_NOT_OWNED. Pomodoro minutes on a page show as that page's focus time.
     CreateMicroTaskRequestDTO:
       required:
       - itemGroupId
@@ -342,6 +352,11 @@ components:
         minutes:
           type: integer
           format: int32
+        notebookPageId:
+          type: string
+          format: uuid
+          description: The study notebook page the cycle was run on, or null. Set to null if that page
+            is deleted later; the cycle and its minutes stay.
     FocusMicroTaskResponseDTO:
       type: object
       properties:

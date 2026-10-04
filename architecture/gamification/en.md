@@ -1,6 +1,6 @@
 ---
 title: "Gamification"
-summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, the signed daily ledger that makes every number auditable, and how the account's own timezone decides which day any of it lands on."
+summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, the signed daily ledger that makes every number auditable, how the account's own timezone decides which day any of it lands on, and the study notebook's three pay-once rewards."
 ---
 
 Everything in Beyou's gamification serves one behavior: showing up daily. This document explains the exact mechanics, formula by formula, including where the numbers come from and what deliberately does not exist.
@@ -98,6 +98,20 @@ Late checks never receive a streak bonus (the streak was already broken by the m
 
 Goals pay once, through the explicit complete endpoint, calculated from target size, difficulty, urgency, and finishing before the deadline (the full factor table lives in the domain model topic). The reward goes to the user and the goal's categories; goals themselves have no level. Completing is a toggle: un-completing takes the XP back and returns the goal to in-progress. Progress updates pay nothing, which is what makes a fake pre-completed goal worthless. Nested goals keep the same rule at every level: a sub-goal pays when it is completed, its parent pays when it is completed, and there is no bonus for finishing a whole tree, for the same reason the pomodoro pays nothing on top of the check it wraps. The only thing a sub-goal does to its parent is start it: the first increment on a child moves a NOT_STARTED parent to IN_PROGRESS.
 
+## The study notebook
+
+The notebook pays three fixed amounts, all held in `NotebookRewards`, and none of them depends on difficulty, importance or a streak:
+
+| Event | XP | Paid once by |
+|-------|----|--------------|
+| A page reaches DONE for the first time | 15 | `done_xp_at` on the page, set once and never cleared |
+| A quiz passed for the first time (70% or better) | 20 | `passed_at` on the quiz |
+| A reviewed flashcard | 1, at most 30 a day | `xp_paid` on the review row, collected when the session ends |
+
+The XP goes to the user and to the category on the page's topic, and a topic with no category pays the user only. It lands in the same ledger as every other payment. These are one-way. Marking a page undone takes nothing back, and marking it done again pays nothing, because the column that guards the payment is never cleared. A status that paid on every transition would be an XP button. Finishing a page's last node finishes the page holding the board, and each page pays its own 15 in that one call, which is the only place the notebook pays for a whole tree.
+
+Reviews are counted per day in the user's timezone. Past the cap of 30, reviewing still moves each card's schedule and pays nothing. A day that ends without the session being collected stays unpaid, and there is no back pay. The review streak the notebook shows counts days with a review; it is its own number, feeds no multiplier, and pays nothing.
+
 ## The ledger
 
 Every XP movement, in both directions, writes a signed delta into a per-owner per-day ledger, upserted with in-database addition so concurrent check-ins queue instead of overwriting. Summing an owner's rows reproduces its total exactly; unchecking makes the day give the XP back rather than remembering a high-water mark. The ledger feeds the XP history endpoint, which returns dense series (a value for every day of the window, zeros included) for the dashboard's charts. The parallel outcome table does the same for checks. Both tables use owner references without foreign keys on purpose: history must outlive whatever produced it.
@@ -108,6 +122,6 @@ The frontends detect moments by comparison, not by backend flags: a check respon
 
 ## What deliberately does not exist
 
-No daily completion bonus, no routine-completion payout, no weekly recap XP. The four XP paths (habit check, task check, snapshot check, goal completion) and their four reversals are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
+No daily completion bonus, no routine-completion payout, no weekly recap XP. The four XP paths with reversals (habit check, task check, snapshot check, goal completion) and the notebook's three pay-once rewards are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
 
 Recording a mood earns nothing either, and that one is a product decision rather than an omission. Paying for a feeling turns a five-point scale into something to farm, and a farmed scale stops describing anything, which would cost the diary the only thing it is for. The days-in-a-row count the diary shows is derived in the client from the entries themselves. It is not a streak in this system, it feeds no multiplier, and nothing pays it out.

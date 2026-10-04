@@ -1,0 +1,2860 @@
+openapi: 3.1.0
+info:
+  title: Study notebook
+  version: v0
+  description: |
+    The study notebook. Somebody studying a subject opens a topic, lays it out as a roadmap board,
+    writes notes on every node and attaches what they are reading. Flashcards then bring it back on a
+    schedule. Every route is authenticated by the default rule and scoped to the caller. A page that
+    belongs to somebody else answers `NOTEBOOK_PAGE_NOT_OWNED`, and like every `BusinessException` in
+    this API it comes back as 400.
+
+    Everything is a page. A topic is a page with no parent (`kind: TOPIC`). Every other page has
+    exactly one home in the tree, `parentId`, and carries `topicId` so a topic's pages come back in
+    one read. Notes live in the page's `content`, a BlockNote document stored as a JSON string. On
+    every save the server pulls the plain text out of it, and that text is what the AI reads and what
+    search matches.
+
+    A page has at most one board. Its nodes and edges are keyed by the page that shows them; the
+    editor's "Roadmap board" block only decides where on the page the board is drawn. A PAGE node
+    opens a page. Add one with a `title` and the server creates a child page for it. Add one with
+    `linkPageId` and it shows a page that already lives somewhere else, often in another topic, which
+    keeps its single home. Two links are refused: the same page twice on one board
+    (`NOTEBOOK_NODE_DUPLICATE`), and a page that would end up on its own board through any chain of
+    boards (`NOTEBOOK_BOARD_CYCLE`). A SECTION node is a labelled band drawn behind the others. Edges
+    show the order to study things in. They lock nothing and count for nothing.
+
+    Progress counts leaves through every nested board, linked ones included. "11 of 56" on a topic
+    means 56 pages with nothing broken down further under them, wherever they sit. A page whose board
+    has nodes takes its status from them: all of them done makes it DONE, and anything started makes
+    it STUDYING. Set a status by hand on such a page and it stays put until `AUTO` gives it back to
+    the nodes. A leaf always has the status somebody gave it. Each change walks up through every
+    board that shows the page, so finishing a page that is linked into two topics can move both.
+    Responses list every page that moved in `changed`.
+
+    XP goes to the person and to the category on the page's topic, and nothing else in the notebook
+    pays:
+
+    - 15 the first time a page reaches DONE. Undoing it and finishing it again pays nothing, so the
+      status cannot be farmed. When the last node finishes the page holding the board, that page
+      pays its own 15 in the same call.
+    - 20 the first time a quiz is passed, at 70% or better. Retakes pay nothing.
+    - 1 per reviewed card, collected by `POST /notebook/reviews/finish`, at most 30 a day. Reviews
+      past the cap still move the schedule.
+
+    The study AI is grounded. Chat answers, summaries, study guides, quizzes and AI flashcards are
+    written from numbered passages, the page's own notes and its ancestors' first, then the passages
+    retrieved from its sources. Answers cite them as `[n]`. The server drops any number the model
+    made up, so every citation a client shows opens a real passage. A page with no notes and no
+    readable sources answers `NOTEBOOK_NOTHING_TO_STUDY` and the model is never called. When the
+    fallback chain cannot produce a usable answer (every provider failed, or the reply would not
+    parse after one retry) the call answers `AI_UNAVAILABLE`. "Explain" may use the model's own
+    knowledge and cites the passages that agree with it. The roadmap draft has no passages at all.
+
+    Two rate-limit tiers sit ahead of the generic `write` tier. `POST /notebook/ai/**` spends
+    `notebook-ai`, 60 calls per user per hour, in a bucket of its own so an evening of studying never
+    locks anyone out of the assistant. Adding a source spends `notebook-source`, 20 per user per hour.
+    Every other route here is `read` or `write`.
+
+    Sources attach to a page, and a page reads its own plus those of every page above it in the tree.
+    A textbook added to the topic answers questions on every node in it. A paper added to one node
+    stays on that node, and siblings never see each other's. One page holds up to 20.
+
+    - PDF, up to 15MB. The server checks the file's magic number, whatever content type the client
+      claims. It is parsed in memory and never stored. Only its text survives, page by page, so a
+      citation can name the page it came from.
+    - Link. The one place the server fetches a URL a user typed, so it refuses to be a proxy into its
+      own network: http and https only, every address the host resolves to must be public, and each
+      redirect hop is checked again. A refused URL answers `NOTEBOOK_SOURCE_URL_REFUSED` before any
+      row exists.
+    - Pasted text, up to 200,000 characters.
+
+    Adding a source answers 202 with the row in PENDING. A background job reads it once the request
+    commits, moves it through READING with a `progress` percentage, and leaves it READY or FAILED
+    with an `errorKey`. Clients poll the page's source list to watch.
+
+    Retrieval uses ONE embedding model, set by `notebook.embedding.*`, because vectors from two models
+    cannot be compared. When that model is missing or down, or did not embed these sources, the
+    retriever falls back to Postgres full-text search on the passages. When nothing matches, the
+    opening passages of each source go instead. An embedding outage makes answers worse and leaves
+    every source usable.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /notebook/home:
+    get:
+      tags:
+      - notebook-controller
+      operationId: home
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/HomeResponseDTO'
+      summary: 'The notebook home: every topic, where to continue, and today''s reviews'
+      description: |
+        Topics come most recently edited first. Each carries its progress, the page to study next, its
+        due cards, its source count and a miniature of its board (`preview`, `previewEdges`) for the
+        card. `continueStudying` is the page opened most recently, and it stays null until a page has
+        been opened. `review` counts the cards due today in the caller's own timezone, by topic, with
+        the review streak.
+  /notebook/pages:
+    post:
+      tags:
+      - notebook-controller
+      operationId: createPage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePageRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Create a page under a parent, off its board
+      description: |
+        The tree's "Add a page". The page lives under `parentId` and is not a node on the parent's board,
+        so it plays no part in progress until somebody links it onto a board. To make a page that is a
+        node, add the node with a title through `POST /notebook/pages/{pageId}/board/nodes`.
+  /notebook/pages/search:
+    get:
+      tags:
+      - notebook-controller
+      operationId: search
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+        description: Part of a title. Blank answers an empty list.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PageSearchHitDTO'
+      summary: Find pages by title, across every topic
+      description: |
+        Case-insensitive substring match on titles, at most 20 hits, most recently edited first. Each hit
+        names its topic, so two pages called "Trees" can be told apart. The board's "Link a page you
+        already have" picker and the assistant's `addStudyNode` both use this.
+  /notebook/pages/{pageId}:
+    get:
+      tags:
+      - notebook-controller
+      operationId: page
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Open a page
+      description: |
+        Opening a page also marks it as the one to continue from on the home screen, so this GET writes
+        `last_opened_at`. The answer carries everything the page header shows. `focusMinutes` sums the
+        completed pomodoro minutes run on this page or on any page whose home is under it; breaks do not
+        count. `sourcesCount` covers the sources this page can read, its ancestors' included. The links
+        (`goal`, `category`, `habit`) are always the topic's.
+    patch:
+      tags:
+      - notebook-controller
+      operationId: update_1
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePageRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Rename a page, or change its icon or description
+      description: |
+        A field left out stays as it is. A blank icon or description clears it; a blank title is refused.
+        A node shows its page's title, so renaming the page renames the node on every board that shows it.
+    delete:
+      tags:
+      - notebook-controller
+      operationId: delete_2
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a page and everything under it
+      description: |
+        Takes every page whose home is under this one, with their boards, cards, sources and study-room
+        history. Pages that this subtree's boards only showed through a link live in another topic and
+        are left alone. Boards elsewhere that showed a deleted page lose the node, and their pages'
+        status is recomputed, since "every node is done" may have just become true. Any XP that pays is
+        paid, and the answer is still a bare 204, so a client refetches what it shows.
+
+        Focus cycles run on a deleted page keep their minutes and lose the page.
+  /notebook/pages/{pageId}/append:
+    post:
+      tags:
+      - notebook-controller
+      operationId: append
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppendRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Append markdown to the end of the page
+      description: |
+        The study room's "Save to page", where no editor is mounted. The server turns the markdown into
+        BlockNote blocks: headings, bullet and numbered lists, fenced code and paragraphs, with bold,
+        italic and inline code inside text. Anything else arrives as a paragraph with its characters
+        intact. `[n]` citation markers are removed, since the page has no list of passages for them to
+        point at.
+  /notebook/pages/{pageId}/content:
+    put:
+      tags:
+      - notebook-controller
+      operationId: saveContent
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContentRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ContentSavedDTO'
+      summary: Save the page's document (the autosave)
+      description: |
+        Replaces the whole document with the BlockNote JSON in `content`. The server extracts the plain
+        text in the same transaction, which is how the text the AI reads can never drift from what is on
+        the page. A document that fails to parse is still saved, with empty text: losing what the AI sees
+        beats losing what the person typed.
+
+        Answers only the id and the time of the save, which keeps an autosave that fires on typing cheap.
+  /notebook/pages/{pageId}/status:
+    put:
+      tags:
+      - notebook-controller
+      operationId: setStatus
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetStatusRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StatusChangeResponseDTO'
+      summary: Set a page's status, or hand it back to its nodes
+      description: |
+        The response describes everything the change did. `changed` lists every page whose status moved,
+        wherever it sits, so the client can repaint boards it is not showing yet. `xpEarned` is the total
+        this one call paid. It can be 30, when a page's last node finishing also finishes the page above
+        it. `refreshUi` is present only when XP was paid.
+
+        Marking a page DONE, then TO_STUDY, then DONE again pays the first time only.
+  /notebook/topics:
+    post:
+      tags:
+      - notebook-controller
+      operationId: createTopic
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTopicRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Create a topic
+      description: |
+        A topic is a root page. `goalId`, `categoryId` and `habitId` are optional and each is checked for
+        ownership with its own domain's error keys. The category is the one with consequences: notebook
+        XP for anything in this topic goes to it, on top of the person.
+  /notebook/topics/{topicId}/links:
+    put:
+      tags:
+      - notebook-controller
+      operationId: setLinks
+      parameters:
+      - name: topicId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A topic, meaning a root page.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicLinksRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Replace the topic's goal, category and habit links
+      description: |
+        All three are replaced, so a field sent as null clears that link. The category decides where
+        notebook XP goes from now on; XP already paid stays where it went. The habit lets a focus session
+        started from this topic preselect that habit's item on today's routine.
+  /notebook/topics/{topicId}/tree:
+    get:
+      tags:
+      - notebook-controller
+      operationId: tree
+      parameters:
+      - name: topicId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A topic, meaning a root page.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/TreeResponseDTO'
+      summary: Every page in a topic, for the sidebar
+      description: |
+        The pages whose home is in this topic, plus the pages its boards show through a link. A linked
+        item has `linked: true`, and its `parentId` is the board page that shows it rather than its real
+        home. `onBoard` tells a node apart from a page made with "Add a page", which sits in the tree with
+        no node. Items on a board come in board order and the rest follow in the order they were made.
+
+        The id must be a topic; a page id answers `NOTEBOOK_TOPIC_REQUIRED`.
+  /notebook/board/edges/{edgeId}:
+    delete:
+      tags:
+      - notebook-board-controller
+      operationId: deleteEdge
+      parameters:
+      - name: edgeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A board edge.
+      responses:
+        '204':
+          description: No Content
+      summary: Remove an edge
+      description: |
+        An unknown edge id answers `NOTEBOOK_EDGE_INVALID`.
+  /notebook/board/nodes/{nodeId}:
+    patch:
+      tags:
+      - notebook-board-controller
+      operationId: updateNode
+      parameters:
+      - name: nodeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A board node. The caller must own the page that holds its board.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNodeRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardChangeResponseDTO'
+      summary: Move a node, or resize and relabel a section
+      description: |
+        `x` and `y` apply to any node. `width`, `height` and `label` apply to sections and are ignored on
+        a PAGE node, with a floor of 80 on the width and 60 on the height. A PAGE node's title belongs to
+        its page: rename it with `PATCH /notebook/pages/{pageId}`.
+    delete:
+      tags:
+      - notebook-board-controller
+      operationId: deleteNode
+      parameters:
+      - name: nodeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A board node. The caller must own the page that holds its board.
+      - name: deletePage
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: 'Also delete the page the node opens, with everything under it. Honoured only when
+          that page''s home is this board''s page. A linked page lives in another topic and is never deleted
+          from here: the node goes and the page stays. Left false, the page stays in the tree, off the
+          board.'
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardChangeResponseDTO'
+      summary: Remove a node from its board
+      description: |
+        Removing a node can finish the page holding the board, when every node left on it is done, so the
+        answer carries `changed` and any XP that paid. `node` is null.
+  /notebook/pages/{pageId}/board:
+    get:
+      tags:
+      - notebook-board-controller
+      operationId: board
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardResponseDTO'
+      summary: The page's board
+      description: |
+        Nodes in the order they were created. A PAGE node's title, icon, status and progress are read
+        live from the page it opens. `linked` marks a node whose page lives elsewhere, and
+        `homeTopicTitle` names that page's topic. A page with no board answers two empty lists.
+  /notebook/pages/{pageId}/board/edges:
+    post:
+      tags:
+      - notebook-board-controller
+      operationId: addEdge
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEdgeRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardEdgeDTO'
+      summary: Connect two nodes
+      description: |
+        Both ends must be PAGE nodes on this board, and two different ones. A pair connects once per
+        direction. Anything else answers `NOTEBOOK_EDGE_INVALID`. Edges draw the suggested order and play
+        no part in progress or status.
+  /notebook/pages/{pageId}/board/layout:
+    put:
+      tags:
+      - notebook-board-controller
+      operationId: layout
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LayoutRequestDTO'
+        required: true
+      responses:
+        '204':
+          description: No Content
+      summary: Save many node positions at once
+      description: |
+        What dragging several nodes or "Tidy up" sends, up to 500 positions. An id that is not on this
+        board is skipped without an error, so a layout computed just before somebody deleted a node still
+        saves.
+  /notebook/pages/{pageId}/board/nodes:
+    post:
+      tags:
+      - notebook-board-controller
+      operationId: addNode
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNodeRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardChangeResponseDTO'
+      summary: Add a node to the page's board
+      description: |
+        A PAGE node takes exactly one of `title` and `linkPageId`; both or neither is `INVALID_REQUEST`.
+        With a title, the server creates a child page and the node opens it. With `linkPageId`, the node
+        opens an existing page, which keeps its home. That link is refused with `NOTEBOOK_NODE_DUPLICATE`
+        when the page is already on this board, and with `NOTEBOOK_BOARD_CYCLE` when this board's page can
+        be reached from it.
+
+        A SECTION needs a `label`. Its size defaults to 420 by 260.
+
+        A new node can change the board page's status. A finished page that gains a node it has not
+        studied goes back to STUDYING, unless its status was set by hand, and `changed` says so.
+  /notebook/cards/due:
+    get:
+      tags:
+      - notebook-card-controller
+      operationId: due
+      parameters:
+      - name: scopePageId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Only the cards on this page and everything below it, through the tree and through
+          its boards, linked pages included. Left out, the queue covers every card the caller has.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/DueCardsResponseDTO'
+      summary: Today's review queue
+      description: |
+        Cards due today or earlier in the caller's timezone, the longest overdue first, at most 200 in
+        one read. `total` counts all of them, so a backlog shows its real size and is worked through over
+        several sessions. Each card carries `intervals`, the days each rating would schedule it for, for
+        the labels under the four buttons.
+  /notebook/cards/{cardId}:
+    patch:
+      tags:
+      - notebook-card-controller
+      operationId: update_2
+      parameters:
+      - name: cardId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A flashcard. The caller must own the page it is written on.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCardRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CardDTO'
+      summary: Edit a card's front or back
+      description: |
+        The schedule is left as it is. A field that is sent must hold something other than whitespace.
+    delete:
+      tags:
+      - notebook-card-controller
+      operationId: delete_3
+      parameters:
+      - name: cardId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A flashcard. The caller must own the page it is written on.
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a card and its review history
+      description: |
+        XP its reviews already paid stays paid. Reviews of it from today that were not collected yet go
+        with the card and are never paid.
+  /notebook/cards/{cardId}/review:
+    post:
+      tags:
+      - notebook-card-controller
+      operationId: review
+      parameters:
+      - name: cardId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A flashcard. The caller must own the page it is written on.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ReviewResponseDTO'
+      summary: Rate one card
+      description: |
+        SM-2 as Anki adapted it, in whole days. AGAIN resets the card and makes it due today again
+        (`dueAgainToday: true`), and the client puts it back at the end of the session. The other
+        ratings push it out. Ease never drops below 1.3 and no interval passes 365 days.
+
+        The review is stored for the streak and for the XP that `POST /notebook/reviews/finish` collects.
+        Nothing is paid here.
+  /notebook/pages/{pageId}/cards:
+    get:
+      tags:
+      - notebook-card-controller
+      operationId: list
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardDTO'
+      summary: The flashcards written on one page
+      description: |
+        Oldest first, with each card's schedule. Cards on the pages below are not included; the review
+        queue's `scopePageId` is the way to ask for a whole subtree.
+    post:
+      tags:
+      - notebook-card-controller
+      operationId: create
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCardRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CardDTO'
+      summary: Write a flashcard
+      description: |
+        A new card is due the day it is written, in the caller's timezone, since it has never been
+        reviewed.
+  /notebook/reviews/finish:
+    post:
+      tags:
+      - notebook-card-controller
+      operationId: finish
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/FinishReviewResponseDTO'
+      summary: Collect the XP for today's reviews
+      description: |
+        Pays 1 XP for each review written today that has not been paid, up to 30 paid reviews a day,
+        and marks all of them paid, the ones past the cap included. Calling it twice pays once. A review
+        that is never collected on its own day stays unpaid; there is no back pay.
+
+        `streak` counts consecutive days with at least one review. The run may end yesterday, so it does
+        not read 0 at nine in the morning before the first card.
+  /notebook/pages/{pageId}/sources:
+    get:
+      tags:
+      - notebook-source-controller
+      operationId: list_1
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceDTO'
+      summary: The sources a page can read
+      description: |
+        Its own and every ancestor's, oldest first. `inherited` marks one added further up, and
+        `pageTitle` names the page it was added to. Poll this while a source is PENDING or READING.
+  /notebook/pages/{pageId}/sources/link:
+    post:
+      tags:
+      - notebook-source-controller
+      operationId: addLink
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequestDTO'
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SourceDTO'
+      summary: Add a web page, or a PDF behind a link
+      description: |
+        The URL is checked before the row exists, so a refused one is never stored. It must be http or
+        https, with a host and no user-info, and every address that host resolves to must be public.
+        Loopback, private ranges, link-local (the cloud metadata address among them), carrier-grade NAT,
+        multicast, the unspecified address and IPv6 unique-local are all refused, and so is an IPv6
+        address wrapping one of them. Redirects are followed by hand, at most 3 hops, each one checked
+        again; a hop that leads inward fails the source with `NOTEBOOK_SOURCE_URL_REFUSED`.
+
+        HTML is reduced to its readable text, reading at most 3MB. A PDF behind the link gets the same
+        15MB cap as an upload. A fetch that fails later marks the source FAILED with
+        `NOTEBOOK_SOURCE_FETCH_FAILED`. The remaining gap, DNS rebinding, is written up in the security
+        topic.
+  /notebook/pages/{pageId}/sources/pdf:
+    post:
+      tags:
+      - notebook-source-controller
+      operationId: addPdf
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        '202':
+          description: Accepted
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SourceDTO'
+      summary: Add a PDF
+      description: |
+        Multipart, in the field `file`. The service refuses anything over 15MB, and the container refuses
+        anything over 16MB before it reaches the service; both answer `NOTEBOOK_SOURCE_TOO_LARGE`, the
+        container's as a 413. The file must start with `%PDF-`. Its title is the file name, with any path
+        a browser or a crafted request put in front of it removed.
+
+        The PDF is parsed in memory, up to 800 pages, and its bytes are gone once the job ends. A PDF with
+        no text layer (a scan) fails as `NOTEBOOK_SOURCE_UNREADABLE`. A restart in the middle of reading
+        marks it FAILED with `NOTEBOOK_SOURCE_INTERRUPTED`, because there is no file left to resume from,
+        and the person adds it again.
+  /notebook/pages/{pageId}/sources/text:
+    post:
+      tags:
+      - notebook-source-controller
+      operationId: addText
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddTextRequestDTO'
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SourceDTO'
+      summary: Add pasted text
+      description: |
+        Notes copied from somewhere else, up to 200,000 characters. Read in the background like the
+        other kinds, so it also answers PENDING.
+  /notebook/sources/{sourceId}:
+    patch:
+      tags:
+      - notebook-source-controller
+      operationId: update
+      parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A source. The caller must own the page it was added to.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSourceRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SourceDTO'
+      summary: Switch a source on or off
+      description: |
+        A source that is off stays listed and the AI stops reading it, on this page and on every page
+        below. Handy when one long source drowns out the rest.
+    delete:
+      tags:
+      - notebook-source-controller
+      operationId: delete_1
+      parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A source. The caller must own the page it was added to.
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a source and its passages
+      description: |
+        Citations already saved in chat answers keep their text. Opening one of them answers
+        `NOTEBOOK_SOURCE_NOT_FOUND`.
+  /notebook/sources/{sourceId}/passages/{chunkId}:
+    get:
+      tags:
+      - notebook-source-controller
+      operationId: passage
+      parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A source. The caller must own the page it was added to.
+      - name: chunkId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: One passage of that source, as a citation names it.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PassageDTO'
+      summary: One passage of a source, with the ones around it
+      description: |
+        What a citation opens: the passage, the passages right before and after it, and the PDF page it
+        came from. A chunk id that belongs to a different source answers `NOTEBOOK_SOURCE_NOT_FOUND`.
+  /notebook/outputs/{outputId}:
+    get:
+      tags:
+      - notebook-study-controller
+      operationId: output
+      parameters:
+      - name: outputId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A saved study-room output.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyOutputDTO'
+      summary: One saved output
+      description: |
+        A quiz comes without its answers, which only grading reveals.
+    delete:
+      tags:
+      - notebook-study-controller
+      operationId: deleteOutput
+      parameters:
+      - name: outputId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A saved study-room output.
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a saved output
+      description: |
+        Deleting a passed quiz keeps the XP it paid.
+  /notebook/outputs/{outputId}/quiz-result:
+    post:
+      tags:
+      - notebook-study-controller
+      operationId: grade
+      parameters:
+      - name: outputId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: A saved study-room output.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizAnswersRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuizResultDTO'
+      summary: Grade a quiz
+      description: |
+        The correct answers, the explanations and their citations come back here and nowhere else.
+        Passing takes 70%, computed in integers as `score * 10 >= total * 7`. The first pass of a quiz
+        pays 20 XP. A retake updates the score and pays nothing. Grading an output that is not a quiz
+        answers `INVALID_REQUEST`.
+  /notebook/pages/{pageId}/study:
+    get:
+      tags:
+      - notebook-study-controller
+      operationId: study
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyResponseDTO'
+      summary: Everything the study room shows for a page
+      description: |
+        The current overview (null until one is generated), the last 40 chat messages oldest first, the
+        saved outputs newest first, the sources the page can read and its card counts. Quizzes come
+        without their answers.
+  /notebook/pages/{pageId}/study/messages:
+    delete:
+      tags:
+      - notebook-study-controller
+      operationId: clearChat
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      responses:
+        '204':
+          description: No Content
+      summary: Clear the page's chat
+      description: |
+        Saved outputs and the overview stay.
+  /notebook/ai/pages/{pageId}/cards:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: cards
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiCardsRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardDTO'
+      summary: Draft flashcards with the AI and save them
+      description: |
+        Writes up to `count` cards from the page, or from `text` when the person selected something,
+        and saves them on the page, due today. Each card's `sourceLabel` names the passage it came from.
+        With no selection, a page with nothing to read answers `NOTEBOOK_NOTHING_TO_STUDY`.
+  /notebook/ai/pages/{pageId}/chat:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: chat
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/ChatTurnDTO'
+      summary: Ask the study room a question
+      description: |
+        Grounded on the page's notes and the sources it can read, with the last 6 messages sent along so
+        "and what about..." works. When the passages do not cover the question the answer says so in one
+        sentence and stops. Citation markers that point at nothing are removed before anything is saved.
+        The question and the answer are both stored in the page's chat.
+  /notebook/ai/pages/{pageId}/explain:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: explain
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExplainRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/AnswerDTO'
+      summary: Explain a passage of the person's notes
+      description: |
+        The editor's "Explain the block above". The model explains from its own knowledge, in 200 words
+        at most, and cites the page's notes and sources wherever they back it up. Nothing is stored, and
+        a page with nothing to read still gets an answer.
+  /notebook/ai/pages/{pageId}/outputs:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: generate
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateOutputRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyOutputDTO'
+      summary: Generate an overview, summary, study guide or quiz
+      description: |
+        Grounded on the whole page. A new OVERVIEW replaces the page's last one, and the other kinds
+        accumulate as saved outputs. A quiz has up to 8 multiple-choice questions, and fewer than 3 usable
+        ones fails the call as `AI_UNAVAILABLE`. Its answers stay on the server until it is graded.
+  /notebook/ai/pages/{pageId}/suggest-nodes:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: suggestNodes
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestNodesRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SuggestedNodeDTO'
+      summary: Suggest new nodes for a page's board
+      description: |
+        Up to 5 nodes, never one already on the board. Nothing is added: the person picks, and the
+        client adds what they picked as ordinary nodes.
+  /notebook/ai/roadmap-draft:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: roadmapDraft
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoadmapDraftRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RoadmapDraftDTO'
+      summary: Draft a roadmap for a new topic
+      description: |
+        Stateless: nothing is stored until `POST /notebook/topics/from-draft`. The model proposes up to
+        12 nodes in study order. Each has a reason, up to 10 subtopics, an hour estimate and an
+        `optional` flag, and `totalHours` adds up the nodes that are not optional.
+
+        When a node's title matches a page the caller already has, ignoring case, accents, punctuation
+        and a trailing plural s, the node carries `existingPageId` with that page's topic and progress.
+        The dialog can then offer "Link it" and keep the person's work instead of starting the subject
+        over. To revise, send the current draft in `previous` and the change in `changeRequest`; the
+        whole revised draft comes back.
+  /notebook/topics/from-draft:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: createFromDraft
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFromDraftRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PageResponseDTO'
+      summary: Create a topic from a reviewed draft
+      description: |
+        One transaction. The topic's board gets a node per entry, chained left to right with edges and
+        wrapping every four. An entry with `linkPageId` becomes a linked node to that page. Any other
+        entry becomes a new page that opens with its `why`, and an entry with subtopics gets a board of
+        them on its own page. The model never picks an id or a coordinate.
+
+        Answers the new topic, the same shape as `GET /notebook/pages/{pageId}`.
+components:
+  schemas:
+    AddLinkRequestDTO:
+      type: object
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+          minLength: 0
+          description: http or https. Checked against the SSRF rules before anything is stored.
+      required:
+      - url
+    AddTextRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: How the source is listed and cited.
+        text:
+          type: string
+          maxLength: 200000
+          minLength: 0
+          description: The text to read.
+      required:
+      - text
+      - title
+    AiCardsRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 8000
+          minLength: 0
+          description: A selection to write the cards about. Left out, the cards cover the whole page.
+        count:
+          type: integer
+          format: int32
+          maximum: 12
+          minimum: 1
+          description: How many cards. 6 when left out.
+    AnswerDTO:
+      type: object
+      properties:
+        markdown:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CitationDTO'
+    AppendRequestDTO:
+      type: object
+      properties:
+        markdown:
+          type: string
+          maxLength: 20000
+          minLength: 0
+          description: Markdown to add at the end of the page, usually an AI answer.
+      required:
+      - markdown
+    BaseCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        checkDate:
+          type: string
+          format: date
+        checkTime:
+          type: string
+        checked:
+          type: boolean
+        skipped:
+          type: boolean
+        xpGenerated:
+          type: number
+          format: double
+    BoardChangeResponseDTO:
+      type: object
+      properties:
+        node:
+          $ref: '#/components/schemas/BoardNodeDTO'
+          description: The node as it now stands. Null after a delete.
+        changed:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageStatusDTO'
+          description: Pages whose status the edit moved.
+        refreshUi:
+          $ref: '#/components/schemas/RefreshUiDTO'
+          description: Present only when the edit finished a page for the first time.
+      description: A board edit and whatever it moved.
+    BoardEdgeDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          format: uuid
+        target:
+          type: string
+          format: uuid
+    BoardNodeDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - PAGE
+          - SECTION
+        pageId:
+          type: string
+          format: uuid
+          description: The page the node opens. Null on a SECTION.
+        title:
+          type: string
+          description: The page's title, or a SECTION's label.
+        icon:
+          type: string
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+        hasBoard:
+          type: boolean
+          description: Whether the page has a board of its own, which the client draws as a stack.
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+        width:
+          type: number
+          format: double
+          description: SECTION only.
+        height:
+          type: number
+          format: double
+          description: SECTION only.
+        linked:
+          type: boolean
+          description: True when the page's home is somewhere other than this board's page.
+        homeTopicTitle:
+          type: string
+          description: The topic a linked page lives in. Null otherwise.
+      description: A node as the board draws it, with its page's live state.
+    BoardResponseDTO:
+      type: object
+      properties:
+        pageId:
+          type: string
+          format: uuid
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardNodeDTO'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardEdgeDTO'
+    CardDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        front:
+          type: string
+        back:
+          type: string
+        sourceLabel:
+          type: string
+        dueOn:
+          type: string
+          format: date
+          description: The caller's local day the card is next due.
+        intervalDays:
+          type: integer
+          format: int32
+          description: Days between the last review and the next.
+        reps:
+          type: integer
+          format: int32
+          description: Successful reviews in a row. AGAIN resets it.
+        createdAt:
+          type: string
+          format: date-time
+    ChatMessageDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          description: USER or ASSISTANT.
+        content:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CitationDTO'
+          description: Only answers carry them.
+        createdAt:
+          type: string
+          format: date-time
+    ChatRequestDTO:
+      type: object
+      properties:
+        message:
+          type: string
+          maxLength: 2000
+          minLength: 0
+          description: The question.
+      required:
+      - message
+    ChatTurnDTO:
+      type: object
+      properties:
+        question:
+          $ref: '#/components/schemas/ChatMessageDTO'
+        answer:
+          $ref: '#/components/schemas/ChatMessageDTO'
+    CitationDTO:
+      type: object
+      properties:
+        n:
+          type: integer
+          format: int32
+          description: The number the answer uses, as in [2].
+        kind:
+          type: string
+          description: 'SOURCE (sourceId and chunkId are set) or PAGE (pageId is set: the person''s own
+            notes).'
+        sourceId:
+          type: string
+          format: uuid
+        chunkId:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: How the passage is labelled, such as a source title or "Your page ...".
+        pageNumber:
+          type: integer
+          format: int32
+          description: The PDF page the passage came from. Null otherwise.
+        excerpt:
+          type: string
+          description: The start of the passage, for the popover. The whole passage is one call away.
+      description: What an [n] in an answer points at.
+    ContentSavedDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        updatedAt:
+          type: string
+          format: date-time
+      description: The autosave's acknowledgement.
+    ContinueDTO:
+      type: object
+      properties:
+        pageId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+        topicId:
+          type: string
+          format: uuid
+        topicTitle:
+          type: string
+        studyingTitle:
+          type: string
+          description: 'The leaf to study next under that page: the first one in progress, else the first
+            not started.'
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+        lastOpenedAt:
+          type: string
+          format: date-time
+          description: When the page was last opened.
+    CreateCardRequestDTO:
+      type: object
+      properties:
+        front:
+          type: string
+          maxLength: 2000
+          minLength: 0
+        back:
+          type: string
+          maxLength: 2000
+          minLength: 0
+        sourceLabel:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: Where the card came from, shown under the answer during review.
+      required:
+      - back
+      - front
+    CreateEdgeRequestDTO:
+      type: object
+      properties:
+        source:
+          type: string
+          format: uuid
+          description: A PAGE node on this board.
+        target:
+          type: string
+          format: uuid
+          description: Another PAGE node on this board.
+      required:
+      - source
+      - target
+    CreateFromDraftRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+        description:
+          type: string
+          maxLength: 512
+          minLength: 0
+        icon:
+          type: string
+          maxLength: 64
+          minLength: 0
+        goalId:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+          description: Where XP for this topic goes.
+        habitId:
+          type: string
+          format: uuid
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DraftNodeInputDTO'
+          maxItems: 20
+          minItems: 0
+          description: The entries the person kept, in order.
+      required:
+      - nodes
+      - title
+    CreateNodeRequestDTO:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - PAGE
+          - SECTION
+          description: PAGE when left out.
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: 'PAGE: the title of a new child page. Send this or linkPageId, never both.'
+        linkPageId:
+          type: string
+          format: uuid
+          description: 'PAGE: an existing page to show on this board. It keeps its home, can sit in another
+            topic, and appears once per board. Refused when this board''s page can be reached from it.'
+        label:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: 'SECTION: the band''s label. Required for a section.'
+        x:
+          type: number
+          format: double
+          description: Board coordinates of the node's top-left corner.
+        y:
+          type: number
+          format: double
+        width:
+          type: number
+          format: double
+          description: SECTION only. 420 when left out.
+        height:
+          type: number
+          format: double
+          description: SECTION only. 260 when left out.
+      required:
+      - x
+      - y
+      description: A PAGE node (by title or by link) or a SECTION.
+    CreatePageRequestDTO:
+      type: object
+      properties:
+        parentId:
+          type: string
+          format: uuid
+          description: The new page's home. It lands in the tree, off the parent's board.
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+        icon:
+          type: string
+          maxLength: 64
+          minLength: 0
+      required:
+      - parentId
+      - title
+    CreateTopicRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+        description:
+          type: string
+          maxLength: 512
+          minLength: 0
+        icon:
+          type: string
+          maxLength: 64
+          minLength: 0
+        goalId:
+          type: string
+          format: uuid
+          description: Optional link to a goal the topic serves.
+        categoryId:
+          type: string
+          format: uuid
+          description: Optional. Notebook XP for this topic goes to this category as well as the person.
+        habitId:
+          type: string
+          format: uuid
+          description: Optional. Lets a focus session started here preselect this habit's routine item.
+      required:
+      - title
+    DraftNodeDTO:
+      type: object
+      properties:
+        title:
+          type: string
+        why:
+          type: string
+          description: Why this node matters for what the person said they are studying for.
+        subtopics:
+          type: array
+          items:
+            type: string
+        estimatedHours:
+          type: integer
+          format: int32
+        optional:
+          type: boolean
+          description: True when the node could be skipped for the stated aim. The dialog leaves it out
+            by default.
+        existingPageId:
+          type: string
+          format: uuid
+          description: A page the caller already has with the same subject, to offer as a link.
+        existingTopicTitle:
+          type: string
+          description: The topic that page lives in.
+        existingProgress:
+          $ref: '#/components/schemas/ProgressDTO'
+          description: That page's progress, so the dialog can say how much is already done.
+      description: One proposed node.
+    DraftNodeInputDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+        why:
+          type: string
+          maxLength: 500
+          minLength: 0
+          description: Becomes the opening paragraph of the new page.
+        subtopics:
+          type: array
+          items:
+            type: string
+            maxLength: 255
+            minLength: 0
+          maxItems: 30
+          minItems: 0
+          description: Each becomes a node on the new page's own board.
+        estimatedHours:
+          type: integer
+          format: int32
+        linkPageId:
+          type: string
+          format: uuid
+          description: Link this existing page instead of creating one, usually the draft's existingPageId.
+            The title is still required and is ignored.
+      required:
+      - title
+      description: One node of a draft as the person reviewed it.
+    DueCardDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        pageTitle:
+          type: string
+        topicId:
+          type: string
+          format: uuid
+        topicTitle:
+          type: string
+        front:
+          type: string
+        back:
+          type: string
+        sourceLabel:
+          type: string
+          description: Where the card came from, for the review screen's footer.
+        intervals:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+          description: 'Days each rating would schedule the card for, keyed AGAIN, HARD, GOOD and EASY.
+            AGAIN is 0: back later in this same session.'
+      description: A card in the review queue.
+    DueCardsResponseDTO:
+      type: object
+      properties:
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/DueCardDTO'
+          description: At most 200, the longest overdue first.
+        total:
+          type: integer
+          format: int32
+          description: Every due card in scope, beyond the 200 included.
+        streak:
+          type: integer
+          format: int32
+          description: Consecutive days with a review, ending today or yesterday.
+    ExplainRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 4000
+          minLength: 0
+          description: The block to explain.
+      required:
+      - text
+    FinishReviewResponseDTO:
+      type: object
+      properties:
+        paidReviews:
+          type: integer
+          format: int32
+          description: Reviews this call paid for. Fewer than were collected once the daily cap is hit.
+        xpEarned:
+          type: number
+          format: double
+          description: 1 per paid review.
+        streak:
+          type: integer
+          format: int32
+        refreshUi:
+          $ref: '#/components/schemas/RefreshUiDTO'
+          description: Null when nothing was paid.
+      description: What today's reviews paid.
+    GenerateOutputRequestDTO:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - OVERVIEW
+          - SUMMARY
+          - STUDY_GUIDE
+          - QUIZ
+          description: OVERVIEW replaces the page's last one. The other kinds are kept as saved outputs.
+      required:
+      - kind
+    HomeResponseDTO:
+      type: object
+      properties:
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopicSummaryDTO'
+        continueStudying:
+          $ref: '#/components/schemas/ContinueDTO'
+          description: The page opened most recently. Null until a page has been opened.
+        review:
+          $ref: '#/components/schemas/ReviewSummaryDTO'
+    LayoutRequestDTO:
+      type: object
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodePositionDTO'
+          maxItems: 500
+          minItems: 0
+          description: Positions to save. Ids that are not on this board are skipped.
+      required:
+      - positions
+    LinkRefDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    MiniEdgeDTO:
+      type: object
+      properties:
+        source:
+          type: string
+          format: uuid
+        target:
+          type: string
+          format: uuid
+    MiniNodeDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+    NodePositionDTO:
+      type: object
+      properties:
+        nodeId:
+          type: string
+          format: uuid
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+      required:
+      - nodeId
+      - x
+      - y
+    OverviewDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        summary:
+          type: string
+        questions:
+          type: array
+          items:
+            type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CitationDTO'
+        createdAt:
+          type: string
+          format: date-time
+    PageRefDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+    PageResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - TOPIC
+          - PAGE
+        topicId:
+          type: string
+          format: uuid
+          description: The topic this page belongs to. Null on a topic.
+        parentId:
+          type: string
+          format: uuid
+          description: The page's home in the tree. Null on a topic.
+        title:
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+          description: The BlockNote document, as a JSON string. Null until somebody writes on the page.
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+          description: Stored, and written only by the status rules. See the API description.
+        statusManual:
+          type: boolean
+          description: True when somebody set the status by hand on a page whose board has nodes, which
+            stops the nodes moving it. AUTO clears it.
+        hasBoard:
+          type: boolean
+          description: Whether the page's board has at least one PAGE node.
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+          description: 'Leaves done of leaves in total through the board. A leaf counts itself: 0 or 1
+            of 1.'
+        breadcrumb:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageRefDTO'
+          description: The topic first and this page last, along the tree.
+        goal:
+          $ref: '#/components/schemas/LinkRefDTO'
+          description: The topic's goal link, whichever page is asked for.
+        category:
+          $ref: '#/components/schemas/LinkRefDTO'
+          description: The topic's category, where notebook XP goes.
+        habit:
+          $ref: '#/components/schemas/LinkRefDTO'
+          description: The topic's habit link.
+        focusMinutes:
+          type: integer
+          format: int32
+          description: Completed pomodoro minutes on this page or any page whose home is under it.
+        cardsTotal:
+          type: integer
+          format: int32
+        cardsDue:
+          type: integer
+          format: int32
+          description: Cards on this page due today or earlier, in the caller's timezone.
+        sourcesCount:
+          type: integer
+          format: int32
+          description: 'Sources this page can read: its own and every ancestor''s.'
+        updatedAt:
+          type: string
+          format: date-time
+      description: A page as its screen shows it. A topic is a page with kind TOPIC.
+    PageSearchHitDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+        kind:
+          type: string
+          enum:
+          - TOPIC
+          - PAGE
+        topicId:
+          type: string
+          format: uuid
+        topicTitle:
+          type: string
+          description: The topic the page lives in, to tell same-named pages apart.
+    PageStatusDTO:
+      type: object
+      properties:
+        pageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+    PassageDTO:
+      type: object
+      properties:
+        sourceId:
+          type: string
+          format: uuid
+        sourceTitle:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PDF
+          - LINK
+          - TEXT
+        url:
+          type: string
+        chunkId:
+          type: string
+          format: uuid
+        pageNumber:
+          type: integer
+          format: int32
+          description: The PDF page. Null for links and pasted text.
+        text:
+          type: string
+          description: The passage itself.
+        before:
+          type: string
+          description: The passage right before it. Null at the start of the source.
+        after:
+          type: string
+          description: The passage right after it. Null at the end.
+      description: One passage of a source, as a citation opens it.
+    ProgressDTO:
+      type: object
+      properties:
+        done:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+      description: Leaves done of leaves in total, through every nested board.
+    QuizAnswerDTO:
+      type: object
+      properties:
+        index:
+          type: integer
+          format: int32
+        chosen:
+          type: integer
+          format: int32
+          description: The option picked, or -1 when the question was left unanswered.
+        correct:
+          type: integer
+          format: int32
+          description: The right option.
+        right:
+          type: boolean
+        explanation:
+          type: string
+        citation:
+          $ref: '#/components/schemas/CitationDTO'
+    QuizAnswersRequestDTO:
+      type: object
+      properties:
+        answers:
+          type: array
+          items:
+            type: integer
+            format: int32
+          maxItems: 30
+          minItems: 0
+          description: The option index (0 to 3) chosen for each question, in question order. Null means
+            unanswered.
+      required:
+      - answers
+    QuizQuestionDTO:
+      type: object
+      properties:
+        index:
+          type: integer
+          format: int32
+          description: The question's position, which the answers list follows.
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+          description: Exactly four.
+    QuizResultDTO:
+      type: object
+      properties:
+        score:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        passed:
+          type: boolean
+          description: 70% or better.
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuizAnswerDTO'
+        xpEarned:
+          type: number
+          format: double
+          description: 20 on the first pass, 0 otherwise.
+        refreshUi:
+          $ref: '#/components/schemas/RefreshUiDTO'
+          description: Present only on the first pass.
+      description: A graded quiz, answers revealed.
+    RefreshItemCheckedDTO:
+      type: object
+      properties:
+        groupItemId:
+          type: string
+          format: uuid
+        check:
+          $ref: '#/components/schemas/BaseCheck'
+    RefreshObjectDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+        currentStreak:
+          type: integer
+          format: int32
+        bestStreak:
+          type: integer
+          format: int32
+        totalCheckIns:
+          type: integer
+          format: int32
+    RefreshUiDTO:
+      type: object
+      properties:
+        refreshUser:
+          $ref: '#/components/schemas/RefreshUserDTO'
+        refreshCategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshHabit:
+          $ref: '#/components/schemas/RefreshObjectDTO'
+        refreshItemChecked:
+          $ref: '#/components/schemas/RefreshItemCheckedDTO'
+    RefreshUserDTO:
+      type: object
+      properties:
+        currentConstance:
+          type: integer
+          format: int32
+        alreadyIncreaseConstanceToday:
+          type: boolean
+        maxConstance:
+          type: integer
+          format: int32
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double
+    ReviewRequestDTO:
+      type: object
+      properties:
+        rating:
+          type: string
+          enum:
+          - AGAIN
+          - HARD
+          - GOOD
+          - EASY
+          description: AGAIN (forgot), HARD, GOOD or EASY.
+      required:
+      - rating
+    ReviewResponseDTO:
+      type: object
+      properties:
+        cardId:
+          type: string
+          format: uuid
+        dueOn:
+          type: string
+          format: date
+        intervalDays:
+          type: integer
+          format: int32
+        dueAgainToday:
+          type: boolean
+          description: 'True after AGAIN: put the card back at the end of the session.'
+    ReviewSummaryDTO:
+      type: object
+      properties:
+        due:
+          type: integer
+          format: int32
+          description: Cards due today or earlier, every topic together.
+        byTopic:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopicDueDTO'
+          description: Only topics with something due.
+        streak:
+          type: integer
+          format: int32
+          description: Consecutive days with a review, ending today or yesterday.
+    RoadmapDraftDTO:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DraftNodeDTO'
+        totalHours:
+          type: integer
+          format: int32
+          description: The estimate for the nodes that are not optional.
+      description: A proposal. Nothing is stored until the person creates it.
+    RoadmapDraftRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: The subject.
+        why:
+          type: string
+          maxLength: 600
+          minLength: 0
+          description: What the person is studying it for. The model shapes the roadmap and the optional
+            flags around it.
+        level:
+          type: string
+          enum:
+          - NEW
+          - SOME
+          - SOLID
+          description: NEW to the subject, knows SOME of it, or SOLID foundations and wants depth.
+        hoursPerWeek:
+          type: integer
+          format: int32
+          maximum: 80
+          minimum: 1
+          description: Time available, which feeds the hour estimates.
+        goalId:
+          type: string
+          format: uuid
+          description: A goal this serves, named to the model. Somebody else's goal is left out without
+            an error.
+        references:
+          type: array
+          items:
+            type: string
+            maxLength: 500
+            minLength: 0
+          maxItems: 5
+          minItems: 0
+          description: Books, courses or syllabi to base it on, as free text.
+        changeRequest:
+          type: string
+          maxLength: 500
+          minLength: 0
+          description: 'With previous: what to change in the current draft.'
+        previous:
+          type: array
+          items:
+            $ref: '#/components/schemas/DraftNodeInputDTO'
+          maxItems: 20
+          minItems: 0
+          description: The current draft, when asking for a revision.
+      required:
+      - title
+    SetStatusRequestDTO:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+          - AUTO
+          description: TO_STUDY, STUDYING or DONE sets the status by hand. On a page whose board has nodes
+            that pins it, and the nodes stop moving it. AUTO hands the page back to its nodes and recomputes
+            its status at once; on a leaf it changes nothing.
+      required:
+      - status
+      description: A status, or AUTO.
+    SourceDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        pageTitle:
+          type: string
+          description: The page the source was added to.
+        inherited:
+          type: boolean
+          description: True when it was added to an ancestor of the page that was asked about.
+        kind:
+          type: string
+          enum:
+          - PDF
+          - LINK
+          - TEXT
+        title:
+          type: string
+          description: The file name for a PDF, host and path for a link, the given title for text.
+        url:
+          type: string
+          description: LINK only.
+        status:
+          type: string
+          enum:
+          - PENDING
+          - READING
+          - READY
+          - FAILED
+          description: PENDING until the background job starts, READING while it runs, then READY or FAILED.
+        progress:
+          type: integer
+          format: int32
+          description: 0 to 100 while READING.
+        errorKey:
+          type: string
+          description: Why it FAILED, as an error key the clients translate.
+        enabled:
+          type: boolean
+          description: Off keeps the source listed and stops the AI reading it.
+        pageCount:
+          type: integer
+          format: int32
+          description: Pages read, for a PDF.
+        charCount:
+          type: integer
+          format: int32
+          description: Characters of text kept.
+        createdAt:
+          type: string
+          format: date-time
+      description: A source as the page's source list shows it.
+    StatusChangeResponseDTO:
+      type: object
+      properties:
+        pageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+        statusManual:
+          type: boolean
+        changed:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageStatusDTO'
+          description: Every page whose status moved, this one included.
+        xpEarned:
+          type: number
+          format: double
+          description: XP this call paid in total. 0 when nothing finished for the first time.
+        refreshUi:
+          $ref: '#/components/schemas/RefreshUiDTO'
+          description: Present only when XP was paid.
+      description: What one status change did, across every board it reached.
+    StudyOutputDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - OVERVIEW
+          - SUMMARY
+          - STUDY_GUIDE
+          - QUIZ
+        title:
+          type: string
+        markdown:
+          type: string
+          description: The text of an overview, summary or study guide. Null on a quiz.
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CitationDTO'
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuizQuestionDTO'
+          description: Quiz only, without the answers.
+        score:
+          type: integer
+          format: int32
+          description: The last grading. Quiz only.
+        total:
+          type: integer
+          format: int32
+          description: Questions in the last grading. Quiz only.
+        passedAt:
+          type: string
+          format: date-time
+          description: When the quiz was first passed, which is when its XP was paid.
+        createdAt:
+          type: string
+          format: date-time
+      description: A saved study-room output. A quiz never carries its answers here.
+    StudyResponseDTO:
+      type: object
+      properties:
+        page:
+          $ref: '#/components/schemas/PageRefDTO'
+        breadcrumb:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageRefDTO'
+        overview:
+          $ref: '#/components/schemas/OverviewDTO'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessageDTO'
+        outputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyOutputDTO'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceDTO'
+        cardsTotal:
+          type: integer
+          format: int32
+        cardsDue:
+          type: integer
+          format: int32
+    SuggestNodesRequestDTO:
+      type: object
+      properties:
+        fromSources:
+          type: boolean
+          description: True grounds the suggestions in the page's notes and sources, and answers NOTEBOOK_NOTHING_TO_STUDY
+            when there are none. False, the default, lets the model plan from its general knowledge of
+            the subject.
+    SuggestedNodeDTO:
+      type: object
+      properties:
+        title:
+          type: string
+        why:
+          type: string
+    TopicDueDTO:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        due:
+          type: integer
+          format: int32
+    TopicLinksRequestDTO:
+      type: object
+      properties:
+        goalId:
+          type: string
+          format: uuid
+          description: Null clears the goal link.
+        categoryId:
+          type: string
+          format: uuid
+          description: Null clears it, and later XP goes to the person only.
+        habitId:
+          type: string
+          format: uuid
+          description: Null clears the habit link.
+      description: The topic's three links, replaced together. Null clears a link.
+    TopicSummaryDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+        cardsDue:
+          type: integer
+          format: int32
+          description: Due cards anywhere in the topic.
+        sourcesCount:
+          type: integer
+          format: int32
+          description: Sources added anywhere in the topic.
+        next:
+          $ref: '#/components/schemas/PageRefDTO'
+          description: The leaf to study next. Null when everything is done.
+        goal:
+          $ref: '#/components/schemas/LinkRefDTO'
+        habit:
+          $ref: '#/components/schemas/LinkRefDTO'
+        preview:
+          type: array
+          items:
+            $ref: '#/components/schemas/MiniNodeDTO'
+          description: The topic board's PAGE nodes, for the card's miniature.
+        previewEdges:
+          type: array
+          items:
+            $ref: '#/components/schemas/MiniEdgeDTO'
+          description: The topic board's edges, for the miniature.
+        updatedAt:
+          type: string
+          format: date-time
+    TreeItemDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          description: The page's parent, or for a linked item the board page that shows it.
+        title:
+          type: string
+        icon:
+          type: string
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+        onBoard:
+          type: boolean
+          description: True for a node on its parent's board, false for a page made off the board.
+        linked:
+          type: boolean
+          description: True for a page that lives in another topic and is shown here by a link.
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+        position:
+          type: integer
+          format: int32
+          description: Board order for nodes. Pages off the board sort after them.
+      description: One row of a topic's sidebar tree.
+    TreeResponseDTO:
+      type: object
+      properties:
+        topic:
+          $ref: '#/components/schemas/PageRefDTO'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TreeItemDTO'
+        sourcesCount:
+          type: integer
+          format: int32
+          description: Sources added anywhere in the topic.
+        cardsDue:
+          type: integer
+          format: int32
+          description: Due cards anywhere in the topic.
+    UpdateCardRequestDTO:
+      type: object
+      properties:
+        front:
+          type: string
+          maxLength: 2000
+          minLength: 0
+          pattern: (?s).*\S.*
+          description: Left out, it stays as it is.
+        back:
+          type: string
+          maxLength: 2000
+          minLength: 0
+          pattern: (?s).*\S.*
+          description: Left out, it stays as it is.
+    UpdateContentRequestDTO:
+      type: object
+      properties:
+        content:
+          type: string
+          maxLength: 2000000
+          minLength: 0
+          description: The whole BlockNote document as a JSON string.
+      required:
+      - content
+    UpdateNodeRequestDTO:
+      type: object
+      properties:
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+        width:
+          type: number
+          format: double
+          description: SECTION only, at least 80.
+        height:
+          type: number
+          format: double
+          description: SECTION only, at least 60.
+        label:
+          type: string
+          maxLength: 255
+          minLength: 0
+          description: SECTION only. Blank is ignored.
+    UpdatePageRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 0
+          pattern: .*\S.*
+          description: Must hold something other than whitespace.
+        icon:
+          type: string
+          maxLength: 64
+          minLength: 0
+          description: Blank clears it.
+        description:
+          type: string
+          maxLength: 512
+          minLength: 0
+          description: Blank clears it.
+    UpdateSourceRequestDTO:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: False keeps the source and stops the AI reading it.
+      required:
+      - enabled

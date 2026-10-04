@@ -1,6 +1,6 @@
 ---
 title: "Redux and Data Architecture"
-summary: "One state package shared by web and mobile: 19 slices, a PII-aware persistence blacklist, versioned persisted state, the shared gamification apply function, and the two-tier HTTP layer underneath."
+summary: "One state package shared by web and mobile: 20 slices, a PII-aware persistence blacklist, versioned persisted state, the shared gamification apply function, and the two-tier HTTP layer underneath."
 ---
 
 This document explains the state and data layer: where the slices live, what persists and what deliberately does not, how a check response fans out across the store, and how the HTTP client is structured so web and mobile share everything above the transport.
@@ -12,11 +12,11 @@ The slices live in the shared `packages/state`, and each app assembles its own s
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["19 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
+    SLICES["20 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
   end
 
   subgraph web["apps/web"]
-    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration · mood"]
+    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook"]
   end
 
   subgraph mobile["apps/mobile"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## The 19 slices
+## The 20 slices
 
 | Slice | Holds |
 |-------|-------|
@@ -40,12 +40,13 @@ flowchart LR
 | viewFilters | The per-page sort choice, hydrated through a key whitelist. Also holds `goalsViewer`, the one-goal-at-a-time screen's ordering, kept apart from the goals page's sort, and `goalsViewerLayout`, whether that screen walks the main goals only (grouped) or every goal as its own slide (list) |
 | focus | The Focus Mode: which state the screen is in, the selected item and whether the person chose it by hand, the pomodoro timer as an absolute end time plus its four editable lengths and the two cycle-end alert switches (sound, notification), and a per-item cache of the server's micro-tasks |
 | mood | The diary, indexed by day: the level and the journal text for each day loaded. A map and not a list, because the widget's week and the page's month overlap, and two lists would have shown a day marked on the dashboard and blank on the page |
+| notebook | The study notebook, indexed by id: pages, boards by page, topic trees and the home. The same page shows up as a board node, a tree row, the page screen and a home card at once, and `applyStatuses` writes a status change into all four from the `changed` list the server returns, so a node turns green everywhere without a refetch |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |
 
-The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps eighteen slices from stepping on each other in two apps.
+The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps twenty slices from stepping on each other in two apps.
 
-Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, the onboarding entity-creation helpers, and the Daily Briefing's rules.
+Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, the onboarding entity-creation helpers, the Daily Briefing's rules, and the notebook's `applyStatuses` and `pathLevels` (a board read as levels in study order, which is how the phone shows a roadmap).
 
 The briefing deliberately adds no slice. Its dialog is the only consumer of its data, so the response lives in component state and dies with the dialog. What is shared is the judgement around it: whether the dialog should open at all, and what happens to the list when the user resolves a row. Those are exactly the decisions that get a subtly different answer on each platform within a month of shipping, and the difference stays invisible until somebody says the phone nags them and the web does not.
 
@@ -58,6 +59,7 @@ The web store persists to localStorage with a deliberate blacklist:
 | perfil | Name, e-mail, and photo are PII and do not belong in localStorage; the profile re-hydrates from the API on every boot |
 | snapshot | Routine history is PII by accumulation |
 | celebration | Transient by definition: a queued level-up must not replay after a reload |
+| notebook | Study notes, page by page, as personal as the journal and excluded for the same reason. Refetched on mount like `snapshot`, so nothing is lost by not keeping it. `PERSIST_VERSION` did not move: a key that was never persisted needs no migration |
 | mood | Journal text, the most personal thing the product stores. The failure is silent: everything works, and somebody's diary simply sits in localStorage after they close the tab. A test therefore reads the blacklist from source rather than trusting the entry to survive an edit |
 
 Everything else (entity lists, edit drafts, sort preferences) persists, so a reload paints instantly from local data while fresh data loads behind it.

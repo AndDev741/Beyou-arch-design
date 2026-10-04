@@ -4,7 +4,7 @@ summary: "A suíte Playwright que dirige a stack real de ponta a ponta: registra
 ---
 # Beyou E2E Tests
 
-Specs Playwright que exercitam o produto inteiro do jeito que um usuário faz: frontend, backend e Postgres juntos, sem mocks. A suíte tranca os fluxos que nunca podem quebrar em silêncio: registro e login (incluindo o comportamento anti-enumeração nas falhas), persistência de sessão entre reloads, desmontagem no logout, CRUD de hábitos, check-ins de rotina com seus efeitos de XP e streak, a assimetria de conclusão de metas, o feedback de gamificação e o tutorial de onboarding completo.
+Specs Playwright que exercitam o produto inteiro do jeito que um usuário faz: frontend, backend e Postgres juntos, sem mocks. A suíte tranca os fluxos que nunca podem quebrar em silêncio: registro e login (incluindo o comportamento anti-enumeração nas falhas), persistência de sessão entre reloads, desmontagem no logout, CRUD de hábitos, check-ins de rotina com seus efeitos de XP e streak, a assimetria de conclusão de metas, o feedback de gamificação, o tutorial de onboarding completo e o caderno de estudos: o caminho de UI de um tópico novo até um nó concluído, mais posse, pagamento único, a recusa de SSRF, o XP da revisão e as telas de IA com só as rotas do modelo simuladas.
 
 ## Como roda
 

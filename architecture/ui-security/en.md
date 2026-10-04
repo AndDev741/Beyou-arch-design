@@ -28,7 +28,7 @@ A page reload therefore loses the access token by design, and `useSilentRefresh`
 
 ## Persistence and teardown
 
-Redux state persists to localStorage with three slices blacklisted: the profile (name, e-mail, photo are PII), snapshots (history is PII by accumulation), and the celebration queue (transient). The cost is re-hydrating the profile from the API on every boot, and the app pays it knowingly.
+Redux state persists to localStorage with five slices blacklisted: the profile (name, e-mail, photo are PII), snapshots (history is PII by accumulation), the celebration queue (transient), the mood journal, and the study notebook's pages. The last two hold the most personal writing in the product, and nothing anyone writes there should sit in localStorage after the tab closes. The cost is re-hydrating the profile from the API on every boot and refetching notes and journal on mount, and the app pays it knowingly.
 
 Logout purges the persistor and hard-navigates, which discards the in-memory token and store together. Account deletion goes further, in a sequence whose details all exist because of past bugs:
 

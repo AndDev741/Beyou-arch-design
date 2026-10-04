@@ -1,6 +1,6 @@
 ---
 title: "Redux e Arquitetura de Dados"
-summary: "Um pacote de estado dividido entre web e mobile: 19 slices, uma blacklist de persistência ciente de PII, estado persistido versionado, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
+summary: "Um pacote de estado dividido entre web e mobile: 20 slices, uma blacklist de persistência ciente de PII, estado persistido versionado, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
 ---
 
 Este documento explica a camada de estado e dados: onde os slices vivem, o que persiste e o que deliberadamente não persiste, como a resposta de um check se espalha pela store e como o cliente HTTP é estruturado para web e mobile dividirem tudo acima do transporte.
@@ -12,11 +12,11 @@ Os slices vivem no pacote compartilhado `packages/state`, e cada app monta a pr�
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["19 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
+    SLICES["20 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
   end
 
   subgraph web["apps/web"]
-    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration · mood"]
+    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook"]
   end
 
   subgraph mobile["apps/mobile"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## Os 19 slices
+## Os 20 slices
 
 | Slice | Guarda |
 |-------|--------|
@@ -40,12 +40,13 @@ flowchart LR
 | viewFilters | A ordenação escolhida por página, hidratada por uma whitelist de chaves. Guarda também `goalsViewer`, a ordenação do ecrã de uma meta de cada vez, separada da ordenação da página de metas, e `goalsViewerLayout`, se esse ecrã percorre só as metas principais (agrupada) ou cada meta como slide próprio (lista) |
 | focus | O Modo Foco: em que estado a tela está, o item selecionado e se a pessoa o escolheu à mão, o timer pomodoro como hora de fim absoluta mais as quatro durações editáveis e os dois interruptores de aviso de fim de ciclo (som, notificação), e um cache por item das micro-tarefas do servidor |
 | mood | O diário, indexado por dia: o nível e o texto de cada dia carregado. Um mapa e não uma lista, porque a semana do widget e o mês da página se sobrepõem, e duas listas teriam mostrado um dia marcado no dashboard e vazio na página |
+| notebook | O caderno de estudos, indexado por id: páginas, quadros por página, árvores de tópico e a home. A mesma página aparece ao mesmo tempo como nó de quadro, linha da árvore, tela da página e card da home, e o `applyStatuses` grava uma mudança de status nos quatro a partir da lista `changed` que o servidor devolve, então um nó fica verde em todo lugar sem refetch |
 | register | Um booleano para a tela de sucesso pós-cadastro |
 | errorHandler | Uma string global de erro |
 
-O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede dezenove slices de pisarem uns nos outros em dois apps.
+O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede vinte slices de pisarem uns nos outros em dois apps.
 
-Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh, os helpers de criação de entidades do onboarding e as regras do Resumo do Dia.
+Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh, os helpers de criação de entidades do onboarding, as regras do Resumo do Dia, e o `applyStatuses` e o `pathLevels` do caderno (um quadro lido em níveis na ordem de estudo, que é como o celular mostra um roadmap).
 
 O resumo não acrescenta slice nenhum, de propósito. O diálogo dele é o único consumidor dos seus dados, portanto a resposta vive em estado de componente e morre com o diálogo. O que é partilhado é o julgamento à volta: se o diálogo deve sequer abrir, e o que acontece à lista quando o usuário resolve uma linha. São exactamente as decisões que ganham uma resposta subtilmente diferente em cada plataforma no espaço de um mês, e a diferença fica invisível até alguém dizer que o telemóvel chateia e a web não.
 
@@ -58,6 +59,7 @@ A store do web persiste em localStorage com uma blacklist deliberada:
 | perfil | Nome, e-mail e foto são PII e não pertencem ao localStorage; o perfil re-hidrata da API a cada boot |
 | snapshot | Histórico de rotina é PII por acúmulo |
 | celebration | Transitório por definição: um level-up na fila não pode tocar de novo depois de um reload |
+| notebook | Anotações de estudo, página por página, tão pessoais quanto o diário e excluídas pelo mesmo motivo. Rebuscadas na montagem como `snapshot`, então nada se perde por não guardá-las. O `PERSIST_VERSION` não mudou: uma chave que nunca foi persistida não precisa de migração |
 | mood | Texto de diário, o dado mais pessoal que o produto guarda. A falha é silenciosa: tudo funciona, e o diário de alguém fica simplesmente no localStorage depois de fechar a aba. Por isso um teste lê a blacklist do código-fonte em vez de confiar que a entrada sobrevive a uma edição |
 
 Todo o resto (listas de entidades, rascunhos de edição, preferências de ordenação) persiste, então um reload pinta na hora com dados locais enquanto dados frescos carregam por trás. O app mobile não persiste nada: tokens vivem no armazenamento seguro, dados rebuscam ao montar e o logout dele zera todos os slices pelo root reducer. No web, o logout purga o persistor e navega de forma dura, o que descarta a store em memória por inteiro.

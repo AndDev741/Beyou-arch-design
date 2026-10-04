@@ -1,6 +1,6 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 51 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 54 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
 ---
 
 This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
@@ -74,7 +74,7 @@ The assistant is optional end to end. Nothing reaches a provider for a user who 
 
 ## The tools
 
-Fifty-one tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease, archive and restore, and a move-under tool that re-parents a goal in the tree by name without resending every field), routine building (create, targeted edits, full-replace edit, item add and remove), list routines (create and full-replace, both taking a flat item array and no times), schedules, today's routine with check and skip, Focus Mode's micro-tasks (list, add, tick, pin, delete, reorder) and its day view, user configuration reads and patches, daily mood (one writer and one reader), two memory writers, and feedback submission.
+Fifty-four tools grouped by domain: full CRUD for habits, categories, tasks, and goals (plus goal complete, increase, decrease, archive and restore, and a move-under tool that re-parents a goal in the tree by name without resending every field), routine building (create, targeted edits, full-replace edit, item add and remove), list routines (create and full-replace, both taking a flat item array and no times), schedules, today's routine with check and skip, Focus Mode's micro-tasks (list, add, tick, pin, delete, reorder) and its day view, user configuration reads and patches, daily mood (one writer and one reader), the study notebook (`listStudyTopics` and `getStudyPlanForToday` read it, `addStudyNode` adds a node to a board found by the board page's title and refuses when two pages share it), two memory writers, and feedback submission. Notes, sources and flashcards are not writable from the chat; the prompt sends the person to the notebook for those.
 
 Three absences in that list are deliberate. **A timer cycle cannot be written.** A cycle is the record that somebody actually sat through one, and the client only reports a cycle that ran out, so a tool able to file them would let the agent invent history the person never lived — the same reasoning that keeps check-ins behind an explicit request. Cycles are readable through the day view and nothing more. And **no tool guesses which routine entry a micro-task belongs to**: a missing entry id is refused rather than defaulted, because a row written onto the wrong entry is silent and the person only finds it later with nothing to explain it. The refusal names the entry they have open in Focus Mode, when there is one, which is usually the one the model meant. And **the journal itself is not readable**: the history tool returns each day's date, its level, and whether something was written, never the words. Somebody writing at length for themselves has not asked a model to read it, and a tool that could would make every entry part of the next prompt. If they want the assistant to see a day, they paste it.
 
@@ -116,6 +116,10 @@ The briefing's prose goes through the same chain and the same kind of door as th
 
 Generation happens **on demand and never in the nightly pass**. The day-close pass walks every account that exists. A model call inside it would spend the quota of people who open the app on people who do not, and it would write the "today" half at 02:00, before anything about today had happened.
 
+## The study notebook, grounded and tool-free
+
+The study notebook's AI (the study room's chat and outputs, the roadmap draft, node suggestions, "explain" and AI flashcards) is a third door onto the same chain, built like the onboarding one: `NotebookLlm` makes one structured call through `ChatClient.entity()`, retries once asking for valid JSON, and then raises `AI_UNAVAILABLE`. No tools, no streaming, no memory. The caller assembles the context and sends all of it every time. The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode. GROUNDED answers only from numbered passages (the person's notes, then chunks retrieved from their sources) and cites them as `[n]`. SUPPORTED explains from the model's own knowledge and cites where the passages agree. PLANNING has no passages. `StudyContextBuilder` owns the numbering and drops any citation the model invents. A page with nothing to read answers `NOTEBOOK_NOTHING_TO_STUDY` before the model is called. These calls spend their own `notebook-ai` bucket, 60 an hour, so studying never eats the assistant's 30. The [study notebook topic](/architecture/study-notebook) covers retrieval and the rest.
+
 ## The client side
 
 SSE cannot ride the axios client (XHR buffers), so a dedicated stream helper wraps fetch with its own config: the base URL and live auth header borrowed from the app, the same shared token-refresh function (so a stream 401 cannot race a second refresh), and on mobile Expo's fetch, because React Native's global fetch buffers whole bodies. The parser buffers across chunks, tolerates heartbeats, validates every event's shape at the boundary, and decodes UTF-8 streaming-safely so a multi-byte character split across chunks cannot corrupt.
@@ -129,5 +133,5 @@ The web widget mounts once inside the protected shell, lazy-loads the panel on f
 | Every link in the chain fails | Metric incremented, last exception surfaces as an error event; the client rolls back the optimistic bubble and restores the typed text into the composer |
 | Third concurrent stream | A short-lived emitter answers TOO_MANY_STREAMS without opening an LLM call (cap: 2 per user) |
 | Transcript persistence fails | The client gets TRANSCRIPT_PERSIST_FAILED instead of a false done |
-| Rate limit | 30 model calls per hour per user, one bucket for every POST on a chat (onboarding has its own separate 30) |
+| Rate limit | 30 model calls per hour per user, one bucket for every POST on a chat (onboarding has its own separate 30, and the study notebook its own 60) |
 | Dead client mid-pause | The 15-second heartbeat is the detector; its failure tears down the stream and frees the slot |

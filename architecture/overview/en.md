@@ -9,9 +9,9 @@ This is the map of the system as it runs in production: every client surface, th
 
 | Layer | Technologies |
 |-------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3 |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow with dagre for the roadmap board |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
-| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat and onboarding suggestions (LLM fallback chain) |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 15, Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
 | **Delivery** | GitHub Actions builds images to GHCR, Watchtower redeploys them; Docker Compose; nginx serves the web and docs builds |
 | **Monitoring** | Prometheus, Grafana, Loki + Alloy, GlitchTip (Sentry-compatible) |
@@ -48,6 +48,7 @@ erDiagram
   USER ||--o{ TASK : owns
   USER ||--o{ GOAL : owns
   USER ||--o{ ROUTINE : owns
+  USER ||--o{ NOTEBOOK_PAGE : owns
 
   CATEGORY }o--o{ HABIT : tagged
   CATEGORY }o--o{ TASK : tagged
@@ -64,6 +65,12 @@ erDiagram
 
   HABIT_GROUP ||--o{ HABIT_GROUP_CHECK : tracks
   TASK_GROUP ||--o{ TASK_GROUP_CHECK : tracks
+
+  NOTEBOOK_PAGE ||--o{ NOTEBOOK_PAGE : "parent of"
+  NOTEBOOK_PAGE ||--o{ BOARD_NODE : "board of"
+  BOARD_NODE }o--|| NOTEBOOK_PAGE : opens
+  NOTEBOOK_PAGE ||--o{ FLASHCARD : holds
+  NOTEBOOK_PAGE ||--o{ SOURCE : reads
 ```
 
 ### Entity highlights
@@ -79,6 +86,7 @@ erDiagram
 - **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.
 - **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
 - **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
+- **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations.
 
 ## Authentication flow
 
@@ -125,7 +133,7 @@ sequenceDiagram
 
 ## API layer
 
-25 REST controllers organized by domain, all under `/api/v1`:
+34 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
@@ -135,6 +143,7 @@ sequenceDiagram
 | **History** | CheckHistory, XpHistory | /check-history, /xp |
 | **Focus Mode** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diary** | Mood | /mood |
+| **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi | /notebook/* |
 | **Daily Briefing** | DailyBriefing | /daily-briefing |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
 | **AI** | AiAgent, Onboarding | /ai/agent, /onboarding |
@@ -179,7 +188,7 @@ flowchart TD
   AX -->|"auto 401 → refresh"| AX
 ```
 
-The Redux slices live in a shared workspace package (`packages/state`, 17 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist, deliberately excluding the profile and snapshot slices so no PII lands in localStorage. The mobile app adds an offline layer (`packages/offline`) for reads and queued writes.
+The Redux slices live in a shared workspace package (`packages/state`, 20 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist and deliberately excludes the profile, snapshot, celebration, mood and notebook slices, so no PII, journal text or study notes land in localStorage. The mobile app keeps its store in memory and refetches on launch.
 
 ## Gamification system
 
@@ -195,6 +204,7 @@ flowchart LR
 
 - **XpProgress** is an embeddable component shared by User, Category, Habit, and Routine.
 - XP is generated when a habit or task is checked inside a routine.
+- The study notebook pays fixed amounts once each: 15 for a page finished the first time, 20 for a quiz passed the first time, 1 per reviewed flashcard up to 30 a day.
 - Level progression follows a seeded XP-per-level table (XpByLevelSeeder).
 - Constance (streak) tracks consecutive completed days on the User entity.
 - Goals award a fixed xpReward on completion.

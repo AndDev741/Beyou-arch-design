@@ -28,7 +28,7 @@ Um reload da página, portanto, perde o access token por design, e o `useSilentR
 
 ## Persistência e desmontagem
 
-O estado do Redux persiste em localStorage com três slices na blacklist: o perfil (nome, e-mail e foto são PII), os snapshots (histórico é PII por acúmulo) e a fila de celebrações (transitória). O custo é re-hidratar o perfil da API a cada boot, e o app paga sabendo.
+O estado do Redux persiste em localStorage com cinco slices na blacklist: o perfil (nome, e-mail e foto são PII), os snapshots (histórico é PII por acúmulo), a fila de celebrações (transitória), o diário de humor e as páginas do caderno de estudos. Os dois últimos guardam o texto mais pessoal do produto, e nada que alguém escreva ali deve ficar no localStorage depois que a aba fecha. O custo é re-hidratar o perfil da API a cada boot e rebuscar anotações e diário na montagem, e o app paga sabendo.
 
 O logout purga o persistor e navega duro, o que descarta o token em memória e a store juntos. A exclusão de conta vai além, em uma sequência cujos detalhes existem todos por causa de bugs passados:
 
