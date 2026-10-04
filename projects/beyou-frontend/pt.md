@@ -12,7 +12,7 @@ O estado (17 slices Redux e a lógica de gamificação), a camada de API atrás 
 
 ## Como é entregue
 
-Um único grafo de CI faz typecheck, build e testes de cada workspace, e então roda a suíte e2e Playwright contra a stack completa. Um push na main publica a imagem web no GHCR (o Watchtower a implanta) e, quando o app mobile ou qualquer pacote compartilhado mudou, monta o App Bundle Android assinado e envia para a faixa de teste interno da Google Play. As releases de produção saem desse mesmo workflow numa execução manual; o app está na [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).
+Um único grafo de CI faz typecheck, build e testes de cada workspace, e então roda a suíte e2e Playwright contra a stack completa. Um push na main publica a imagem web no GHCR (o Watchtower a implanta) e, quando o app mobile ou qualquer pacote compartilhado mudou, monta o App Bundle Android assinado e envia para a faixa de teste aberto da Google Play. As releases de produção saem desse mesmo workflow numa execução manual; o app está na [Google Play](https://play.google.com/store/apps/details?id=com.beyou.mobile).
 
 ## Mergulhos profundos
 
