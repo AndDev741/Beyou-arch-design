@@ -24,7 +24,7 @@ flowchart LR
   subgraph server["Lado do servidor"]
     LA["🔒 Lockout de login<br/>por conta"]
     TS["🔑 TokenService<br/>HMAC256, 15 min"]
-    RT["🔄 Refresh tokens<br/>hash BCrypt, rotacionados"]
+    RT["🔄 Refresh tokens<br/>hash SHA-256, rotacionados"]
     OWN["👤 Checagens de posse<br/>em cada service"]
   end
 
@@ -41,8 +41,8 @@ flowchart LR
 
 - Stateless. Sem sessões, sem superfície de CSRF que mereça um token: a autenticação viaja em headers, e o único cookie só é lido pelos endpoints de refresh e logout.
 - O JWT de acesso vive 15 minutos e só na memória do frontend. O backend o entrega no header de resposta `X-Access-Token`.
-- O refresh token vive 15 dias, com hash BCrypt em repouso, rotacionado a cada uso. Clientes web o guardam em cookie HttpOnly; o app mobile o recebe no corpo da resposta.
-- Um único encoder BCrypt com custo 12 faz o hash de tudo: senhas, refresh tokens, tokens de reset e códigos de exclusão.
+- O refresh token vive 15 dias, com hash SHA-256 em repouso, rotacionado a cada uso. Clientes web o guardam em cookie HttpOnly; o app mobile o recebe no corpo da resposta.
+- Um encoder BCrypt com custo 12 faz o hash de senhas, tokens de reset e códigos de exclusão. Refresh tokens são a exceção: SHA-256, porque são aleatórios e o BCrypt só os deixava lentos (veja [Refresh token](#refresh-token)).
 - Validadores de boot se recusam a subir uma instância de produção com curinga no CORS, segredo de JWT curto, cookies inseguros ou atalhos de e2e habilitados.
 
 ## Endpoints de autenticação
@@ -183,11 +183,15 @@ HMAC256 em vez de RSA porque só este backend assina e verifica: não há tercei
 
 ### Refresh token
 
-O token do cliente é `{rowId}.{segredo}`: um UUID nomeando a linha do banco mais 32 bytes aleatórios. O banco guarda só o hash BCrypt do segredo, então uma tabela vazada não contém nada reutilizável.
+O token do cliente é `{rowId}.{segredo}`: um UUID nomeando a linha do banco mais 32 bytes aleatórios. O banco guarda só o hash SHA-256 do segredo, no formato `sha256:<hex>`, então uma tabela vazada não contém nada reutilizável.
+
+**Por que SHA-256 e não BCrypt.** O BCrypt é lento de propósito, para que um segredo adivinhável como uma senha custe tempo real a cada tentativa. Estes segredos são 256 bits aleatórios; não há o que adivinhar, então essa lentidão não protegia nada e custava tempo a todo usuário. O refresh fazia duas operações BCrypt(12) (conferir o segredo antigo, gerar o hash do novo), cerca de 400 ms cada na máquina de produção, o que segurava o `POST /auth/refresh` perto de 850 ms no p50. Com SHA-256 leva poucos milissegundos. A comparação é em tempo constante.
+
+Linhas gravadas antes da troca guardam hash BCrypt e continuam sendo conferidas com BCrypt, então o deploy não deslogou ninguém. Cada uma é substituída por uma linha SHA-256 na próxima rotação, e a última expira 15 dias depois do deploy.
 
 ```mermaid
 flowchart TD
-  CR["🔑 32 bytes aleatórios"] --> HASH["🔒 Hash BCrypt (custo 12)"]
+  CR["🔑 32 bytes aleatórios"] --> HASH["🔒 Hash SHA-256"]
   HASH --> DB["💾 Linha: id + hash + expiresAt + revokedAt"]
   CR --> OUT["📤 Para o cliente: id.segredo"]
   OUT --> REF["🔄 POST /auth/refresh"]
@@ -346,7 +350,7 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 - Referrer-Policy: strict-origin-when-cross-origin. Permissions-Policy: câmera, microfone e geolocalização negados.
 - Os padrões do Spring Security seguem ativos por cima: nosniff, X-Frame-Options DENY, no-cache. O HSTS só aparece em conexões que o framework enxerga como seguras, então na prática pertence ao proxy que termina o TLS.
 
-**CORS**: um único padrão de origem vindo do ambiente, credenciais habilitadas e exatamente um header exposto: `X-Access-Token`. Dev roda curinga; produção o recusa (próximo parágrafo).
+**CORS**: um único padrão de origem vindo do ambiente, credenciais habilitadas e três headers expostos: `X-Access-Token`, `Retry-After` e `X-Rate-Limit-Remaining`. Os preflights levam `Access-Control-Max-Age: 3600`; sem isso o navegador guardava um preflight por uns cinco segundos, e mais ou menos uma requisição em cada três em produção era uma ida e volta extra de OPTIONS. Dev roda curinga; produção o recusa (próximo parágrafo).
 
 **Validadores de boot**, a camada do "recusa a subir":
 
@@ -363,7 +367,7 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 ### O que está bem feito
 
 - Separação do armazenamento de tokens, vida curta do JWT e rotação com revogação nos refresh tokens.
-- Um encoder BCrypt de custo 12 para cada segredo que o banco guarda.
+- BCrypt custo 12 para todo segredo que uma pessoa poderia adivinhar; SHA-256 para os refresh tokens aleatórios, onde o BCrypt só somava latência.
 - Defesa em camadas contra força bruta: baldes por IP e um lockout de conta que não serve como oráculo de existência.
 - Ações destrutivas escalam: a exclusão de conta exige acesso à caixa de entrada, conta palpites errados de forma segura contra corrida e limpa JPA, SQL e filesystem.
 - Configuração errada falha no boot, não na hora do exploit.
@@ -389,7 +393,7 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 
 | Ameaça | Mitigada? | Como |
 |--------|-----------|------|
-| Roubo de senha em vazamento do banco | Sim | BCrypt custo 12; segredos de refresh/reset/exclusão também guardados como hash |
+| Roubo de senha em vazamento do banco | Sim | BCrypt custo 12; segredos de reset/exclusão com hash BCrypt, segredos de refresh com hash SHA-256 |
 | XSS roubando tokens | Em grande parte | JWT em memória, refresh em cookie HttpOnly, CSP nas respostas da API |
 | CSRF | Sim | Auth bearer stateless; cookie lido só por refresh/logout; SameSite Strict em prod |
 | Força bruta no login | Sim | 5/15min por IP mais lockout de conta em 10 falhas |

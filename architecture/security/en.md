@@ -24,7 +24,7 @@ flowchart LR
   subgraph server["Server side"]
     LA["🔒 Login lockout<br/>per account"]
     TS["🔑 TokenService<br/>HMAC256, 15 min"]
-    RT["🔄 Refresh tokens<br/>BCrypt-hashed, rotated"]
+    RT["🔄 Refresh tokens<br/>SHA-256-hashed, rotated"]
     OWN["👤 Ownership checks<br/>in every service"]
   end
 
@@ -41,8 +41,8 @@ flowchart LR
 
 - Stateless. No sessions, no CSRF surface worth a token: authentication rides in headers, and the one cookie is only ever read by the refresh and logout endpoints.
 - The access JWT lives 15 minutes and only in frontend memory. The backend hands it out in the `X-Access-Token` response header.
-- The refresh token lives 15 days, BCrypt-hashed at rest, rotated on every use. Web clients hold it in an HttpOnly cookie; the mobile app gets it in the response body instead.
-- One BCrypt encoder at cost factor 12 hashes everything: passwords, refresh tokens, reset tokens, and deletion codes.
+- The refresh token lives 15 days, SHA-256-hashed at rest, rotated on every use. Web clients hold it in an HttpOnly cookie; the mobile app gets it in the response body instead.
+- One BCrypt encoder at cost factor 12 hashes passwords, reset tokens, and deletion codes. Refresh tokens are the exception: SHA-256, because they are random and BCrypt only made them slow (see [Refresh token](#refresh-token)).
 - Boot-time validators refuse to start a production instance with a CORS wildcard, a short JWT secret, insecure cookies, or e2e escape hatches enabled.
 
 ## Authentication endpoints
@@ -184,11 +184,15 @@ HMAC256 over RSA because only this backend ever signs or verifies: there is no t
 
 ### Refresh token
 
-The client-held token is `{rowId}.{secret}`: a UUID naming the database row plus 32 random bytes. The database keeps only the BCrypt hash of the secret, so a leaked table contains nothing replayable.
+The client-held token is `{rowId}.{secret}`: a UUID naming the database row plus 32 random bytes. The database keeps only the SHA-256 hash of the secret, stored as `sha256:<hex>`, so a leaked table contains nothing replayable.
+
+**Why SHA-256 and not BCrypt.** BCrypt is slow on purpose, so a guessable secret like a password costs an attacker real time per guess. These secrets are 256 random bits; there is nothing to guess, so that slowness protected nothing and cost every user time. Refresh ran two BCrypt(12) operations (check the old secret, hash the new one), about 400 ms each on the production box, which held `POST /auth/refresh` near 850 ms p50. With SHA-256 it is a few milliseconds. The comparison is constant-time.
+
+Rows written before the switch hold BCrypt hashes and are still verified with BCrypt, so the deploy logged nobody out. Each one is replaced by a SHA-256 row on its next rotation, and the last of them expires 15 days after the deploy.
 
 ```mermaid
 flowchart TD
-  CR["🔑 32 random bytes"] --> HASH["🔒 BCrypt hash (cost 12)"]
+  CR["🔑 32 random bytes"] --> HASH["🔒 SHA-256 hash"]
   HASH --> DB["💾 Row: id + hash + expiresAt + revokedAt"]
   CR --> OUT["📤 To client: id.secret"]
   OUT --> REF["🔄 POST /auth/refresh"]
@@ -344,7 +348,7 @@ The agent chat can call real tools, so its authority model matters:
 - Referrer-Policy: strict-origin-when-cross-origin. Permissions-Policy: camera, microphone, and geolocation all denied.
 - Spring Security defaults stay active on top: nosniff, X-Frame-Options DENY, no-cache. HSTS only appears on connections the framework sees as secure, so in practice it belongs to the TLS-terminating proxy.
 
-**CORS**: one allowed origin pattern from the environment, credentials enabled, and exactly one exposed header: `X-Access-Token`. Dev runs a wildcard; production refuses one (next paragraph).
+**CORS**: one allowed origin pattern from the environment, credentials enabled, and three exposed headers: `X-Access-Token`, `Retry-After`, and `X-Rate-Limit-Remaining`. Preflights carry `Access-Control-Max-Age: 3600`; without it browsers kept a preflight for about five seconds, and roughly one request in three in production was an extra OPTIONS round-trip. Dev runs a wildcard; production refuses one (next paragraph).
 
 **Boot-time validators**, the "refuse to start" layer:
 
@@ -361,7 +365,7 @@ The agent chat can call real tools, so its authority model matters:
 ### What is done well
 
 - Token storage separation, short JWT life, and rotation-with-revocation on refresh tokens.
-- One BCrypt encoder at cost 12 for every secret the database holds.
+- BCrypt at cost 12 for every secret a person could guess; SHA-256 for the random refresh tokens, where BCrypt only added latency.
 - Layered brute-force defense: IP buckets and an account lockout that cannot be used as an existence oracle.
 - Destructive actions escalate: account deletion demands inbox access, counts wrong guesses race-safely, and cleans up across JPA, SQL, and the filesystem.
 - Misconfiguration fails at boot, not at exploit time.
@@ -387,7 +391,7 @@ The agent chat can call real tools, so its authority model matters:
 
 | Threat | Mitigated? | How |
 |--------|-----------|-----|
-| Password theft from a DB leak | Yes | BCrypt cost 12; refresh/reset/deletion secrets stored as hashes too |
+| Password theft from a DB leak | Yes | BCrypt cost 12; reset/deletion secrets BCrypt-hashed, refresh secrets SHA-256-hashed |
 | XSS stealing tokens | Mostly | JWT in memory, refresh in HttpOnly cookie, CSP on API responses |
 | CSRF | Yes | Stateless bearer auth; cookie read only by refresh/logout; SameSite Strict in prod |
 | Brute-force login | Yes | 5/15min per IP plus 10-failure account lockout |
