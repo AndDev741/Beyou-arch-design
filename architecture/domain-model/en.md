@@ -362,6 +362,9 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 | goal_id / category_id / habit_id | UUID | Optional links on a topic, each `ON DELETE SET NULL`. The category receives the topic's XP |
 | done_xp_at | timestamptz | When the 15 XP for finishing was paid. Set once and never cleared, so done, undone, done pays once |
 | last_opened_at | timestamptz | Feeds "continue studying". Written by an UPDATE query that never loads the row dirty |
+| study_goal | varchar(300) | The study room's goal for the page, sent ahead of the passages with every answer. Added in V36 |
+| study_scope | varchar(16) | Whose notes the study AI reads: PAGE (the page and the pages above, the default), SUBTREE or TOPIC. CHECK-constrained |
+| study_setup_at | timestamptz | When the study room was last set up; null opens it on its setup screen |
 
 A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE has both. The entity is `@DynamicUpdate`, so the autosave and a status change landing in the same moment each write only their own columns.
 

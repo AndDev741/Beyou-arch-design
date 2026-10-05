@@ -26,6 +26,8 @@ Um tópico é uma página com `kind = TOPIC` e sem pai. Toda outra página tem `
 
 As anotações são um documento BlockNote guardado como string JSON em `content`. Ao lado fica `content_text`, o texto puro que o `BlockText` extrai no servidor a cada salvamento. A IA de estudo lê esse texto e a exportação da conta o leva. Os clientes nunca o enviam, porque um cliente poderia mandar qualquer texto junto do documento, e derivá-lo no servidor mantém os dois de acordo. O `BlockText` percorre o JSON pela estrutura e ignora os tipos de bloco, então um bloco que o editor ganhe depois continua sendo lido.
 
+Uma página ou tópico pode ter um `icon`, um id do `@beyou/icons` escolhido no cabeçalho da página com o mesmo seletor que categorias e hábitos usam. Ele aparece onde a página aparece: a árvore, os nós do quadro, os cartões da página inicial e a tela da página no mobile, com o padrão de tópico ou de página quando não há um. Uma renomeação ou um ícone novo é gravado em todos esses lugares de uma vez pelo `applyPageDetails` do `@beyou/state`, a mesma propagação que o `applyStatuses` faz para o status.
+
 Uma linha de página tem mais de um escritor, e cada um a carrega num momento diferente. O autosave é um. Um status que muda porque um nó abaixo terminou é outro. `NotebookPage` é `@DynamicUpdate`, então cada UPDATE leva só as colunas que aquela requisição mudou, e uma mudança de status não regrava mais um documento que carregou antes do autosave commitar. Abrir uma página grava `last_opened_at` por uma query de UPDATE que nunca suja a linha, já que a tela da página repete essa leitura enquanto a pessoa digita. Foi a suíte e2e que achou esse caso, e o `NotebookConcurrentWritesIT` reproduz as intercalações.
 
 ## Um quadro por página
@@ -102,6 +104,12 @@ O `TextChunker` corta o texto em trechos de cerca de 1000 caracteres, seguindo o
 
 O `SourceChunkStore` lê e grava `notebook_source_chunks` com SQL puro via `JdbcTemplate`. A tabela tem um `tsvector` gerado e um `real[]`, dois tipos que o Hibernate precisaria aprender a validar e que nada aqui usa como objeto. Uma página guarda no máximo 20 fontes próprias (`NOTEBOOK_SOURCE_LIMIT_REACHED`), além das que herda.
 
+### Encontrar fontes para mim
+
+A pessoa descreve o que as fontes devem cobrir, e o `SourceDiscoveryService` faz uma busca na web com o tópico da página, o título dela e o objetivo da sala como contexto. Dois provedores ficam por trás do `WebSearchClient`, e as chaves escolhem um (`DiscoveryProperties`): Tavily quando `TAVILY_API_KEY` está definida, senão Gemini com Google Search quando há uma chave Gemini, senão nenhum e a sala de estudo esconde o botão. A busca do Gemini precisa de um projeto com faturamento; numa chave gratuita toda chamada com busca responde 429. Os resultados do Gemini são os grounding chunks da resposta, páginas que o Google devolveu, nunca URLs escritas no texto do modelo, porque um modelo pode inventar uma URL.
+
+Cada resultado é aberto antes de ser oferecido, pelo `LinkFetcher.resolve`: os redirecionamentos são seguidos até a página real, com as recusas de SSRF em cada salto, e só se lê HTML suficiente para o título. Um resultado do Gemini é um redirecionamento do Google, então é aqui também que ele vira o endereço real. Resultados que não abrem, apontam para algo privado, já são fontes da página (desligadas ou ainda em leitura incluídas) ou repetem outro resultado são descartados e contados. Eles são abertos em paralelo, e o que ainda estiver carregando depois de 20 segundos é descartado. Nada é guardado: a pessoa marca o que quer manter, e o cliente adiciona cada um como fonte de link, lida como qualquer link colado. A busca gasta a cota `notebook-ai` e cada fonte adicionada a `notebook-source`.
+
 ## Busca de trechos, e por que não há pgvector
 
 O `NotebookRetriever` encontra os trechos que melhor respondem uma pergunta, nesta ordem:
@@ -140,6 +148,10 @@ O rascunho também oferece vínculos. Cada título rascunhado é normalizado (se
 
 Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 chamadas por usuário por hora. Dividir os 30 do assistente deixaria uma noite de estudo trancar a pessoa fora do assistente.
 
+### O preparo da sala de estudo
+
+Antes da primeira pergunta a sala abre no preparo (`StudySetup` na web), e "Editar preparo", na linha acima do chat, traz ele de volta. Ele pergunta três coisas. Um objetivo para estudar a página, guardado em `notebook_pages.study_goal` e colocado antes dos trechos no contexto de toda resposta, para as respostas mirarem nele; ele nunca é um trecho e nunca é citado. As anotações de quem a IA lê (`study_scope`, V36): PAGE, a página e as páginas acima dela, que é o que a sala sempre leu e continua sendo o padrão; SUBTREE, também todas as páginas abaixo; TOPIC, todas as páginas do tópico. O `StudyScopes` monta a lista, e a tela de preparo mostra quantas páginas com anotações e quantas palavras cada escolha cobre. E o que ela pode citar: as fontes ficam no painel ao lado do preparo, com seus interruptores, e o preparo adiciona mais, à mão ou com "encontrar fontes para mim". Objetivo e escopo valem para toda chamada de IA na página, não só o chat: o estúdio, a explicação, os flashcards de IA e as sugestões de nós leem o mesmo contexto. `study_setup_at` nulo é o que abre a tela de preparo; uma sala com mensagens de antes da V36 abre no chat.
+
 ## Onde cada regra mora
 
 | Regra | Mora em |
@@ -156,7 +168,9 @@ Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 ch
 | As recusas de SSRF, os saltos de redirect, os tetos de corpo | `LinkFetcher` |
 | Leitura em segundo plano, embeddings, recuperação após restart | `SourceIngestionService` |
 | A escolha dos trechos e seus fallbacks | `NotebookRetriever` |
-| A numeração dos trechos e a limpeza das citações | `StudyContextBuilder` |
+| A numeração dos trechos e a limpeza das citações, o objetivo no contexto | `StudyContextBuilder` |
+| De quem são as anotações que as respostas de uma página leem | `StudyScopes` |
+| Busca na web, abrir cada resultado, descartar o que está morto, é privado ou já é fonte | `SourceDiscoveryService`, `WebSearchClient`, `LinkFetcher.resolve` |
 | A chamada ao modelo, a nova tentativa, o limite de 90 segundos e o `AI_UNAVAILABLE` | `NotebookLlm` |
 | Um rascunho de roteiro guardado: uma chamada por vez, resultado só numa linha DRAFTING, apagado quando o tópico existe | `RoadmapDraftService`, `RoadmapDraftWrites` |
 

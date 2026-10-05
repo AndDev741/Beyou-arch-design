@@ -1119,6 +1119,37 @@ paths:
         The current overview (null until one is generated), the last 40 chat messages oldest first, the
         saved outputs newest first, the sources the page can read and its card counts. Quizzes come
         without their answers.
+  /notebook/pages/{pageId}/study/setup:
+    put:
+      tags:
+      - notebook-study-controller
+      operationId: saveSetup
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudySetupRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudySetupDTO'
+      summary: Save the study room's setup
+      description: |
+        A goal for studying the page and which notes the AI reads, stored on the page. Every answer on
+        the page uses both from then on: the chat, the studio outputs, explain, AI flashcards and node
+        suggestions. A blank goal clears it. Until the first save, `GET /notebook/pages/{pageId}/study`
+        answers `setup.configuredAt` null and the room opens on its setup screen.
   /notebook/pages/{pageId}/study/messages:
     delete:
       tags:
@@ -1265,6 +1296,44 @@ paths:
         Grounded on the whole page. A new OVERVIEW replaces the page's last one, and the other kinds
         accumulate as saved outputs. A quiz has up to 8 multiple-choice questions, and fewer than 3 usable
         ones fails the call as `AI_UNAVAILABLE`. Its answers stay on the server until it is graded.
+  /notebook/ai/pages/{pageId}/discover-sources:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: discoverSources
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscoverSourcesRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/DiscoveryResultDTO'
+      summary: Find sources for me
+      description: |
+        A web search for what the person described, with the page's topic and title and the room's
+        goal for context. Tavily answers when `TAVILY_API_KEY` is set, otherwise Gemini with Google
+        Search (which needs a billing-enabled key); with neither, this answers
+        `NOTEBOOK_DISCOVERY_UNAVAILABLE` and the study room answers `discovery: false`. A search that
+        fails answers `NOTEBOOK_DISCOVERY_FAILED`.
+
+        Every result is opened on the server before it is offered, with the same SSRF refusals as
+        adding a link: redirects are followed to the real page, and anything dead, private, or
+        already a source here is dropped and counted in `skipped`. Results still loading after 20
+        seconds are dropped too. Nothing is stored; the client adds the picked ones with
+        `POST /notebook/pages/{pageId}/sources/link`. Spends the `notebook-ai` budget.
   /notebook/ai/pages/{pageId}/suggest-nodes:
     post:
       tags:
@@ -1951,6 +2020,43 @@ components:
           description: Optional. Lets a focus session started here preselect this habit's routine item.
       required:
       - title
+    DiscoverSourcesRequestDTO:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          minLength: 0
+          description: What the sources should cover, in the person's words.
+      required:
+      - description
+    DiscoveredSourceDTO:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+          description: Where the result really lands, after redirects. Adding it fetches exactly this.
+        domain:
+          type: string
+        summary:
+          type: string
+          description: The search's excerpt, up to 240 characters.
+    DiscoveryResultDTO:
+      type: object
+      properties:
+        provider:
+          type: string
+          description: TAVILY or GEMINI, whichever search answered.
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiscoveredSourceDTO'
+        skipped:
+          type: integer
+          format: int32
+          description: Results dropped because they did not open, pointed somewhere private, or are already sources here.
     DraftChoiceDTO:
       type: object
       description: What the person decided about one drafted node.
@@ -2876,6 +2982,63 @@ components:
         cardsDue:
           type: integer
           format: int32
+        setup:
+          $ref: '#/components/schemas/StudySetupDTO'
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyScopeOptionDTO'
+          description: What each notes scope would read, for the setup screen.
+        discovery:
+          type: boolean
+          description: Whether "find sources for me" has a web search configured.
+    StudyScopeOptionDTO:
+      type: object
+      properties:
+        scope:
+          $ref: '#/components/schemas/StudyScope'
+        pages:
+          type: integer
+          format: int32
+          description: Pages in the scope that have notes.
+        words:
+          type: integer
+          format: int32
+          description: Words of notes across them.
+    StudyScope:
+      type: string
+      enum:
+      - PAGE
+      - SUBTREE
+      - TOPIC
+      description: |
+        Whose notes the study AI reads. PAGE is the page and the pages above it, which is what the
+        room read before the setup existed and stays the default. SUBTREE adds every page under it,
+        TOPIC every page of the topic. Sources keep their own rule either way.
+    StudySetupDTO:
+      type: object
+      properties:
+        goal:
+          type: string
+          description: What the person wants out of studying the page; sent with every answer.
+        scope:
+          $ref: '#/components/schemas/StudyScope'
+        configuredAt:
+          type: string
+          format: date-time
+          description: When the setup was last saved; null opens the room on its setup screen.
+    StudySetupRequestDTO:
+      type: object
+      properties:
+        goal:
+          type: string
+          maxLength: 300
+          minLength: 0
+          description: A blank goal clears it.
+        scope:
+          $ref: '#/components/schemas/StudyScope'
+      required:
+      - scope
     SuggestNodesRequestDTO:
       type: object
       properties:

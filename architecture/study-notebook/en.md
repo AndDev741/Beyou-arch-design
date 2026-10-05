@@ -26,6 +26,8 @@ A topic is a page with `kind = TOPIC` and no parent. Every other page has `kind 
 
 The notes are a BlockNote document stored as a JSON string in `content`. Next to it sits `content_text`, the plain text `BlockText` extracts on the server on every save. The study AI reads that text and the account export ships it. Clients never send it, since a client could send any text it liked next to the document, and deriving it on the server keeps the two in agreement. `BlockText` walks the JSON by structure and ignores block types, so a block the editor gains later is still read.
 
+A page or topic can carry an `icon`, an `@beyou/icons` id chosen from the page header with the same picker categories and habits use. It shows wherever the page does: the tree, board nodes, the home's cards and the mobile page screen, with the topic or page default when there is none. A rename or a new icon is written into all of those at once by `applyPageDetails` in `@beyou/state`, the same fan-out `applyStatuses` does for status.
+
 A page row has more than one writer, and they load it at different moments. The autosave is one. A status that moves because a node below finished is another. `NotebookPage` is `@DynamicUpdate`, so each UPDATE carries only the columns that request changed, and a status change can no longer write back a document it loaded before the autosave committed. Opening a page records `last_opened_at` through an UPDATE query that never loads the row dirty, since the page screen repeats that read while the person types. The e2e suite found this one, and `NotebookConcurrentWritesIT` replays the interleavings.
 
 ## One board per page
@@ -102,6 +104,12 @@ Adding a source writes the row as PENDING and answers 202. `SourceIngestionServi
 
 `SourceChunkStore` reads and writes `notebook_source_chunks` with plain SQL through `JdbcTemplate`. The table has a generated `tsvector` and a `real[]`, two types Hibernate would have to be taught to validate and that nothing needs as objects. A page holds at most 20 sources of its own (`NOTEBOOK_SOURCE_LIMIT_REACHED`), on top of what it inherits.
 
+### Finding sources for me
+
+The person describes what the sources should cover, and `SourceDiscoveryService` runs a web search with the page's topic, its title and the room's goal for context. Two providers sit behind `WebSearchClient`, and the keys pick one (`DiscoveryProperties`): Tavily when `TAVILY_API_KEY` is set, otherwise Gemini with Google Search when a Gemini key is, otherwise none and the study room hides the button. Gemini's search needs a project with billing; on a free key every grounded call answers 429. Gemini's results are the answer's grounding chunks, which are pages Google returned, never URLs written in the model's text, since a model can invent a URL.
+
+Every result is opened before it is offered, through `LinkFetcher.resolve`: redirects are followed to the real page with the SSRF refusals on every hop, and only enough HTML is read for the title. A Gemini result is a Google redirect, so this is also where it becomes the real address. Results that do not open, point somewhere private, are already sources on the page (switched off or still reading included) or repeat another result are dropped and counted. They are opened in parallel, and anything still loading after 20 seconds is dropped. Nothing is stored: the person ticks what to keep, and the client adds each as a link source, which is read like any pasted link. The search spends the `notebook-ai` budget and each added source the `notebook-source` one.
+
 ## Retrieval, and why there is no pgvector
 
 `NotebookRetriever` finds the passages that best answer a question, in this order:
@@ -140,6 +148,10 @@ The draft also offers links. Each drafted title is normalised (case, accents, pu
 
 Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 60 calls per user per hour. Sharing the assistant's 30 would let an evening of studying lock someone out of the assistant.
 
+### The study room's setup
+
+Before the first question the room opens on its setup (`StudySetup` on the web), and "Edit setup" on the line above the chat brings it back. It asks three things. A goal for studying the page, kept in `notebook_pages.study_goal` and put ahead of the passages in every answer's context, so answers aim at it; it is never a passage and never cited. Whose notes the AI reads (`study_scope`, V36): PAGE, the page and the pages above it, which is what the room always read and stays the default; SUBTREE, every page under it too; TOPIC, every page of the topic. `StudyScopes` builds the list, and the setup screen shows how many pages with notes and how many words each choice covers. And what it may quote: the sources stay in the panel beside the setup with their switches, and the setup adds more, by hand or with "find sources for me". Goal and scope apply to every AI call on the page, not only the chat: the studio, explain, AI flashcards and node suggestions read the same context. `study_setup_at` null is what opens the setup screen; a room with messages from before V36 opens on its chat.
+
 ## Where each rule lives
 
 | Rule | Lives in |
@@ -156,7 +168,9 @@ Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 
 | SSRF refusals, redirect hops, body caps | `LinkFetcher` |
 | Background reading, embeddings, restart recovery | `SourceIngestionService` |
 | Passage choice and its fallbacks | `NotebookRetriever` |
-| Passage numbers and citation cleanup | `StudyContextBuilder` |
+| Passage numbers and citation cleanup, the goal in the context | `StudyContextBuilder` |
+| Whose notes a page's answers read | `StudyScopes` |
+| Web search, opening every result, dropping what is dead, private or already a source | `SourceDiscoveryService`, `WebSearchClient`, `LinkFetcher.resolve` |
 | The model call, its retry, the 90-second budget and `AI_UNAVAILABLE` | `NotebookLlm` |
 | A stored roadmap draft: one call at a time, results only on a DRAFTING row, gone once the topic exists | `RoadmapDraftService`, `RoadmapDraftWrites` |
 

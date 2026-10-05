@@ -360,6 +360,9 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 | goal_id / category_id / habit_id | UUID | Vínculos opcionais de um tópico, cada um `ON DELETE SET NULL`. A categoria recebe o XP do tópico |
 | done_xp_at | timestamptz | Quando os 15 de XP pela conclusão foram pagos. Gravado uma vez e nunca limpo, então concluir, desfazer e concluir paga uma vez |
 | last_opened_at | timestamptz | Alimenta o "continuar estudando". Escrito por uma query de UPDATE que nunca suja a linha |
+| study_goal | varchar(300) | O objetivo da sala de estudo para a página, enviado antes dos trechos em toda resposta. Adicionado na V36 |
+| study_scope | varchar(16) | De quem são as anotações que a IA lê: PAGE (a página e as de cima, o padrão), SUBTREE ou TOPIC. Com CHECK |
+| study_setup_at | timestamptz | Quando a sala de estudo foi preparada pela última vez; nulo abre a sala na tela de preparo |
 
 Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PAGE tem os dois. A entidade é `@DynamicUpdate`, então o autosave e uma mudança de status que chegam no mesmo instante gravam cada um só as próprias colunas.
 
