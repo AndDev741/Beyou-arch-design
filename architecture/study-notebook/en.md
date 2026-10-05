@@ -120,7 +120,7 @@ Every model call goes through `NotebookLlm`: the same fallback chain as the assi
 
 The whole call, retry included, gets 90 seconds (`NotebookLlm.BUDGET`). Cloudflare drops a request to the API at 100 seconds, and the web client gives up at the same point. A provider that hangs could otherwise hold a request for minutes, and the person would see an error for work the server went on to finish, or save twice when they tried again. So the server stops first and answers `AI_UNAVAILABLE`. The retry only starts when at least 20 seconds of the budget are left. Each attempt runs on a virtual thread, so the request can stop waiting at the deadline; the abandoned HTTP call ends on its own read timeout.
 
-While a call runs, every notebook screen that waits on one shows the time so far, and past 30 seconds a note that it is still going and how long it can take. The roadmap draft also shows skeleton rows where the nodes will land and a Stop button. Stop drops the late answer, which is safe there because nothing in a draft is stored until "Create".
+While a call runs, every notebook screen that waits on one shows the time so far, and past 30 seconds a note that it is still going and how long it can take. The roadmap draft also shows skeleton rows where the nodes will land, and it can be closed at any point without losing anything, because the draft is stored (below).
 
 The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode:
 
@@ -134,7 +134,9 @@ The system prompt is `prompts/notebookTutor.st`, and each message opens with a m
 
 `NotebookStudyService` runs the study room. Chat turns are stored in `notebook_chat_messages`, and the last 6 messages go along with each question for follow-ups. Outputs are stored in `notebook_study_outputs` as JSON: OVERVIEW (one per page, replaced each time), SUMMARY, STUDY_GUIDE and QUIZ. A quiz keeps its answers on the server. The client gets the questions, sends its picks to be graded, and only then learns what was right, which is also where the 20 XP is paid.
 
-`NotebookAiService` holds the rest. The roadmap draft is stateless, the onboarding pattern again: reviewable, nothing stored until "Create". It also offers links. Each drafted title is normalised (case, accents, punctuation and a plural s removed) and compared with the person's existing pages, so a draft for "Fundamentals of Computer Science" can say "you already have Operating Systems, 4 of 9 done, link it". Creating from the draft runs in one transaction through `NotebookBoardService.addChain`, which lays the nodes out three to a row, 240 by 140 apart, joined by edges, and gives every new node with subtopics a board of its own. The model proposes text. It never writes to the database and never picks an id or a coordinate.
+`NotebookAiService` holds the rest. A roadmap draft is stored, because a call takes up to a minute and a half and the dialog used to lose a finished draft to one click outside it. `RoadmapDraftService` writes the request to `notebook_roadmap_drafts` (V35) and answers at once, DRAFTING. The model call runs on a virtual thread after that request commits, the handoff source ingestion uses, and `RoadmapDraftWrites` stores the result, but only on a row that is still DRAFTING, so a draft deleted mid-call stays deleted. The dialog reads the draft back every few seconds. The notebook home lists every draft and reopens one with its form, its nodes and the person's ticks, which the dialog saves as they change. One call per draft at a time: a DRAFTING draft refuses a redraft and new ticks (`NOTEBOOK_DRAFT_BUSY`). Creating the topic deletes the draft in the same transaction, a restart marks the calls it cut off FAILED with `NOTEBOOK_DRAFT_INTERRUPTED`, and a person keeps at most 20 drafts. The reads live under `/notebook/drafts`, outside `/notebook/ai`, so polling a draft spends the read budget, not the AI one. Nothing in the notebook itself changes until "Create".
+
+The draft also offers links. Each drafted title is normalised (case, accents, punctuation and a plural s removed) and compared with the person's existing pages, so a draft for "Fundamentals of Computer Science" can say "you already have Operating Systems, 4 of 9 done, link it". Creating from the draft runs in one transaction through `NotebookBoardService.addChain`, which lays the nodes out three to a row, 240 by 140 apart, joined by edges, and gives every new node with subtopics a board of its own. The model proposes text. It never writes to the database and never picks an id or a coordinate.
 
 Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 60 calls per user per hour. Sharing the assistant's 30 would let an evening of studying lock someone out of the assistant.
 
@@ -156,6 +158,7 @@ Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 
 | Passage choice and its fallbacks | `NotebookRetriever` |
 | Passage numbers and citation cleanup | `StudyContextBuilder` |
 | The model call, its retry, the 90-second budget and `AI_UNAVAILABLE` | `NotebookLlm` |
+| A stored roadmap draft: one call at a time, results only on a DRAFTING row, gone once the topic exists | `RoadmapDraftService`, `RoadmapDraftWrites` |
 
 ## The web editor and the board
 
@@ -193,7 +196,7 @@ The server checks nothing in. When the topic is linked to a habit that is on tod
 
 Notes are as personal as the mood journal and get the same treatment. The `notebook` slice is on the web persist blacklist next to `mood`, and mobile keeps everything in memory, so no page reaches disk on the device. `PERSIST_VERSION` did not change, because a blacklisted key never existed in persisted state.
 
-`GET /user/export` carries every page as plain text, the flashcards with their due dates, each source's details and the study-room chats. The text read out of sources is named under `notIncluded` as `notebookSourceText`: it is a copy of documents the person already has, and a book's worth of it per source would bury the rest of the file. Every notebook table cascades from `users`, so account deletion takes the whole notebook.
+`GET /user/export` carries every page as plain text, the flashcards with their due dates, each source's details, the study-room chats and the roadmap drafts. The text read out of sources is named under `notIncluded` as `notebookSourceText`: it is a copy of documents the person already has, and a book's worth of it per source would bury the rest of the file. Every notebook table cascades from `users`, so account deletion takes the whole notebook.
 
 ## Tests
 

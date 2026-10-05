@@ -386,6 +386,12 @@ Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PA
 - Uma saída é OVERVIEW, SUMMARY, STUDY_GUIDE ou QUIZ. `content` é markdown dentro de JSON nas três primeiras e, num quiz, as perguntas com as respostas, que só saem do servidor na correção. `score` e `total` guardam a última correção, e `passed_at` a primeira aprovação, o momento em que os 20 de XP foram pagos. Uma página guarda uma OVERVIEW.
 - Uma mensagem de chat tem `role` USER ou ASSISTANT, o `content` e as `citations` da resposta em JSON.
 
+**NotebookRoadmapDraft** (notebook_roadmap_drafts), adicionada na V35:
+
+- Um rascunho do "Novo tópico com IA", guardado até um tópico ser criado a partir dele ou a pessoa excluí-lo. `status` é DRAFTING enquanto o modelo escreve em segundo plano, depois READY ou FAILED com um `error_key`.
+- `request` é o que foi pedido, `result` os nós rascunhados e `choices` as marcações da pessoa, uma por nó, tudo JSON em `text`. `started_at` é quando a chamada atual ao modelo começou, para o cronômetro do diálogo.
+- Só uma linha DRAFTING recebe resultado, então excluir um rascunho no meio da chamada é definitivo. No máximo 20 por pessoa.
+
 ## FederatedIdentity
 
 **Papel no produto**: uma identidade externa pela qual uma conta pode ser acessada, além
@@ -570,6 +576,7 @@ flowchart LR
     notebook_source_chunks
     notebook_study_outputs
     notebook_chat_messages
+    notebook_roadmap_drafts
   end
 
   subgraph support["Feedback & IA"]

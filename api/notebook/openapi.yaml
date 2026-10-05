@@ -1297,11 +1297,11 @@ paths:
       description: |
         Up to 5 nodes, never one already on the board. Nothing is added: the person picks, and the
         client adds what they picked as ordinary nodes.
-  /notebook/ai/roadmap-draft:
+  /notebook/ai/drafts:
     post:
       tags:
       - notebook-ai-controller
-      operationId: roadmapDraft
+      operationId: startDraft
       requestBody:
         content:
           application/json:
@@ -1309,23 +1309,153 @@ paths:
               $ref: '#/components/schemas/RoadmapDraftRequestDTO'
         required: true
       responses:
+        '202':
+          description: Accepted
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RoadmapDraftRecordDTO'
+      summary: Start a roadmap draft for a new topic
+      description: |
+        Stores the draft and answers at once with it, `DRAFTING`. The model writes it in the background,
+        after this request commits, and the client reads it back with `GET /notebook/drafts/{draftId}`
+        until it is `READY` or `FAILED`. The person can close the dialog in the meantime: the draft
+        waits on the notebook home until a topic is created from it or it is deleted. A restart that
+        cuts a call off marks the draft `FAILED` with `NOTEBOOK_DRAFT_INTERRUPTED`.
+
+        The model proposes up to 12 nodes in study order. Each has a reason, up to 10 subtopics, an
+        hour estimate and an `optional` flag, and `totalHours` adds up the nodes that are not optional.
+        When a node's title matches a page the caller already has, ignoring case, accents, punctuation
+        and a trailing plural s, the node carries `existingPageId` with that page's topic and progress,
+        so the dialog can offer "Link it" and keep the person's work instead of starting over.
+
+        Spends the `notebook-ai` budget. Answers `NOTEBOOK_DRAFT_LIMIT_REACHED` past 20 drafts.
+  /notebook/ai/drafts/{draftId}/redraft:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: redraft
+      parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoadmapDraftRequestDTO'
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RoadmapDraftRecordDTO'
+      summary: Draft again
+      description: |
+        From scratch, or with the current nodes in `previous` and the change in `changeRequest`, in
+        which case the whole revised draft comes back. The draft goes back to `DRAFTING` and keeps its
+        current `result` until the new one arrives, so the dialog can show the old nodes dimmed. The
+        ticks are cleared when the new nodes land.
+
+        One call per draft at a time: a draft that is `DRAFTING` answers `NOTEBOOK_DRAFT_BUSY`. Spends
+        the `notebook-ai` budget.
+  /notebook/drafts:
+    get:
+      tags:
+      - notebook-ai-controller
+      operationId: drafts
+      responses:
         '200':
           description: OK
           content:
             '*/*':
               schema:
-                $ref: '#/components/schemas/RoadmapDraftDTO'
-      summary: Draft a roadmap for a new topic
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoadmapDraftSummaryDTO'
+      summary: List the caller's roadmap drafts
       description: |
-        Stateless: nothing is stored until `POST /notebook/topics/from-draft`. The model proposes up to
-        12 nodes in study order. Each has a reason, up to 10 subtopics, an hour estimate and an
-        `optional` flag, and `totalHours` adds up the nodes that are not optional.
-
-        When a node's title matches a page the caller already has, ignoring case, accents, punctuation
-        and a trailing plural s, the node carries `existingPageId` with that page's topic and progress.
-        The dialog can then offer "Link it" and keep the person's work instead of starting the subject
-        over. To revise, send the current draft in `previous` and the change in `changeRequest`; the
-        whole revised draft comes back.
+        Most recently changed first, for the notebook home. Outside `/notebook/ai` on purpose: the
+        clients poll drafts while the model writes them, and polling spends the read budget, not the AI
+        one.
+  /notebook/drafts/{draftId}:
+    get:
+      tags:
+      - notebook-ai-controller
+      operationId: draft
+      parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RoadmapDraftRecordDTO'
+      summary: Read a roadmap draft
+      description: |
+        Everything the dialog needs to open where the person left it: the request, the drafted nodes
+        and the ticks. A link offer whose page has been deleted since the draft was written comes back
+        without `existingPageId`, so creating the topic does not fail on it. Somebody else's draft
+        answers `NOTEBOOK_DRAFT_NOT_OWNED`.
+    delete:
+      tags:
+      - notebook-ai-controller
+      operationId: deleteDraft
+      parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a roadmap draft
+      description: |
+        Only the draft goes; no topic or page is touched. A model call still running for it writes
+        nothing when it ends, because results are only written to a draft that is still `DRAFTING`.
+  /notebook/drafts/{draftId}/choices:
+    put:
+      tags:
+      - notebook-ai-controller
+      operationId: saveDraftChoices
+      parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftChoicesRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/RoadmapDraftRecordDTO'
+      summary: Save the review dialog's ticks
+      description: |
+        One choice per drafted node, in order; any other count answers `INVALID_REQUEST`. The dialog
+        saves them shortly after each change and when it closes. A draft that is `DRAFTING` answers
+        `NOTEBOOK_DRAFT_BUSY`, since its nodes are about to be replaced.
   /notebook/topics/from-draft:
     post:
       tags:
@@ -1347,9 +1477,12 @@ paths:
       summary: Create a topic from a reviewed draft
       description: |
         One transaction. The topic's board gets a node per entry, chained left to right with edges and
-        wrapping every four. An entry with `linkPageId` becomes a linked node to that page. Any other
+        wrapping every three, the grid the web board's "Tidy up" uses. An entry with `linkPageId` becomes a linked node to that page. Any other
         entry becomes a new page that opens with its `why`, and an entry with subtopics gets a board of
         them on its own page. The model never picks an id or a coordinate.
+
+        With `draftId`, the stored draft is deleted in the same transaction. A draft that is already
+        gone, or somebody else's, is left alone.
 
         Answers the new topic, the same shape as `GET /notebook/pages/{pageId}`.
 components:
@@ -1721,6 +1854,10 @@ components:
           maxItems: 20
           minItems: 0
           description: The entries the person kept, in order.
+        draftId:
+          type: string
+          format: uuid
+          description: The stored draft this came from, deleted once the topic exists.
       required:
       - nodes
       - title
@@ -1814,6 +1951,28 @@ components:
           description: Optional. Lets a focus session started here preselect this habit's routine item.
       required:
       - title
+    DraftChoiceDTO:
+      type: object
+      description: What the person decided about one drafted node.
+      properties:
+        keep:
+          type: boolean
+          description: Whether the node is created. An optional node starts unticked.
+        link:
+          type: boolean
+          description: For a node the person already has elsewhere, link that page instead of a copy.
+    DraftChoicesRequestDTO:
+      type: object
+      properties:
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DraftChoiceDTO'
+          maxItems: 20
+          minItems: 0
+          description: One per drafted node, in the draft's order.
+      required:
+      - choices
     DraftNodeDTO:
       type: object
       properties:
@@ -2477,6 +2636,71 @@ components:
           description: The current draft, when asking for a revision.
       required:
       - title
+    RoadmapDraftRecordDTO:
+      type: object
+      description: A stored draft, enough to put the dialog back where the person left it.
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFTING
+          - READY
+          - FAILED
+          description: DRAFTING while the model writes it in the background.
+        request:
+          $ref: '#/components/schemas/RoadmapDraftRequestDTO'
+        result:
+          $ref: '#/components/schemas/RoadmapDraftDTO'
+          description: Null until the first call ends. During a redraft, still the previous result.
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DraftChoiceDTO'
+          description: One per node of `result`, or null when the person has not changed any.
+        errorKey:
+          type: string
+          description: Why a FAILED draft failed, AI_UNAVAILABLE or NOTEBOOK_DRAFT_INTERRUPTED.
+        startedAt:
+          type: string
+          format: date-time
+          description: When the current or last model call began, for the dialog's timer.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RoadmapDraftSummaryDTO:
+      type: object
+      description: A draft as the notebook home lists it.
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFTING
+          - READY
+          - FAILED
+        nodeCount:
+          type: integer
+          format: int32
+        errorKey:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     SetStatusRequestDTO:
       type: object
       properties:

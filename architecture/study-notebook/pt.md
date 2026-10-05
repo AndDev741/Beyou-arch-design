@@ -120,7 +120,7 @@ Toda chamada ao modelo passa pelo `NotebookLlm`: a mesma cadeia de fallback do a
 
 A chamada inteira, nova tentativa incluída, tem 90 segundos (`NotebookLlm.BUDGET`). O Cloudflare derruba um pedido à API aos 100 segundos, e o cliente web desiste no mesmo ponto. Sem esse limite, um provedor travado podia segurar um pedido por minutos, e a pessoa via um erro de um trabalho que o servidor terminava depois, ou salvava duas vezes quando tentava de novo. Então o servidor para primeiro e responde `AI_UNAVAILABLE`. A nova tentativa só começa se sobrarem pelo menos 20 segundos. Cada tentativa roda numa virtual thread, para o pedido poder parar de esperar no prazo; a chamada HTTP abandonada termina no próprio read timeout.
 
-Enquanto uma chamada roda, toda tela do caderno que espera por ela mostra o tempo decorrido e, depois de 30 segundos, um aviso de que ainda está em andamento e quanto pode levar. O rascunho do roteiro também mostra linhas de esqueleto onde os nós vão aparecer e um botão Parar. Parar descarta a resposta atrasada, o que é seguro ali porque nada do rascunho é guardado antes de "Criar".
+Enquanto uma chamada roda, toda tela do caderno que espera por ela mostra o tempo decorrido e, depois de 30 segundos, um aviso de que ainda está em andamento e quanto pode levar. O rascunho do roteiro também mostra linhas de esqueleto onde os nós vão aparecer, e pode ser fechado a qualquer momento sem perder nada, porque o rascunho fica guardado (abaixo).
 
 O prompt de sistema é `prompts/notebookTutor.st`, e cada mensagem começa com um modo:
 
@@ -134,7 +134,9 @@ O `StudyContextBuilder` numera os trechos e é o dono desses números. As anota�
 
 O `NotebookStudyService` cuida da sala de estudo. As mensagens do chat ficam em `notebook_chat_messages`, e as últimas 6 vão junto com cada pergunta para dar conta das perguntas de seguimento. As saídas ficam em `notebook_study_outputs` como JSON: OVERVIEW (uma por página, substituída a cada vez), SUMMARY, STUDY_GUIDE e QUIZ. Um quiz guarda as respostas no servidor. O cliente recebe as perguntas, manda as escolhas para correção e só então descobre o que estava certo, que é também onde os 20 de XP são pagos.
 
-O `NotebookAiService` cuida do resto. O rascunho de roadmap não guarda estado, o padrão do onboarding de novo: revisável, nada gravado até "Criar". Ele também oferece vínculos. Cada título rascunhado é normalizado (sem caixa, acentos, pontuação e o s do plural) e comparado com as páginas que a pessoa já tem, então um rascunho de "Fundamentos da Computação" pode dizer "você já tem Sistemas Operacionais, 4 de 9 feitos, ligar". Criar a partir do rascunho roda numa transação só pelo `NotebookBoardService.addChain`, que dispõe os nós três por linha, a 240 por 140 de distância, ligados por arestas, e dá a cada nó novo com subtópicos um quadro próprio. O modelo propõe texto. Ele nunca grava no banco e nunca escolhe um id ou uma coordenada.
+O `NotebookAiService` cuida do resto. Um rascunho de roteiro fica guardado, porque uma chamada leva até um minuto e meio e o diálogo perdia um rascunho pronto num clique fora dele. O `RoadmapDraftService` grava o pedido em `notebook_roadmap_drafts` (V35) e responde na hora, DRAFTING. A chamada ao modelo roda numa virtual thread depois que esse pedido faz commit, a mesma passagem da leitura de fontes, e o `RoadmapDraftWrites` guarda o resultado, mas só numa linha que ainda está DRAFTING, então um rascunho excluído no meio da chamada continua excluído. O diálogo relê o rascunho a cada poucos segundos. A página inicial do caderno lista todos os rascunhos e reabre cada um com o formulário, os nós e as marcações da pessoa, que o diálogo salva conforme mudam. Uma chamada por rascunho de cada vez: um rascunho DRAFTING recusa redesenho e novas marcações (`NOTEBOOK_DRAFT_BUSY`). Criar o tópico exclui o rascunho na mesma transação, um reinício marca como FAILED as chamadas que cortou, com `NOTEBOOK_DRAFT_INTERRUPTED`, e cada pessoa guarda no máximo 20 rascunhos. As leituras ficam em `/notebook/drafts`, fora de `/notebook/ai`, então reler um rascunho gasta a cota de leitura, não a de IA. Nada no caderno muda antes de "Criar".
+
+O rascunho também oferece vínculos. Cada título rascunhado é normalizado (sem caixa, acentos, pontuação e o s do plural) e comparado com as páginas que a pessoa já tem, então um rascunho de "Fundamentos da Computação" pode dizer "você já tem Sistemas Operacionais, 4 de 9 feitos, ligar". Criar a partir do rascunho roda numa transação só pelo `NotebookBoardService.addChain`, que dispõe os nós três por linha, a 240 por 140 de distância, ligados por arestas, e dá a cada nó novo com subtópicos um quadro próprio. O modelo propõe texto. Ele nunca grava no banco e nunca escolhe um id ou uma coordenada.
 
 Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 chamadas por usuário por hora. Dividir os 30 do assistente deixaria uma noite de estudo trancar a pessoa fora do assistente.
 
@@ -156,6 +158,7 @@ Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 ch
 | A escolha dos trechos e seus fallbacks | `NotebookRetriever` |
 | A numeração dos trechos e a limpeza das citações | `StudyContextBuilder` |
 | A chamada ao modelo, a nova tentativa, o limite de 90 segundos e o `AI_UNAVAILABLE` | `NotebookLlm` |
+| Um rascunho de roteiro guardado: uma chamada por vez, resultado só numa linha DRAFTING, apagado quando o tópico existe | `RoadmapDraftService`, `RoadmapDraftWrites` |
 
 ## O editor web e o quadro
 
@@ -193,7 +196,7 @@ O servidor não faz check-in nenhum. Quando o tópico está vinculado a um hábi
 
 As anotações são tão pessoais quanto o diário de humor e recebem o mesmo tratamento. O slice `notebook` está na blacklist de persistência do web ao lado de `mood`, e o mobile guarda tudo em memória, então nenhuma página chega ao disco do aparelho. O `PERSIST_VERSION` não mudou, porque uma chave na blacklist nunca existiu no estado persistido.
 
-O `GET /user/export` leva cada página como texto puro, os flashcards com as datas de vencimento, os detalhes de cada fonte e os chats da sala de estudo. O texto lido das fontes aparece em `notIncluded` como `notebookSourceText`: é uma cópia de documentos que a pessoa já tem, e um livro inteiro por fonte enterraria o resto do arquivo. Toda tabela do caderno tem cascade a partir de `users`, então a exclusão da conta leva o caderno inteiro.
+O `GET /user/export` leva cada página como texto puro, os flashcards com as datas de vencimento, os detalhes de cada fonte, os chats da sala de estudo e os rascunhos de roteiro. O texto lido das fontes aparece em `notIncluded` como `notebookSourceText`: é uma cópia de documentos que a pessoa já tem, e um livro inteiro por fonte enterraria o resto do arquivo. Toda tabela do caderno tem cascade a partir de `users`, então a exclusão da conta leva o caderno inteiro.
 
 ## Testes
 

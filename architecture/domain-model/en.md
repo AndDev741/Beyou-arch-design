@@ -388,6 +388,12 @@ A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE h
 - An output is OVERVIEW, SUMMARY, STUDY_GUIDE or QUIZ. `content` is markdown inside JSON for the first three and the questions with their answers for a quiz, which never leave the server until grading. `score` and `total` hold the last grading, and `passed_at` the first pass, the moment the 20 XP was paid. A page keeps one OVERVIEW.
 - A chat message has `role` USER or ASSISTANT, its `content`, and the answer's `citations` as JSON.
 
+**NotebookRoadmapDraft** (notebook_roadmap_drafts), added in V35:
+
+- A "New topic with AI" draft, kept until a topic is created from it or the person deletes it. `status` is DRAFTING while the model writes it in the background, then READY or FAILED with an `error_key`.
+- `request` is what was asked for, `result` the drafted nodes and `choices` the person's ticks, one per node, all JSON in `text`. `started_at` is when the current model call began, for the dialog's timer.
+- Only a DRAFTING row receives a result, so deleting a draft mid-call is final. At most 20 per person.
+
 ## FederatedIdentity
 
 **Product role**: one external identity an account may be entered through, beyond the
@@ -572,6 +578,7 @@ flowchart LR
     notebook_source_chunks
     notebook_study_outputs
     notebook_chat_messages
+    notebook_roadmap_drafts
   end
 
   subgraph support["Feedback & AI"]
