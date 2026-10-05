@@ -130,7 +130,7 @@ versão com o bug falhava.
 
 O caderno acrescenta cinco rotas. `/notebook` é a home: cards de tópico com uma miniatura de cada quadro, "Continuar" e as revisões do dia. `/notebook/:pageId` é uma página com a árvore, as anotações e o quadro desenhado ali onde está o bloco "Quadro de roteiro". `/notebook/:pageId/board` e `/notebook/:pageId/study` cobrem o shell como o `/focus` faz, uma para navegar num quadro e outra para a sala de estudo. `/notebook/review` é uma sessão de revisão, com atalhos: Espaço mostra a resposta e de 1 a 4 avalia.
 
-O editor é o BlockNote sobre o Mantine 8 (o Mantine 9 quer React 19), com tema pelas mesmas variáveis CSS de todo o resto, e salva sozinho 900 ms depois da última mudança. O quadro é React Flow, com dagre por trás do "Organizar". Um hook só, `useBoard`, atende o quadro embutido e o de tela cheia, e toda escrita chega ao store pela resposta do servidor, menos o arrasto, que é desenhado antes e salvo depois. O [tópico do caderno de estudos](/architecture/study-notebook) cobre o modelo por baixo de tudo isso.
+O editor é o BlockNote sobre o Mantine 8 (o Mantine 9 quer React 19), com tema pelas mesmas variáveis CSS de todo o resto, e salva sozinho 900 ms depois da última mudança. O quadro é React Flow, e o "Organizar" põe os nós de volta numa grade de três por linha. Um hook só, `useBoard`, atende o quadro embutido e o de tela cheia, e toda escrita chega ao store pela resposta do servidor, menos o arrasto, que é desenhado antes e salvo depois. O [tópico do caderno de estudos](/architecture/study-notebook) cobre o modelo por baixo de tudo isso.
 
 ## O tutorial, em dois sistemas
 

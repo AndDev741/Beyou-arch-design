@@ -9,7 +9,7 @@ This is the map of the system as it runs in production: every client surface, th
 
 | Layer | Technologies |
 |-------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow with dagre for the roadmap board |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 15, Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |

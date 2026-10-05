@@ -9,7 +9,7 @@ Este é o mapa do sistema como ele roda em produção: cada superfície de clien
 
 | Camada | Tecnologias |
 |--------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow com dagre para o quadro de roadmap |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow para o quadro de roadmap |
 | **App mobile** | React Native + Expo (Android primeiro), NativeWind, TypeScript. Divide os pacotes de estado, cliente de API e i18n com o web app pelo monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding e a IA do caderno de estudos (cadeia de fallback de LLMs), PDFBox e jsoup para as fontes do caderno |
 | **Banco de dados** | PostgreSQL 15, schema controlado pelo Flyway (o Hibernate valida, nunca escreve), chaves primárias UUID, cache Caffeine na frente das leituras quentes |

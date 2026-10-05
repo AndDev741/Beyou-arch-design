@@ -129,7 +129,7 @@ condition under which the buggy version failed.
 
 The notebook adds five routes. `/notebook` is the home: topic cards with a miniature of each board, "Continue", and today's reviews. `/notebook/:pageId` is a page with its tree, the notes and the board drawn inline where the "Roadmap board" block sits. `/notebook/:pageId/board` and `/notebook/:pageId/study` cover the shell the way `/focus` does, one for panning a board and one for the study room. `/notebook/review` is a review session, keys included: Space shows the answer and 1 to 4 rate it.
 
-The editor is BlockNote on Mantine 8 (Mantine 9 wants React 19), themed through the same CSS variables as everything else, and autosaves 900 ms after the last change. The board is React Flow, with dagre behind "Tidy up". One hook, `useBoard`, serves the inline board and the full-screen one, and every write lands in the store from the server's answer except a drag, which is drawn first and saved after. The [study notebook topic](/architecture/study-notebook) covers the model under all of it.
+The editor is BlockNote on Mantine 8 (Mantine 9 wants React 19), themed through the same CSS variables as everything else, and autosaves 900 ms after the last change. The board is React Flow, and "Tidy up" puts its nodes back on a grid of three to a row. One hook, `useBoard`, serves the inline board and the full-screen one, and every write lands in the store from the server's answer except a drag, which is drawn first and saved after. The [study notebook topic](/architecture/study-notebook) covers the model under all of it.
 
 ## The tutorial, in two systems
 
