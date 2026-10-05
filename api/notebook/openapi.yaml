@@ -48,7 +48,9 @@ info:
     made up, so every citation a client shows opens a real passage. A page with no notes and no
     readable sources answers `NOTEBOOK_NOTHING_TO_STUDY` and the model is never called. When the
     fallback chain cannot produce a usable answer (every provider failed, or the reply would not
-    parse after one retry) the call answers `AI_UNAVAILABLE`. "Explain" may use the model's own
+    parse after one retry) the call answers `AI_UNAVAILABLE`. So does a call that runs out of its
+    90-second budget, retry included, so the answer always arrives before the 100 seconds after
+    which Cloudflare and the web client give up. "Explain" may use the model's own
     knowledge and cites the passages that agree with it. The roadmap draft has no passages at all.
 
     Two rate-limit tiers sit ahead of the generic `write` tier. `POST /notebook/ai/**` spends

@@ -116,7 +116,13 @@ pgvector was planned and dropped. It needs the database image swapped in prod, i
 
 ## The study AI
 
-Every model call goes through `NotebookLlm`: the same fallback chain as the assistant, one structured answer through `ChatClient.entity()`, one retry asking for valid JSON, then `AI_UNAVAILABLE`. No tools, no streaming and no memory. A notebook call is a question with its context attached, assembled by the caller and sent in full each time, which is the onboarding suggestions' contract. The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode:
+Every model call goes through `NotebookLlm`: the same fallback chain as the assistant, one structured answer through `ChatClient.entity()`, one retry asking for valid JSON, then `AI_UNAVAILABLE`. No tools, no streaming and no memory. A notebook call is a question with its context attached, assembled by the caller and sent in full each time, which is the onboarding suggestions' contract.
+
+The whole call, retry included, gets 90 seconds (`NotebookLlm.BUDGET`). Cloudflare drops a request to the API at 100 seconds, and the web client gives up at the same point. A provider that hangs could otherwise hold a request for minutes, and the person would see an error for work the server went on to finish, or save twice when they tried again. So the server stops first and answers `AI_UNAVAILABLE`. The retry only starts when at least 20 seconds of the budget are left. Each attempt runs on a virtual thread, so the request can stop waiting at the deadline; the abandoned HTTP call ends on its own read timeout.
+
+While a call runs, every notebook screen that waits on one shows the time so far, and past 30 seconds a note that it is still going and how long it can take. The roadmap draft also shows skeleton rows where the nodes will land and a Stop button. Stop drops the late answer, which is safe there because nothing in a draft is stored until "Create".
+
+The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode:
 
 | Mode | Used by | The model may |
 |------|---------|---------------|
@@ -149,7 +155,7 @@ Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 
 | Background reading, embeddings, restart recovery | `SourceIngestionService` |
 | Passage choice and its fallbacks | `NotebookRetriever` |
 | Passage numbers and citation cleanup | `StudyContextBuilder` |
-| The model call, its retry and `AI_UNAVAILABLE` | `NotebookLlm` |
+| The model call, its retry, the 90-second budget and `AI_UNAVAILABLE` | `NotebookLlm` |
 
 ## The web editor and the board
 

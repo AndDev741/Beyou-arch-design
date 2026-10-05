@@ -116,7 +116,13 @@ O pgvector chegou a ser planejado e foi descartado. Ele exige trocar a imagem do
 
 ## A IA de estudo
 
-Toda chamada ao modelo passa pelo `NotebookLlm`: a mesma cadeia de fallback do assistente, uma resposta estruturada via `ChatClient.entity()`, uma nova tentativa pedindo JSON válido, e depois `AI_UNAVAILABLE`. Sem tools, sem streaming e sem memória. Uma chamada do caderno é uma pergunta com o contexto anexado, montado por quem chama e enviado inteiro a cada vez, que é o contrato das sugestões do onboarding. O prompt de sistema é `prompts/notebookTutor.st`, e cada mensagem começa com um modo:
+Toda chamada ao modelo passa pelo `NotebookLlm`: a mesma cadeia de fallback do assistente, uma resposta estruturada via `ChatClient.entity()`, uma nova tentativa pedindo JSON válido, e depois `AI_UNAVAILABLE`. Sem tools, sem streaming e sem memória. Uma chamada do caderno é uma pergunta com o contexto anexado, montado por quem chama e enviado inteiro a cada vez, que é o contrato das sugestões do onboarding.
+
+A chamada inteira, nova tentativa incluída, tem 90 segundos (`NotebookLlm.BUDGET`). O Cloudflare derruba um pedido à API aos 100 segundos, e o cliente web desiste no mesmo ponto. Sem esse limite, um provedor travado podia segurar um pedido por minutos, e a pessoa via um erro de um trabalho que o servidor terminava depois, ou salvava duas vezes quando tentava de novo. Então o servidor para primeiro e responde `AI_UNAVAILABLE`. A nova tentativa só começa se sobrarem pelo menos 20 segundos. Cada tentativa roda numa virtual thread, para o pedido poder parar de esperar no prazo; a chamada HTTP abandonada termina no próprio read timeout.
+
+Enquanto uma chamada roda, toda tela do caderno que espera por ela mostra o tempo decorrido e, depois de 30 segundos, um aviso de que ainda está em andamento e quanto pode levar. O rascunho do roteiro também mostra linhas de esqueleto onde os nós vão aparecer e um botão Parar. Parar descarta a resposta atrasada, o que é seguro ali porque nada do rascunho é guardado antes de "Criar".
+
+O prompt de sistema é `prompts/notebookTutor.st`, e cada mensagem começa com um modo:
 
 | Modo | Usado por | O modelo pode |
 |------|-----------|---------------|
@@ -149,7 +155,7 @@ Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 ch
 | Leitura em segundo plano, embeddings, recuperação após restart | `SourceIngestionService` |
 | A escolha dos trechos e seus fallbacks | `NotebookRetriever` |
 | A numeração dos trechos e a limpeza das citações | `StudyContextBuilder` |
-| A chamada ao modelo, a nova tentativa e o `AI_UNAVAILABLE` | `NotebookLlm` |
+| A chamada ao modelo, a nova tentativa, o limite de 90 segundos e o `AI_UNAVAILABLE` | `NotebookLlm` |
 
 ## O editor web e o quadro
 
