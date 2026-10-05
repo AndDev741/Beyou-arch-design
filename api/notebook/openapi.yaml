@@ -1325,7 +1325,8 @@ paths:
       description: |
         A web search for what the person described, with the page's topic and title and the room's
         goal for context. Tavily answers when `TAVILY_API_KEY` is set, otherwise Gemini with Google
-        Search (which needs a billing-enabled key); with neither, this answers
+        Search when `NOTEBOOK_DISCOVERY_GEMINI_API_KEY` is (it needs billing, so it does not reuse the
+        chat chain's key); with neither, this answers
         `NOTEBOOK_DISCOVERY_UNAVAILABLE` and the study room answers `discovery: false`. A search that
         fails answers `NOTEBOOK_DISCOVERY_FAILED`.
 
