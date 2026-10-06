@@ -203,6 +203,8 @@ The routes:
 
 Notebook sits in the sidebar's main group after Goals (icon `NotebookPen`), and in the bottom nav's sheet. Every notebook screen is a lazy chunk. The editor ships inside the page screen's chunk and never loads at boot.
 
+On desktop the page screen reserves its own bottom space: 40px under the editor's empty trailing line, more while the timer pill floats over the bottom. It turns off the shell's 96px bottom spacer with `useNoDesktopSpacer`; that spacer stays on every other page so the assistant button never covers the end of one, and phones keep it for the bottom bar. In the study room the sources and studio panels can be resized by dragging the bars beside the chat (220 to 560px; double-click for the default, arrow keys and Enter from the keyboard), or folded into thin rails so the chat gets the screen. The layout is a per-browser preference in localStorage (`useStudyLayout`), and none of it applies below `lg`, where the columns stack.
+
 ## Mobile v1
 
 Mobile v1 reads notes and runs reviews, and writing stays on the web, apart from what the assistant's chat writes when asked. The page under the chat re-reads when the turn ends. The screens are the topics home (`app/(app)/notebook/index.tsx`), a topic or page with Path and Notes tabs (`app/(app)/notebook/[id].tsx`), and a full-screen review outside the `(app)` group (`app/notebook-review.tsx`), so the bottom bar stays out of a session that wants the whole screen.
