@@ -152,6 +152,16 @@ Toda rota em `/notebook/ai/**` gasta o bucket de rate limit `notebook-ai`, 60 ch
 
 Antes da primeira pergunta a sala abre no preparo (`StudySetup` na web), e "Editar preparo", na linha acima do chat, traz ele de volta. Ele pergunta três coisas. Um objetivo para estudar a página, guardado em `notebook_pages.study_goal` e colocado antes dos trechos no contexto de toda resposta, para as respostas mirarem nele; ele nunca é um trecho e nunca é citado. As anotações de quem a IA lê (`study_scope`, V36): PAGE, a página e as páginas acima dela, que é o que a sala sempre leu e continua sendo o padrão; SUBTREE, também todas as páginas abaixo; TOPIC, todas as páginas do tópico. O `StudyScopes` monta a lista, e a tela de preparo mostra quantas páginas com anotações e quantas palavras cada escolha cobre. E o que ela pode citar: as fontes ficam no painel ao lado do preparo, com seus interruptores, e o preparo adiciona mais, à mão ou com "encontrar fontes para mim". Objetivo e escopo valem para toda chamada de IA na página, não só o chat: o estúdio, a explicação, os flashcards de IA e as sugestões de nós leem o mesmo contexto. `study_setup_at` nulo é o que abre a tela de preparo; uma sala com mensagens de antes da V36 abre no chat.
 
+## O assistente num quadro
+
+O chat do assistente (o [agente de IA](/architecture/ai-agent)) muda um quadro quando a pessoa pede. O `getStudyBoard` lê um: os nós de página na ordem do caminho com seus status, as ligações entre eles por título e as seções. Oito ferramentas escrevem. O `addStudyNode` põe um nó na próxima célula livre da grade e pode ligá-lo depois de outro nó. O `editStudyNode` renomeia um nó ou troca o ícone, e como o título de um nó é o título da página dele, a página muda de nome em todo lugar onde aparece. O `setStudyNodeStatus` define o status de um nó ou da própria página do quadro. O `connectStudyNodes` e o `disconnectStudyNodes` criam e removem ligações. O `removeStudyNode` tira um nó do quadro e mantém a página, a não ser que venha `deletePage`. O `reorderStudyBoard` refaz o caminho, e o `addStudyNotes` escreve markdown no fim de uma página.
+
+O `StudyBoardEditor` transforma os nomes que a pessoa usa em linhas e depois chama os mesmos services que o quadro na tela chama, então posse, as recusas de vínculo e o XP de uma página concluída são os mesmos de um clique. Um quadro é nomeado pelo id da página, que a rota onde a pessoa está carrega, ou pelo título exato da página. Um nó é nomeado pelo título ou pelo id. Um nome que não bate com nada recebe de volta a lista do que existe. Um nome que bate com duas páginas, ou dois nós, recebe de volta uma pergunta, então o modelo nunca escolhe um. Cada chamada de ferramenta é uma transação.
+
+O `reorderStudyBoard` recebe cada nó de página do quadro uma vez. Eles viram uma corrente só na grade, nessa ordem, e a corrente substitui todas as ligações que o quadro tinha (`NotebookBoardService.restructure`), então um ramo que a pessoa desenhou some depois. O prompt faz o assistente repetir a ordem e esperar um sim. Quando o assistente adiciona o primeiro nó numa página cujo documento não tem bloco de quadro, ele grava o bloco também (`MarkdownBlocks.withBoardBlock`). Sem ele o quadro não teria onde ser desenhado.
+
+Toda ferramenta que escreve informa o domínio `notebook`, e as que podem mudar um status informam `perfil` também. Com isso, os dois clientes releem a home, cada quadro e árvore que já carregaram e a página na tela (`refreshNotebook` em `@beyou/state`). A tela de página do web reconstrói o editor quando o documento da página muda por baixo dele. O BlockNote lê o conteúdo uma vez só, e sem a reconstrução o próximo autosave gravaria a página de volta sem as anotações do assistente. A mesma verificação corrigiu um bug de antes de o assistente poder escrever: voltar a uma página dentro do app mostrava o documento como estava quando a página foi aberta pela primeira vez, e a próxima tecla salvava por cima das anotações escritas desde então.
+
 ## Onde cada regra mora
 
 | Regra | Mora em |
@@ -162,7 +172,8 @@ Antes da primeira pergunta a sala abre no preparo (`StudySetup` na web), e "Edit
 | Todo valor de XP e o teto diário de revisão | `NotebookRewards` |
 | O texto puro de um documento | `BlockText` |
 | O markdown da IA virando blocos no "Salvar na página", o tipo do bloco de quadro | `MarkdownBlocks` |
-| As recusas de nó vinculado, o `deletePage`, a disposição em corrente do rascunho | `NotebookBoardService` |
+| As recusas de nó vinculado, o `deletePage`, a disposição em corrente do rascunho, a próxima célula livre, a ordem do caminho, refazer um quadro como um caminho só | `NotebookBoardService` |
+| As ferramentas de quadro do assistente: de nomes para linhas, e as recusas que o impedem de adivinhar | `StudyBoardEditor` |
 | O cronograma SM-2 | `SpacedRepetition` |
 | O escopo das fontes, o limite de 20 por página, as checagens de PDF | `NotebookSourceService` |
 | As recusas de SSRF, os saltos de redirect, os tetos de corpo | `LinkFetcher` |
@@ -194,7 +205,7 @@ O Caderno fica no grupo principal da sidebar depois de Metas (ícone `NotebookPe
 
 ## Mobile v1
 
-O mobile v1 lê as anotações e roda as revisões, e a escrita fica no web. As telas são a home de tópicos (`app/(app)/notebook/index.tsx`), um tópico ou página com as abas Trilha e Notas (`app/(app)/notebook/[id].tsx`) e uma revisão em tela cheia fora do grupo `(app)` (`app/notebook-review.tsx`), para que a barra de baixo fique fora de uma sessão que quer a tela inteira.
+O mobile v1 lê as anotações e roda as revisões, e a escrita fica no web, fora o que o chat do assistente grava quando a pessoa pede. A página por baixo do chat relê quando a resposta termina. As telas são a home de tópicos (`app/(app)/notebook/index.tsx`), um tópico ou página com as abas Trilha e Notas (`app/(app)/notebook/[id].tsx`) e uma revisão em tela cheia fora do grupo `(app)` (`app/notebook-review.tsx`), para que a barra de baixo fique fora de uma sessão que quer a tela inteira.
 
 Um canvas arrastado com um polegar não serve para ler um roadmap, então a aba Trilha lê o quadro em níveis (`pathLevels` em `@beyou/state`). Cada nó vem depois dos nós que apontam para ele, e um nível com mais de um nó ganha "Depois, em qualquer ordem". As anotações são desenhadas pelo `src/notebook/BlockRenderer.tsx` com views nativas: parágrafos, títulos, os três tipos de lista, citações, código, tabelas, e um chip com a contagem de cards no lugar do bloco de flashcards. Não há editor nem WebView. Um tipo de bloco que o renderer não conhece ainda mostra o texto que carrega. As regras da fila de revisão são funções puras em `src/notebook/reviewQueue.ts`.
 
@@ -214,4 +225,4 @@ O `GET /user/export` leva cada página como texto puro, os flashcards com as dat
 
 ## Testes
 
-No backend, as regras puras têm testes unitários em `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` e outros), e `integration/notebook/` roda os services contra o Postgres, incluindo escritas concorrentes e a ingestão de fontes. Três specs e2e dirigem a stack: `notebook.spec.ts` para o caminho de UI do tópico ao nó concluído, `notebook-rules.spec.ts` para posse, pagar uma vez, a recusa de ciclo, SSRF e escopo de fontes direto na API, e `notebook-study.spec.ts` para o XP da revisão e as telas de IA, com só as rotas do modelo simuladas.
+No backend, as regras puras têm testes unitários em `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` e outros), e `integration/notebook/` roda os services contra o Postgres, incluindo escritas concorrentes, a ingestão de fontes e o `StudyBoardEditor` do assistente. Quatro specs e2e dirigem a stack: `notebook.spec.ts` para o caminho de UI do tópico ao nó concluído, `notebook-rules.spec.ts` para posse, pagar uma vez, a recusa de ciclo, SSRF e escopo de fontes direto na API, `notebook-study.spec.ts` para o XP da revisão e as telas de IA, com só as rotas do modelo simuladas, e `notebook-agent.spec.ts`, que reproduz uma resposta do assistente sobre uma página aberta e confere que o quadro, a árvore, o título e o editor mostram a mudança.

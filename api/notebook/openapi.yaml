@@ -152,7 +152,8 @@ paths:
       description: |
         Case-insensitive substring match on titles, at most 20 hits, most recently edited first. Each hit
         names its topic, so two pages called "Trees" can be told apart. The board's "Link a page you
-        already have" picker and the assistant's `addStudyNode` both use this.
+        already have" picker uses this. The assistant's board tools match exact titles with their own
+        lookup instead, since a substring search capped at 20 hits can miss the page they mean.
   /notebook/pages/{pageId}:
     get:
       tags:

@@ -152,6 +152,16 @@ Every route under `/notebook/ai/**` spends the `notebook-ai` rate-limit bucket, 
 
 Before the first question the room opens on its setup (`StudySetup` on the web), and "Edit setup" on the line above the chat brings it back. It asks three things. A goal for studying the page, kept in `notebook_pages.study_goal` and put ahead of the passages in every answer's context, so answers aim at it; it is never a passage and never cited. Whose notes the AI reads (`study_scope`, V36): PAGE, the page and the pages above it, which is what the room always read and stays the default; SUBTREE, every page under it too; TOPIC, every page of the topic. `StudyScopes` builds the list, and the setup screen shows how many pages with notes and how many words each choice covers. And what it may quote: the sources stay in the panel beside the setup with their switches, and the setup adds more, by hand or with "find sources for me". Goal and scope apply to every AI call on the page, not only the chat: the studio, explain, AI flashcards and node suggestions read the same context. `study_setup_at` null is what opens the setup screen; a room with messages from before V36 opens on its chat.
 
+## The assistant on a board
+
+The assistant's chat (the [AI agent](/architecture/ai-agent)) changes a board when the person asks it to. `getStudyBoard` reads one: its page nodes in path order with their statuses, the links between them by title, and its sections. Eight tools write. `addStudyNode` puts a node on the next free grid cell and can link it after another node. `editStudyNode` renames a node or changes its icon, and since a node's title is its page's title, the page is renamed everywhere it shows. `setStudyNodeStatus` sets a node's status or the board page's own. `connectStudyNodes` and `disconnectStudyNodes` add and remove links. `removeStudyNode` takes a node off the board and keeps the page unless `deletePage` is sent. `reorderStudyBoard` rebuilds the path, and `addStudyNotes` writes markdown at the end of a page.
+
+`StudyBoardEditor` turns the names a person uses into rows and then calls the same services the board on screen calls, so ownership, the link refusals and the XP for a finished page are the ones a click gets. A board is named by its page id, which the route the person is on carries, or by its page's exact title. A node is named by its title or its id. A name that matches nothing gets back a list of what is there. A name that matches two pages, or two nodes, gets back a question, so the model never picks one. Each tool call is one transaction.
+
+`reorderStudyBoard` takes every page node of the board once. They become one chain on the grid in that order, and the chain replaces every link the board had (`NotebookBoardService.restructure`), so a branch the person drew is gone afterwards. The prompt makes the assistant restate the order and wait for a yes. When the assistant adds the first node to a page whose document has no board block, it writes the block too (`MarkdownBlocks.withBoardBlock`). Without it the board would have nowhere to be drawn.
+
+Every writer reports the `notebook` domain, and the ones that can move a status report `perfil` as well. On that, both clients re-read the home, every board and tree they have loaded, and the page on screen (`refreshNotebook` in `@beyou/state`). The web page screen rebuilds its editor when the page's document changes under it. BlockNote reads its content once, and without the rebuild its next autosave would write the page back without the assistant's notes. The same check fixed a bug from before the assistant could write: coming back to a page inside the app showed the document as it was when the page was first opened, and the next keystroke saved over the notes written since.
+
 ## Where each rule lives
 
 | Rule | Lives in |
@@ -162,7 +172,8 @@ Before the first question the room opens on its setup (`StudySetup` on the web),
 | Every XP amount and the daily review cap | `NotebookRewards` |
 | The plain text of a document | `BlockText` |
 | Markdown from the AI turned into blocks for "Save to page", the board block type | `MarkdownBlocks` |
-| Linked-node refusals, `deletePage`, the draft's chain layout | `NotebookBoardService` |
+| Linked-node refusals, `deletePage`, the draft's chain layout, the next free cell, path order, rebuilding a board as one path | `NotebookBoardService` |
+| The assistant's board tools: names to rows, and the refusals that keep it from guessing | `StudyBoardEditor` |
 | The SM-2 schedule | `SpacedRepetition` |
 | Source scope, the 20-per-page limit, the PDF checks | `NotebookSourceService` |
 | SSRF refusals, redirect hops, body caps | `LinkFetcher` |
@@ -194,7 +205,7 @@ Notebook sits in the sidebar's main group after Goals (icon `NotebookPen`), and 
 
 ## Mobile v1
 
-Mobile v1 reads notes and runs reviews, and writing stays on the web. The screens are the topics home (`app/(app)/notebook/index.tsx`), a topic or page with Path and Notes tabs (`app/(app)/notebook/[id].tsx`), and a full-screen review outside the `(app)` group (`app/notebook-review.tsx`), so the bottom bar stays out of a session that wants the whole screen.
+Mobile v1 reads notes and runs reviews, and writing stays on the web, apart from what the assistant's chat writes when asked. The page under the chat re-reads when the turn ends. The screens are the topics home (`app/(app)/notebook/index.tsx`), a topic or page with Path and Notes tabs (`app/(app)/notebook/[id].tsx`), and a full-screen review outside the `(app)` group (`app/notebook-review.tsx`), so the bottom bar stays out of a session that wants the whole screen.
 
 A canvas panned with one thumb is no way to read a roadmap, so the Path tab reads the board as levels (`pathLevels` in `@beyou/state`). Every node comes after the nodes that point to it, and a level with more than one node gets "Then, in any order". Notes are drawn by `src/notebook/BlockRenderer.tsx` with native views: paragraphs, headings, the three list kinds, quotes, code, tables, and a chip with the card count for the flashcards block. There is no editor and no WebView. A block type the renderer does not know still shows its text. The review session's queue rules are pure functions in `src/notebook/reviewQueue.ts`.
 
@@ -214,4 +225,4 @@ Notes are as personal as the mood journal and get the same treatment. The `noteb
 
 ## Tests
 
-On the backend, the pure rules have unit tests under `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` and others), and `integration/notebook/` runs the services against Postgres, concurrent writes and source ingestion included. Three e2e specs drive the stack: `notebook.spec.ts` for the UI path from topic to finished node, `notebook-rules.spec.ts` for ownership, pay-once, the cycle refusal, SSRF and source scope on the wire, and `notebook-study.spec.ts` for review XP and the AI screens with only the model routes stubbed.
+On the backend, the pure rules have unit tests under `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` and others), and `integration/notebook/` runs the services against Postgres, concurrent writes, source ingestion and the assistant's `StudyBoardEditor` included. Four e2e specs drive the stack: `notebook.spec.ts` for the UI path from topic to finished node, `notebook-rules.spec.ts` for ownership, pay-once, the cycle refusal, SSRF and source scope on the wire, `notebook-study.spec.ts` for review XP and the AI screens with only the model routes stubbed, and `notebook-agent.spec.ts`, which plays an assistant turn back over an open page and checks the board, the tree, the title and the editor all show it.
