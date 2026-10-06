@@ -42,7 +42,7 @@ The marketing site sits at the repo root, outside the workspace glob on purpose:
 |---------|-------|------------------------|
 | types | Plain domain types and DTOs | Everything |
 | api | The HttpClient interface, every API repository, error model, logging seam | The most-shared package by import count |
-| state | 17 Redux slices, the root reducer, and the pure logic both apps run: gamification apply, widget ids, sorters, date helpers | Web and mobile equally |
+| state | 20 Redux slices, the root reducer, and the pure logic both apps run: gamification apply, widget ids, sorters, date helpers | Web and mobile equally |
 | theme | The token model, accent packs, the theme-to-variables map | Both theme providers |
 | i18n | The en and pt translation JSONs | Both i18next inits |
 | validation | Zod schemas per form, as translation-aware factories | Every form on both platforms |

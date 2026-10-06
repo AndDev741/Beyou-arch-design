@@ -4,5 +4,6 @@ flowchart LR
   DOM --> DB[("🐘 PostgreSQL 15<br/>Flyway-owned schema")]
   API --> SEC["🛡️ Security<br/>JWT · rate limits · lockout"]
   API --> AI["🤖 AI agent<br/>5-provider LLM chain"]
+  API --> NB["📓 Study notebook<br/>boards · cards · sources · grounded AI"]
   API --> DOCS["📚 Docs import + API"]
   CI["⚙️ GitHub Actions"] -->|"image → GHCR"| WT["🔄 Watchtower deploys"]

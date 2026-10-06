@@ -9,9 +9,9 @@ Este é o mapa do sistema como ele roda em produção: cada superfície de clien
 
 | Camada | Tecnologias |
 |--------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3 |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow para o quadro de roadmap |
 | **App mobile** | React Native + Expo (Android primeiro), NativeWind, TypeScript. Divide os pacotes de estado, cliente de API e i18n com o web app pelo monorepo |
-| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente e as sugestões de onboarding (cadeia de fallback de LLMs) |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding e a IA do caderno de estudos (cadeia de fallback de LLMs), PDFBox e jsoup para as fontes do caderno |
 | **Banco de dados** | PostgreSQL 15, schema controlado pelo Flyway (o Hibernate valida, nunca escreve), chaves primárias UUID, cache Caffeine na frente das leituras quentes |
 | **Entrega** | GitHub Actions constrói as imagens para o GHCR, o Watchtower as reimplanta; Docker Compose; nginx serve os builds do web e da documentação |
 | **Monitoramento** | Prometheus, Grafana, Loki + Alloy, GlitchTip (compatível com Sentry) |
@@ -48,6 +48,7 @@ erDiagram
   USER ||--o{ TASK : possui
   USER ||--o{ GOAL : possui
   USER ||--o{ ROUTINE : possui
+  USER ||--o{ NOTEBOOK_PAGE : possui
 
   CATEGORY }o--o{ HABIT : marcado
   CATEGORY }o--o{ TASK : marcado
@@ -64,6 +65,12 @@ erDiagram
 
   HABIT_GROUP ||--o{ HABIT_GROUP_CHECK : registra
   TASK_GROUP ||--o{ TASK_GROUP_CHECK : registra
+
+  NOTEBOOK_PAGE ||--o{ NOTEBOOK_PAGE : "pai de"
+  NOTEBOOK_PAGE ||--o{ BOARD_NODE : "quadro de"
+  BOARD_NODE }o--|| NOTEBOOK_PAGE : abre
+  NOTEBOOK_PAGE ||--o{ FLASHCARD : guarda
+  NOTEBOOK_PAGE ||--o{ SOURCE : lê
 ```
 
 ### Destaques das entidades
@@ -79,6 +86,7 @@ erDiagram
 - **Snapshots de rotina**: uma cópia diária imutável de cada rotina, tirada por timezone por um scheduler, para que o histórico sobreviva a edições futuras da rotina.
 - **Histórico de checks e XP**: registros por dia que sustentam os widgets de histórico e progresso do dashboard.
 - **Feedback**: relatos de feedback dentro do app, entregues com screenshots opcionais e navegáveis por um admin.
+- **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações.
 
 ## Fluxo de autenticação
 
@@ -125,7 +133,7 @@ sequenceDiagram
 
 ## Camada de API
 
-25 controllers REST organizados por domínio, todos sob `/api/v1`:
+34 controllers REST organizados por domínio, todos sob `/api/v1`:
 
 | Grupo | Controllers | Caminhos base |
 |-------|-------------|---------------|
@@ -135,6 +143,7 @@ sequenceDiagram
 | **Histórico** | CheckHistory, XpHistory | /check-history, /xp |
 | **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diário** | Mood | /mood |
+| **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi | /notebook/* |
 | **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
 | **IA** | AiAgent, Onboarding | /ai/agent, /onboarding |
@@ -179,7 +188,7 @@ flowchart TD
   AX -->|"401 → refresh automático"| AX
 ```
 
-Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 17 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist, excluindo de propósito os slices de perfil e snapshot para que nenhum dado pessoal caia no localStorage. O app mobile adiciona uma camada offline (`packages/offline`) para leituras e escritas enfileiradas.
+Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 20 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist e exclui de propósito os slices de perfil, snapshot, celebration, mood e notebook, para que nenhum dado pessoal, texto de diário ou anotação de estudo caia no localStorage. O app mobile guarda a store em memória e rebusca ao abrir.
 
 ## Sistema de gamificação
 
@@ -195,6 +204,7 @@ flowchart LR
 
 - **XpProgress** é um componente embutível compartilhado por User, Category, Habit e Routine.
 - O XP é gerado quando um hábito ou tarefa é marcado dentro de uma rotina.
+- O caderno de estudos paga valores fixos, uma vez cada: 15 por uma página concluída pela primeira vez, 20 por um quiz aprovado pela primeira vez, 1 por flashcard revisado até 30 por dia.
 - A progressão de level segue uma tabela semeada de XP por level (XpByLevelSeeder).
 - A constância (streak) rastreia dias consecutivos completados na entidade User.
 - Metas concedem um xpReward fixo ao serem concluídas.

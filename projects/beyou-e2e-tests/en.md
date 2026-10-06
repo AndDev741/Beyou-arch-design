@@ -4,7 +4,7 @@ summary: "The Playwright suite that drives the real stack end to end: register, 
 ---
 # Beyou E2E Tests
 
-Playwright specs that exercise the whole product the way a user does: frontend, backend, and Postgres together, no mocks. The suite locks in the flows that must never silently break: registration and login (including the anti-enumeration behavior on failures), session persistence across reloads, logout teardown, habit CRUD, routine check-ins with their XP and streak effects, goal completion asymmetry, the gamification feedback, and the full onboarding tutorial.
+Playwright specs that exercise the whole product the way a user does: frontend, backend, and Postgres together, no mocks. The suite locks in the flows that must never silently break: registration and login (including the anti-enumeration behavior on failures), session persistence across reloads, logout teardown, habit CRUD, routine check-ins with their XP and streak effects, goal completion asymmetry, the gamification feedback, the full onboarding tutorial, and the study notebook: the UI path from a new topic to a finished node, plus ownership, paying once, the SSRF refusal, review XP and the AI screens with only the model routes stubbed.
 
 ## How it runs
 

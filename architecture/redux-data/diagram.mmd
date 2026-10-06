@@ -1,11 +1,11 @@
 flowchart TD
   subgraph pkg["packages/state · shared"]
-    SL["17 slices"]
+    SL["20 slices"]
     FN["applyRefreshUi · sorters<br/>widget ids · milestones"]
   end
 
   subgraph web["apps/web"]
-    WS["store + redux-persist<br/>blacklist: perfil · snapshot · celebration"]
+    WS["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook"]
     AX["axios instance<br/>refresh dedup · X-Access-Token"]
     SR["useSilentRefresh<br/>boot: cookie → token → hydrate perfil"]
   end

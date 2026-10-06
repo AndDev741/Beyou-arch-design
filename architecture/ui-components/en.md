@@ -13,13 +13,13 @@ flowchart TD
   APP --> PUB["Public routes<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
   APP --> PROT["ProtectedRoute (layout route)"]
   PROT --> SHELL["Shell, mounted once:<br/>Sidebar · BottomNav · AgentWidget"]
-  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /configuration · /feedback"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /focus · /mood · /configuration · /feedback<br/>/notebook · /notebook/review · /notebook/:pageId<br/>/notebook/:pageId/board · /notebook/:pageId/study"]
   PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
 Every route component is lazy, including AdminRoute itself, so ordinary users never download the admin gate or its API calls. Two Suspense boundaries catch those chunks, and where they sit is load-bearing. The one in `App.tsx`, with a full-screen spinner, serves the public routes. The one inside `ProtectedRoute`, with a spinner sized to the page, wraps the page outlet alone, so a page loading for the first time can blank the page area and nothing else. For a while the outer boundary was the only one, and the first visit to any page hid the whole shell while the chunk came down. React tears down layout effects on a Suspense hide, and framer-motion keeps its animation state in one, so an assistant panel closed in that same tick (which is what the agent's internal links do) lost its exit animation and came back at full opacity with the widget already believing it closed. The bubble drew over the chat and Escape did nothing. On boot, `useSilentRefresh` holds the app in a "checking" state until the refresh cookie has been traded for a token, which is what prevents a flash of 401s or a bounce to login on reload.
 
-The shell mounts once inside the protected layout route: the collapsible desktop Sidebar (order: Today, Categories, Habits, Tasks, Routines, Goals, with Feedback and Config in the footer), the phone BottomNav (Today, Routines, the Assistant in the center slot as the only entry to the agent, Habits, and a More sheet), and the floating AgentWidget. Pages render no header of their own; a shared PageHeader component is the in-page title block. Nav items carry `data-tutorial-id` anchors for the tutorial spotlight.
+The shell mounts once inside the protected layout route: the collapsible desktop Sidebar (order: Dashboard, Categories, Habits, Tasks, Routines, Goals, Notebook, Diary, with Feedback and Config in the footer), the phone BottomNav (Dashboard, Routines, the Assistant in the center slot as the only entry to the agent, Habits, and a More sheet that holds the rest, Notebook included), and the floating AgentWidget. Pages render no header of their own; a shared PageHeader component is the in-page title block. Nav items carry `data-tutorial-id` anchors for the tutorial spotlight.
 
 Auth pages deliberately avoid the icon registry, keeping the icon and emoji chunks out of the unauthenticated first load.
 
@@ -125,6 +125,12 @@ The symptom looked like a stale render and the cause was not, which is the part 
 Both clients had it, both are fixed, and a `StrictMode` test holds it, since that is the only
 condition under which the buggy version failed.
 
+## The study notebook
+
+The notebook adds five routes. `/notebook` is the home: topic cards with a miniature of each board, "Continue", and today's reviews. `/notebook/:pageId` is a page with its tree, the notes and the board drawn inline where the "Roadmap board" block sits. `/notebook/:pageId/board` and `/notebook/:pageId/study` cover the shell the way `/focus` does, one for panning a board and one for the study room. `/notebook/review` is a review session, keys included: Space shows the answer and 1 to 4 rate it.
+
+The editor is BlockNote on Mantine 8 (Mantine 9 wants React 19), themed through the same CSS variables as everything else, and autosaves 900 ms after the last change. The board is React Flow, and "Tidy up" puts its nodes back on a grid of three to a row. One hook, `useBoard`, serves the inline board and the full-screen one, and every write lands in the store from the server's answer except a drag, which is drawn first and saved after. The [study notebook topic](/architecture/study-notebook) covers the model under all of it.
+
 ## The tutorial, in two systems
 
 Onboarding is a phase machine persisted in localStorage, with values whitelist-validated on read:
@@ -163,7 +169,9 @@ Route-level laziness plus five manual chunks, in an order that matters:
 | forms | react-hook-form, resolvers, zod | Form-heavy pages only |
 | vendor | react, router, redux family | The stable base |
 
-The dev server pre-bundles the lazy-route dependencies, because discovering them mid-session used to trigger a re-optimization and a full reload halfway through using the app.
+The study notebook's editor and board (BlockNote, Mantine, ProseMirror, React Flow) are deliberately left unnamed. A named chunk becomes the home of whatever shared helper Rollup meets first in it, and the entry then preloads the whole editor at boot to get two tiny functions; left alone, they split with the lazy notebook routes.
+
+The dev server pre-bundles the lazy-route dependencies, the notebook's editor and board among them, because discovering them mid-session used to trigger a re-optimization and a full reload halfway through using the app.
 
 ## Conventions worth keeping
 

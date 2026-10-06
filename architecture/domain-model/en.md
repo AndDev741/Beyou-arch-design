@@ -1,6 +1,6 @@
 ---
 title: "Domain Model"
-summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, feedback, and AI chat families built around it."
+summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, study notebook, feedback, and AI chat families built around it."
 ---
 
 This document covers every entity in the Beyou domain, explaining what each one does for the user and how it is structured in the database. The goal is a clear mental model of the data layer before reading or writing code.
@@ -9,7 +9,7 @@ One ground rule shapes everything here: the schema belongs to Flyway. Migrations
 
 ## The big picture
 
-Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit five supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, feedback threads, and the AI agent's chats.
+Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, the study notebook, feedback threads, and the AI agent's chats.
 
 ```mermaid
 flowchart TD
@@ -309,6 +309,7 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - `kind` is POMODORO, SHORT_BREAK or LONG_BREAK, stored as a varchar mirrored by a CHECK constraint (the V19/V25 pattern). `minutes` is bounded 1..180 by a CHECK too, restating the client's own clamp where it cannot be bypassed.
 - `item_group_id` is nullable and `ON DELETE SET NULL`: a cycle can run with nothing selected, and deleting a routine must not erase the fact that somebody focused for 25 minutes that morning.
 - `cycle_date` is the OWNER's local day, resolved from their timezone, like every other dated row here.
+- `notebook_page_id` (added in V34) names the study notebook page the cycle was run on, when it started from one. A plain id, not an association: nothing here reads the page, and the notebook only sums POMODORO minutes by page id. `ON DELETE SET NULL` for the same reason as the item group.
 
 **FocusMicroTask** (table focus_micro_tasks): a small thing done alongside one routine item, on one day.
 
@@ -338,6 +339,63 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - Deliberately not cached, unlike the other domains. Every read is a date range, so a `@Cacheable` keyed on the user would serve one range's answer for another, and a composite key would need its own eviction path on every write.
 
 **Privacy**: the note is the one place in the product where somebody writes at length for themselves. It never reaches browser storage (the `mood` slice is on the web persist blacklist and mobile redux is in-memory), the account export carries every entry with the words intact, and the assistant's read tool returns dates, levels and whether a day has a note, never the note itself.
+
+## Study notebook
+
+**Product role**: where somebody organises a subject they are learning. A topic is laid out as a roadmap board, every node opens a page of notes, sources attach to pages for a grounded study AI, and flashcards come back on a spaced schedule. Nine tables arrived together in V34, every one cascading from `users`. The rules and the class that owns each are in the [study notebook topic](/architecture/study-notebook).
+
+**NotebookPage** (table notebook_pages): everything is a page, a topic included.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | |
+| user_id | UUID | Owner, cascade |
+| kind | NotebookPageKind | TOPIC or PAGE, varchar with a CHECK |
+| parent_id | UUID | Null only on a topic. Cascade: deleting a page deletes its subtree |
+| topic_id | UUID | The root topic, stored on the row so a topic's tree is one indexed read. Null on the topic itself |
+| title / icon / description | varchar 255 / 64 / 512 | |
+| content | text | The BlockNote document as JSON. Text and not JSONB, like every other JSON this schema stores, because nothing queries inside it |
+| content_text | text | Plain text extracted on the server by `BlockText` on every save, never taken from the client. What the AI reads and the export ships |
+| status | NotebookStatus | TO_STUDY, STUDYING or DONE. Stored, written only by `NotebookProgressService` |
+| status_manual | boolean | Set by hand on a page whose board has nodes. False lets the nodes decide |
+| position | integer | Order among siblings in the tree |
+| goal_id / category_id / habit_id | UUID | Optional links on a topic, each `ON DELETE SET NULL`. The category receives the topic's XP |
+| done_xp_at | timestamptz | When the 15 XP for finishing was paid. Set once and never cleared, so done, undone, done pays once |
+| last_opened_at | timestamptz | Feeds "continue studying". Written by an UPDATE query that never loads the row dirty |
+| study_goal | varchar(300) | The study room's goal for the page, sent ahead of the passages with every answer. Added in V36 |
+| study_scope | varchar(16) | Whose notes the study AI reads: PAGE (the page and the pages above, the default), SUBTREE or TOPIC. CHECK-constrained |
+| study_setup_at | timestamptz | When the study room was last set up; null opens it on its setup screen |
+
+A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE has both. The entity is `@DynamicUpdate`, so the autosave and a status change landing in the same moment each write only their own columns.
+
+**NotebookBoardNode** (notebook_board_nodes) and **NotebookBoardEdge** (notebook_board_edges): one board per page, keyed by `board_page_id`.
+
+- A node is PAGE (`page_id` set, the page it opens) or SECTION (`page_id` null, a labelled band with `width` and `height`), enforced by a CHECK.
+- `page_id` is the node's own column and does not reuse the tree, because a linked node opens a page whose home is in another topic. `UNIQUE (board_page_id, page_id)` puts a page on a board once.
+- Positions are `x` and `y` in board pixels.
+- An edge joins two nodes of the same board, once per direction (`UNIQUE (source_node_id, target_node_id)`, plus a CHECK against self-loops). Edges only order nodes.
+
+**NotebookCard** (notebook_cards) and **NotebookCardReview** (notebook_card_reviews):
+
+- A card has `front`, `back`, an optional `source_label`, and the SM-2 state: `due_on` (a date in the owner's timezone), `interval_days` (capped at 365), `ease` (2.5 to start, floor 1.3), `reps` and `lapses`.
+- A review row records `rating` (AGAIN, HARD, GOOD, EASY), `review_date` in the owner's timezone and `xp_paid`. The review streak counts distinct review days. `POST /notebook/reviews/finish` pays the day's unpaid rows, 30 at most, and there is no back pay for a day that was never collected.
+
+**NotebookSource** (notebook_sources) and the chunks (notebook_source_chunks):
+
+- A source is PDF, LINK or TEXT, attached to one page and readable from every page below it. `status` is PENDING, READING, READY or FAILED, with `progress` 0 to 100 and an `error_key` when it failed. `enabled` switches it off without deleting it.
+- The PDF itself is never stored. Its text survives in the chunks, page by page, so there is no file on disk to clean up when an account goes.
+- A chunk holds about 1000 characters of `content`, its `ordinal` and the PDF `page_number`. `search` is a generated `tsvector` (`simple` config, GIN index) for the full-text fallback, and `embedding` is a `real[]` with the `embedding_model` that made it. No JPA entity maps this table: `SourceChunkStore` reads and writes it with plain SQL. No pgvector either; the study notebook topic explains why.
+
+**NotebookStudyOutput** (notebook_study_outputs) and **NotebookChatMessage** (notebook_chat_messages):
+
+- An output is OVERVIEW, SUMMARY, STUDY_GUIDE or QUIZ. `content` is markdown inside JSON for the first three and the questions with their answers for a quiz, which never leave the server until grading. `score` and `total` hold the last grading, and `passed_at` the first pass, the moment the 20 XP was paid. A page keeps one OVERVIEW.
+- A chat message has `role` USER or ASSISTANT, its `content`, and the answer's `citations` as JSON.
+
+**NotebookRoadmapDraft** (notebook_roadmap_drafts), added in V35:
+
+- A "New topic with AI" draft, kept until a topic is created from it or the person deletes it. `status` is DRAFTING while the model writes it in the background, then READY or FAILED with an `error_key`.
+- `request` is what was asked for, `result` the drafted nodes and `choices` the person's ticks, one per node, all JSON in `text`. `started_at` is when the current model call began, for the dialog's timer.
+- Only a DRAFTING row receives a result, so deleting a draft mid-call is final. At most 20 per person.
 
 ## FederatedIdentity
 
@@ -466,6 +524,10 @@ Understanding the cascades matters most at account deletion, which relies on the
 | Goal (DB level) | Sub-goals | ON DELETE SET NULL | Children are promoted to top level, never deleted with the parent. The UI says so before the delete |
 | RoutineSnapshot | SnapshotChecks | ALL | Yes |
 | User (DB level) | DailyBriefing rows | ON DELETE CASCADE | Handled by the database FK. A briefing is derived data with no meaning past the account |
+| User (DB level) | Every notebook table | ON DELETE CASCADE | Account deletion takes the whole notebook |
+| NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
+| NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
+| Goal / Category / Habit (DB level) | A topic's links | ON DELETE SET NULL | The links decorate a topic. Deleting the goal must not delete a notebook |
 
 ## Database tables summary
 
@@ -505,7 +567,21 @@ flowchart LR
     snapshot_check
     focus_cycles
     focus_micro_tasks
+    mood_entries
     daily_briefing
+  end
+
+  subgraph notebook["Study notebook"]
+    notebook_pages
+    notebook_board_nodes
+    notebook_board_edges
+    notebook_cards
+    notebook_card_reviews
+    notebook_sources
+    notebook_source_chunks
+    notebook_study_outputs
+    notebook_chat_messages
+    notebook_roadmap_drafts
   end
 
   subgraph support["Feedback & AI"]
@@ -519,6 +595,7 @@ flowchart LR
 
   subgraph auth["Auth"]
     refresh_tokens
+    federated_identities
     password_reset_tokens
     account_deletion_codes
     notification_preferences

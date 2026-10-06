@@ -1,0 +1,40 @@
+flowchart TD
+  subgraph model["Pages and boards"]
+    TOPIC["📚 Topic page<br/>kind TOPIC · no parent"]
+    PAGE["📄 Page<br/>BlockNote JSON + content_text"]
+    BOARD["🗺️ Board<br/>nodes + edges keyed by board_page_id"]
+    TOPIC --> BOARD
+    BOARD -->|"PAGE node"| PAGE
+    BOARD -.->|"linked node<br/>no cycles, once per board"| OTHER["📄 Page in another topic"]
+    PAGE --> SUB["🗺️ Its own board"]
+  end
+
+  subgraph rules["Status and XP"]
+    PROG["NotebookProgressService<br/>only status writer · walks up every board"]
+    GRAPH["ProgressGraph<br/>leaves · derived status · reaches"]
+    REW["NotebookRewards<br/>15 page · 20 quiz · 1 card, 30/day"]
+    PROG --> GRAPH
+    PROG --> REW
+  end
+
+  subgraph sources["Sources"]
+    ADD["PDF ≤ 15MB · link · text"]
+    INGEST["SourceIngestionService<br/>notebook-ingest pool, after commit"]
+    CHUNKS[("notebook_source_chunks<br/>tsvector + real[] embedding")]
+    ADD -->|"LinkFetcher refuses SSRF"| INGEST
+    INGEST --> CHUNKS
+  end
+
+  subgraph ai["Study AI"]
+    RET["NotebookRetriever<br/>cosine in JVM → full text → opening chunks"]
+    CTX["StudyContextBuilder<br/>numbered passages · drops invented citations"]
+    LLM["NotebookLlm<br/>fallback chain · one retry · AI_UNAVAILABLE"]
+    CHUNKS --> RET --> CTX --> LLM
+  end
+
+  PAGE --> PROG
+  PAGE -->|"notes first"| CTX
+  PAGE --> CARDS["🃏 Flashcards<br/>SM-2 in the owner's days"]
+  CARDS -->|"/reviews/finish"| REW
+  LLM -->|"quiz pass"| REW
+  REW --> XP["🎮 User + topic category XP"]

@@ -1,6 +1,6 @@
 ---
 title: "Modelo de Domínio"
-summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, feedback e chats de IA construídas ao redor."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, caderno de estudos, feedback e chats de IA construídas ao redor."
 ---
 
 Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
@@ -9,7 +9,7 @@ Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações e
 
 ## O quadro geral
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam cinco famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, as threads de feedback e os chats do agente de IA.
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, o caderno de estudos, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -307,6 +307,7 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - `kind` é POMODORO, SHORT_BREAK ou LONG_BREAK, gravado como varchar espelhado por um CHECK (o padrão da V19/V25). `minutes` é limitado a 1..180 por um CHECK também, repetindo o clamp do cliente onde ele não pode ser contornado.
 - `item_group_id` é nulo permitido e `ON DELETE SET NULL`: um ciclo pode rodar sem nada selecionado, e apagar uma rotina não pode apagar o fato de que alguém focou 25 minutos naquela manhã.
 - `cycle_date` é o dia local do DONO, resolvido pelo fuso dele, como toda linha datada aqui.
+- `notebook_page_id` (adicionado na V34) diz em qual página do caderno de estudos o ciclo rodou, quando começou de uma. É um id simples e não uma associação: nada aqui lê a página, e o caderno só soma minutos de POMODORO por id de página. `ON DELETE SET NULL` pelo mesmo motivo do item group.
 
 **FocusMicroTask** (tabela focus_micro_tasks): uma coisa pequena feita junto de um item da rotina, num dia.
 
@@ -336,6 +337,63 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - Deliberadamente sem cache, ao contrário dos outros domínios. Toda leitura é um intervalo de datas, então um `@Cacheable` com chave no utilizador serviria a resposta de um intervalo para outro, e uma chave composta precisaria do seu próprio caminho de invalidação a cada escrita.
 
 **Privacidade**: a nota é o único sítio do produto onde alguém escreve longamente para si próprio. Nunca chega ao armazenamento do navegador (a slice `mood` está na blacklist do persist na web e o redux do mobile é só em memória), a exportação da conta leva cada registo com as palavras intactas, e a ferramenta de leitura do assistente devolve datas, níveis e se um dia tem nota, nunca a nota.
+
+## Caderno de estudos
+
+**Papel no produto**: onde alguém organiza um assunto que está aprendendo. Um tópico vira um quadro de roadmap, cada nó abre uma página de anotações, fontes entram nas páginas para uma IA de estudo ancorada nelas, e flashcards voltam num cronograma espaçado. Nove tabelas chegaram juntas na V34, todas com cascade a partir de `users`. As regras e a classe dona de cada uma estão no [tópico do caderno de estudos](/architecture/study-notebook).
+
+**NotebookPage** (tabela notebook_pages): tudo é uma página, inclusive um tópico.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID | |
+| user_id | UUID | Dono, cascade |
+| kind | NotebookPageKind | TOPIC ou PAGE, varchar com CHECK |
+| parent_id | UUID | Nulo só num tópico. Cascade: apagar uma página apaga a subárvore |
+| topic_id | UUID | O tópico raiz, gravado na linha para que a árvore de um tópico seja uma leitura indexada. Nulo no próprio tópico |
+| title / icon / description | varchar 255 / 64 / 512 | |
+| content | text | O documento BlockNote em JSON. Text e não JSONB, como todo JSON que este schema guarda, porque nada consulta dentro dele |
+| content_text | text | Texto puro extraído no servidor pelo `BlockText` a cada salvamento, nunca vindo do cliente. É o que a IA lê e o que a exportação leva |
+| status | NotebookStatus | TO_STUDY, STUDYING ou DONE. Gravado, escrito só pelo `NotebookProgressService` |
+| status_manual | boolean | Escolhido à mão numa página cujo quadro tem nós. False deixa os nós decidirem |
+| position | integer | Ordem entre irmãs na árvore |
+| goal_id / category_id / habit_id | UUID | Vínculos opcionais de um tópico, cada um `ON DELETE SET NULL`. A categoria recebe o XP do tópico |
+| done_xp_at | timestamptz | Quando os 15 de XP pela conclusão foram pagos. Gravado uma vez e nunca limpo, então concluir, desfazer e concluir paga uma vez |
+| last_opened_at | timestamptz | Alimenta o "continuar estudando". Escrito por uma query de UPDATE que nunca suja a linha |
+| study_goal | varchar(300) | O objetivo da sala de estudo para a página, enviado antes dos trechos em toda resposta. Adicionado na V36 |
+| study_scope | varchar(16) | De quem são as anotações que a IA lê: PAGE (a página e as de cima, o padrão), SUBTREE ou TOPIC. Com CHECK |
+| study_setup_at | timestamptz | Quando a sala de estudo foi preparada pela última vez; nulo abre a sala na tela de preparo |
+
+Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PAGE tem os dois. A entidade é `@DynamicUpdate`, então o autosave e uma mudança de status que chegam no mesmo instante gravam cada um só as próprias colunas.
+
+**NotebookBoardNode** (notebook_board_nodes) e **NotebookBoardEdge** (notebook_board_edges): um quadro por página, com `board_page_id` como chave.
+
+- Um nó é PAGE (`page_id` preenchido, a página que ele abre) ou SECTION (`page_id` nulo, uma faixa com rótulo, `width` e `height`), garantido por um CHECK.
+- `page_id` é coluna do próprio nó e não reaproveita a árvore, porque um nó vinculado abre uma página cuja casa fica em outro tópico. `UNIQUE (board_page_id, page_id)` põe uma página uma vez em cada quadro.
+- As posições são `x` e `y` em pixels do quadro.
+- Uma aresta liga dois nós do mesmo quadro, uma vez em cada direção (`UNIQUE (source_node_id, target_node_id)`, mais um CHECK contra autolaço). As arestas só ordenam os nós.
+
+**NotebookCard** (notebook_cards) e **NotebookCardReview** (notebook_card_reviews):
+
+- Um card tem `front`, `back`, um `source_label` opcional e o estado do SM-2: `due_on` (uma data no fuso do dono), `interval_days` (teto de 365), `ease` (começa em 2,5, piso de 1,3), `reps` e `lapses`.
+- Uma linha de revisão grava `rating` (AGAIN, HARD, GOOD, EASY), `review_date` no fuso do dono e `xp_paid`. A sequência de revisão conta os dias distintos de revisão. `POST /notebook/reviews/finish` paga as linhas ainda não pagas do dia, no máximo 30, e um dia que nunca foi coletado não recebe depois.
+
+**NotebookSource** (notebook_sources) e os trechos (notebook_source_chunks):
+
+- Uma fonte é PDF, LINK ou TEXT, anexada a uma página e legível de toda página abaixo dela. `status` é PENDING, READING, READY ou FAILED, com `progress` de 0 a 100 e um `error_key` quando falha. `enabled` a desliga sem apagar.
+- O PDF em si nunca é guardado. O texto sobrevive nos trechos, página por página, então não há arquivo em disco para limpar quando uma conta é apagada.
+- Um trecho guarda cerca de 1000 caracteres de `content`, seu `ordinal` e o `page_number` do PDF. `search` é um `tsvector` gerado (configuração `simple`, índice GIN) para o fallback full-text, e `embedding` é um `real[]` com o `embedding_model` que o gerou. Nenhuma entidade JPA mapeia essa tabela: o `SourceChunkStore` a lê e grava com SQL puro. Também não há pgvector; o tópico do caderno de estudos explica por quê.
+
+**NotebookStudyOutput** (notebook_study_outputs) e **NotebookChatMessage** (notebook_chat_messages):
+
+- Uma saída é OVERVIEW, SUMMARY, STUDY_GUIDE ou QUIZ. `content` é markdown dentro de JSON nas três primeiras e, num quiz, as perguntas com as respostas, que só saem do servidor na correção. `score` e `total` guardam a última correção, e `passed_at` a primeira aprovação, o momento em que os 20 de XP foram pagos. Uma página guarda uma OVERVIEW.
+- Uma mensagem de chat tem `role` USER ou ASSISTANT, o `content` e as `citations` da resposta em JSON.
+
+**NotebookRoadmapDraft** (notebook_roadmap_drafts), adicionada na V35:
+
+- Um rascunho do "Novo tópico com IA", guardado até um tópico ser criado a partir dele ou a pessoa excluí-lo. `status` é DRAFTING enquanto o modelo escreve em segundo plano, depois READY ou FAILED com um `error_key`.
+- `request` é o que foi pedido, `result` os nós rascunhados e `choices` as marcações da pessoa, uma por nó, tudo JSON em `text`. `started_at` é quando a chamada atual ao modelo começou, para o cronômetro do diálogo.
+- Só uma linha DRAFTING recebe resultado, então excluir um rascunho no meio da chamada é definitivo. No máximo 20 por pessoa.
 
 ## FederatedIdentity
 
@@ -464,6 +522,10 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | Goal (nível de banco) | Submetas | ON DELETE SET NULL | As filhas sobem para o nível principal, nunca são apagadas com o pai. A UI avisa antes de apagar |
 | RoutineSnapshot | SnapshotChecks | ALL | Sim |
 | User (nível BD) | Linhas DailyBriefing | ON DELETE CASCADE | Tratado pela FK do banco. Um resumo é dado derivado, sem sentido depois da conta |
+| User (nível de banco) | Todas as tabelas do caderno | ON DELETE CASCADE | A exclusão da conta leva o caderno inteiro |
+| NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
+| NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
+| Goal / Category / Habit (nível de banco) | Os vínculos de um tópico | ON DELETE SET NULL | Os vínculos decoram o tópico. Apagar a meta não pode apagar um caderno |
 
 ## Resumo das tabelas do banco
 
@@ -503,7 +565,21 @@ flowchart LR
     snapshot_check
     focus_cycles
     focus_micro_tasks
+    mood_entries
     daily_briefing
+  end
+
+  subgraph notebook["Caderno de estudos"]
+    notebook_pages
+    notebook_board_nodes
+    notebook_board_edges
+    notebook_cards
+    notebook_card_reviews
+    notebook_sources
+    notebook_source_chunks
+    notebook_study_outputs
+    notebook_chat_messages
+    notebook_roadmap_drafts
   end
 
   subgraph support["Feedback & IA"]
@@ -517,6 +593,7 @@ flowchart LR
 
   subgraph auth["Auth"]
     refresh_tokens
+    federated_identities
     password_reset_tokens
     account_deletion_codes
     notification_preferences

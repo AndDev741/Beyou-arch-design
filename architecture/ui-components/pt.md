@@ -13,13 +13,13 @@ flowchart TD
   APP --> PUB["Rotas públicas<br/>/ · /register · /forgot-password<br/>/reset-password · /auth/verify"]
   APP --> PROT["ProtectedRoute (rota de layout)"]
   PROT --> SHELL["Shell, montado uma vez:<br/>Sidebar · BottomNav · AgentWidget"]
-  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /configuration · /feedback"]
+  SHELL --> PAGES["/dashboard · /categories · /habits · /goals · /goals/view<br/>/tasks · /routines · /focus · /mood · /configuration · /feedback<br/>/notebook · /notebook/review · /notebook/:pageId<br/>/notebook/:pageId/board · /notebook/:pageId/study"]
   PROT --> ADMIN["AdminRoute → /admin/feedback"]
 ```
 
 Todo componente de rota é lazy, incluindo o próprio AdminRoute, então usuários comuns nunca baixam o portão de admin nem suas chamadas de API. Dois Suspense apanham esses chunks, e onde cada um fica importa. O do `App.tsx`, com spinner de tela cheia, serve as rotas públicas. O de dentro do `ProtectedRoute`, com um spinner do tamanho da página, envolve só o outlet, então uma página carregando pela primeira vez pode apagar a área da página e nada mais. Durante um tempo só existia o de fora, e a primeira visita a qualquer página escondia o shell inteiro enquanto o chunk descia. O React desmonta os layout effects quando um Suspense esconde conteúdo, e o framer-motion guarda o estado da animação num deles, então um painel do assistente fechado nesse mesmo tick (que é o que os links internos do agente fazem) perdia a animação de saída e voltava com opacidade total com o widget já achando que tinha fechado. A bolha desenhava por cima do chat e o Escape não fazia nada. No boot, o `useSilentRefresh` segura o app em um estado de "checando" até o cookie de refresh ser trocado por um token, e é isso que evita um flash de 401s ou um pulo para o login no reload.
 
-O shell monta uma vez dentro da rota de layout protegida: a Sidebar colapsável do desktop (ordem: Hoje, Categorias, Hábitos, Tarefas, Rotinas, Metas, com Feedback e Config no rodapé), o BottomNav do celular (Hoje, Rotinas, o Assistente no slot central como única entrada do agente, Hábitos e uma folha de Mais) e o AgentWidget flutuante. Páginas não renderizam header próprio; um PageHeader compartilhado é o bloco de título. Itens de navegação carregam âncoras `data-tutorial-id` para o spotlight do tutorial.
+O shell monta uma vez dentro da rota de layout protegida: a Sidebar colapsável do desktop (ordem: Dashboard, Categorias, Hábitos, Tarefas, Rotinas, Metas, Caderno, Diário, com Feedback e Config no rodapé), o BottomNav do celular (Dashboard, Rotinas, o Assistente no slot central como única entrada do agente, Hábitos e uma folha de Mais com o resto, o Caderno incluído) e o AgentWidget flutuante. Páginas não renderizam header próprio; um PageHeader compartilhado é o bloco de título. Itens de navegação carregam âncoras `data-tutorial-id` para o spotlight do tutorial.
 
 As páginas de autenticação evitam o registro de ícones de propósito, mantendo os chunks de ícones e emojis fora do primeiro carregamento sem login.
 
@@ -126,6 +126,12 @@ render antigo e a causa não era, e foi essa parte que custou tempo. Os dois cli
 os dois estão corrigidos, e um teste em `StrictMode` tranca-o, por ser a única condição em que a
 versão com o bug falhava.
 
+## O caderno de estudos
+
+O caderno acrescenta cinco rotas. `/notebook` é a home: cards de tópico com uma miniatura de cada quadro, "Continuar" e as revisões do dia. `/notebook/:pageId` é uma página com a árvore, as anotações e o quadro desenhado ali onde está o bloco "Quadro de roteiro". `/notebook/:pageId/board` e `/notebook/:pageId/study` cobrem o shell como o `/focus` faz, uma para navegar num quadro e outra para a sala de estudo. `/notebook/review` é uma sessão de revisão, com atalhos: Espaço mostra a resposta e de 1 a 4 avalia.
+
+O editor é o BlockNote sobre o Mantine 8 (o Mantine 9 quer React 19), com tema pelas mesmas variáveis CSS de todo o resto, e salva sozinho 900 ms depois da última mudança. O quadro é React Flow, e o "Organizar" põe os nós de volta numa grade de três por linha. Um hook só, `useBoard`, atende o quadro embutido e o de tela cheia, e toda escrita chega ao store pela resposta do servidor, menos o arrasto, que é desenhado antes e salvo depois. O [tópico do caderno de estudos](/architecture/study-notebook) cobre o modelo por baixo de tudo isso.
+
 ## O tutorial, em dois sistemas
 
 O onboarding é uma máquina de fases persistida em localStorage, com valores validados por whitelist na leitura:
@@ -164,7 +170,9 @@ Laziness por rota mais cinco chunks manuais, em uma ordem que importa:
 | forms | react-hook-form, resolvers, zod | Só páginas cheias de formulário |
 | vendor | react, router, família redux | A base estável |
 
-O servidor de dev pré-empacota as dependências das rotas lazy, porque descobri-las no meio da sessão disparava uma re-otimização e um reload completo com o app em uso.
+O editor e o quadro do caderno de estudos (BlockNote, Mantine, ProseMirror, React Flow) ficam sem nome de propósito. Um chunk nomeado vira a casa do primeiro helper compartilhado que o Rollup encontra nele, e aí a entrada pré-carrega o editor inteiro no boot para pegar duas funções minúsculas; deixados soltos, eles se dividem junto com as rotas lazy do caderno.
+
+O servidor de dev pré-empacota as dependências das rotas lazy, o editor e o quadro do caderno entre elas, porque descobri-las no meio da sessão disparava uma re-otimização e um reload completo com o app em uso.
 
 ## Convenções que valem manter
 
