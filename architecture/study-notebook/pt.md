@@ -203,6 +203,8 @@ As rotas:
 
 O Caderno fica no grupo principal da sidebar depois de Metas (ícone `NotebookPen`) e na folha do bottom nav. Cada tela do caderno é um chunk lazy. O editor vai dentro do chunk da tela de página e nunca carrega no boot.
 
+No desktop a tela da página reserva o próprio espaço no fim: 40px abaixo da linha vazia final do editor, mais enquanto a pílula do timer flutua sobre o rodapé. Ela desliga o espaçador de 96px do shell com `useNoDesktopSpacer`; esse espaçador continua em todas as outras páginas para o botão do assistente nunca cobrir o fim de uma, e o celular o mantém por causa da barra inferior. Na sala de estudo os painéis de fontes e de estúdio podem ser redimensionados arrastando as barras ao lado do chat (de 220 a 560px; duplo clique volta ao padrão, setas e Enter pelo teclado) ou recolhidos em trilhos finos para o chat ocupar a tela. O layout é uma preferência por navegador guardada no localStorage (`useStudyLayout`), e nada disso vale abaixo de `lg`, onde as colunas se empilham.
+
 ## Mobile v1
 
 O mobile v1 lê as anotações e roda as revisões, e a escrita fica no web, fora o que o chat do assistente grava quando a pessoa pede. A página por baixo do chat relê quando a resposta termina. As telas são a home de tópicos (`app/(app)/notebook/index.tsx`), um tópico ou página com as abas Trilha e Notas (`app/(app)/notebook/[id].tsx`) e uma revisão em tela cheia fora do grupo `(app)` (`app/notebook-review.tsx`), para que a barra de baixo fique fora de uma sessão que quer a tela inteira.
