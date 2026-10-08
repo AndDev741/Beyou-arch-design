@@ -18,9 +18,17 @@ info:
 
     Every figure a user reads is computed on the server, never by the model. A free-tier model
     asked to work out which goals are at risk gets the arithmetic wrong, invents goals, and
-    answers differently each morning for identical data. The model receives finished numbers and
-    is asked only to phrase them, which means the numbers on screen are always right AND that a
-    morning with the whole LLM chain in cooldown still produces a usable dialog.
+    answers differently each morning for identical data. The model receives finished numbers,
+    which means the numbers on screen are always right AND that a morning with the whole LLM
+    chain in cooldown still produces a usable dialog.
+
+    What the model is asked to do with them changed once. The first version handed it only what
+    the panel already renders and asked it to phrase that, and every morning it wrote the panel
+    back out as prose. It now gets two weeks of signals the screen does not show (completion this
+    week against the week before, habits slipping and holding, mood levels and their trend, each
+    goal's pace) and is told to talk about those and not to restate what is on screen. Mood
+    reaches it as levels only. The journal text never enters the briefing at all: the clients read
+    yesterday's entry from `GET /mood` themselves, so the summary cannot quote what it never saw.
 
     That is also why this endpoint never answers `AI_UNAVAILABLE` the way
     `POST /onboarding/suggestions` does. There, the suggestions ARE the response; here the prose
@@ -40,8 +48,10 @@ info:
 
     `GET` sits in its own `briefing` rate-limit tier at 10 an hour rather than the generic 60 a
     minute for reads: the first call of a day creates a row and may hold the request for up to
-    eight seconds waiting on the model. `POST /seen` stays in the generic `write` tier, being a
-    single-column update with no model behind it.
+    eight seconds waiting on the model. `GET /narrative` is matched out of that tier on purpose
+    and spends the generic read budget instead, because it is the client polling for prose a
+    dozen times over a minute, a primary-key read that never calls the model. `POST /seen` stays
+    in the generic `write` tier, being a single-column update with no model behind it.
 servers:
 - url: http://localhost:8099/api/v1
   description: Generated server url
@@ -70,14 +80,44 @@ paths:
         queries a fresh read costs.
 
         The narration is bounded rather than awaited: about eight seconds, after which the
-        response carries `PENDING` and the call is left running to store itself, so the next open
-        of the same day usually finds it `READY`. Concurrent callers join one in-flight call, so
-        two devices opening together cannot buy the same paragraph twice.
+        response carries `PENDING` and the call is left running to store itself. A client that
+        gets `PENDING` polls `GET /daily-briefing/narrative` while the dialog is open. Before that
+        route existed the plan was for "the next open of the same day" to find the prose, and
+        there is no next open: the dialog shows once a day, so for weeks every narration in
+        production landed `READY` in its row and none reached a screen. Concurrent callers join
+        one in-flight call, so two devices opening together cannot buy the same paragraph twice.
 
-        A briefing with nothing in it (no routine yesterday, nothing scheduled today, no goal
-        near due and no expiring day) still answers 200, but creates no row and is not worth
+        A briefing with nothing in it (no routine yesterday, nothing scheduled today, no open goal
+        and no expiring day) still answers 200, but creates no row and is not worth
         showing. Both clients apply the same rule and stay silent. A dialog that greets somebody
         every morning with "nothing happened" is how you teach them to close it unread.
+  /daily-briefing/narrative:
+    get:
+      tags:
+      - daily-briefing-controller
+      operationId: getNarrative
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BriefingNarrativeDTO'
+      summary: Today's prose alone, for a client polling after PENDING
+      description: |
+        Read only. It never starts a narration and never recomputes the facts, which is why it is
+        its own route and not a second `GET /daily-briefing`: that one costs a briefing token and
+        a dozen queries, and polling it would spend the ten-an-hour allowance inside a minute.
+
+        `PENDING` only while a call is genuinely running on this instance. A `PENDING` row with
+        nothing behind it (a restart mid-call, a saturated pool, narration switched off) answers
+        `UNAVAILABLE` so the client stops asking, and nothing is written: the next full
+        `GET /daily-briefing` still sees `PENDING` and starts the call again. No row at all also
+        answers `UNAVAILABLE`.
+
+        The clients ask on a fixed schedule of about seventy seconds in ten requests
+        (`pollNarrative` in `@beyou/state`), and give up to `UNAVAILABLE` themselves when it runs
+        out, so a skeleton always ends.
   /daily-briefing/seen:
     post:
       tags:
@@ -184,9 +224,10 @@ components:
     BriefingGoalAheadDTO:
       type: object
       description: |
-        A goal close enough to its end date to be worth mentioning. Overdue goals are kept rather
-        than hidden: a goal whose date has passed with the target unmet is the most useful thing
-        this panel can say.
+        A goal worth mentioning this morning, with its pace. Overdue goals are kept rather than
+        hidden: a goal whose date has passed with the target unmet is worth saying. The pace
+        fields are computed on the server for the same reason the percentage is: two clients
+        would each pick their own tolerance and disagree about whether one goal is behind.
       properties:
         id:
           type: string
@@ -213,6 +254,35 @@ components:
         percentComplete:
           type: integer
           format: int32
+        remainingValue:
+          type: number
+          format: double
+          description: How far the current value is from the target, never negative.
+        requiredPerDay:
+          type: number
+          format: double
+          description: |
+            What each day from today through the end date has to add to land on the target,
+            today included, to one decimal. Absent once the goal is overdue or the target is met:
+            neither has a daily amount to ask for.
+        expectedPercent:
+          type: integer
+          format: int32
+          description: |
+            Where a straight line from the start date to the end date says the goal should be by
+            today, 0 to 100. The clients draw it as a tick on the progress bar.
+        pace:
+          type: string
+          enum:
+          - ON_TRACK
+          - BEHIND
+          - OVERDUE
+          - REACHED
+          description: |
+            The verdict against that straight line. `BEHIND` means more than five percentage
+            points under it; less than that is noise on any real week. `REACHED` is a met target
+            not yet marked done, and it is worth its own state because a goal's XP is paid by
+            `PUT /goal/complete`, not by reaching the number.
     BriefingRecoveryWindowDTO:
       type: object
       description: |
@@ -254,11 +324,24 @@ components:
           format: int32
         goalsApproaching:
           type: array
-          description: Soonest first, capped at three. Completed and archived goals are left out.
+          description: |
+            Goals ending within two weeks, soonest first, capped at three. Completed and archived
+            goals are left out. Kept exactly as it shipped for the app builds already installed,
+            which render this list; current clients read `goalsAhead`.
           items:
             $ref: '#/components/schemas/BriefingGoalAheadDTO'
         recovery:
           $ref: '#/components/schemas/BriefingRecoveryWindowDTO'
+        goalsAhead:
+          type: array
+          description: |
+            The open goals closest to their end date on either side, capped at three, with their
+            pace. No horizon: a goal three months out is still where the user is heading, and this
+            panel is the one place each morning that says so. A goal overdue by more than two weeks
+            goes to the back, because by then it has been left rather than missed, and it should
+            not push out one the user is working toward. Any entry here makes the day worth showing.
+          items:
+            $ref: '#/components/schemas/BriefingGoalAheadDTO'
     BriefingNarrativeDTO:
       type: object
       description: |
@@ -273,7 +356,7 @@ components:
           - UNAVAILABLE
           description: |
             `PENDING`: asked for, and the model had not answered by the request's deadline. It
-            may still land, and the next read of the same day usually finds it.
+            may still land; poll `GET /daily-briefing/narrative` for it.
             `READY`: the lines below are real.
             `UNAVAILABLE`: the chain refused or failed. Not retried for the rest of the day, since a
             chain in cooldown refuses the retry too and the panel reads identically either way.
