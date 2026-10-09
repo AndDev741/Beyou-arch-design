@@ -356,6 +356,7 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 | title / icon / description | varchar 255 / 64 / 512 | |
 | content | text | The BlockNote document as JSON. Text and not JSONB, like every other JSON this schema stores, because nothing queries inside it |
 | content_text | text | Plain text extracted on the server by `BlockText` on every save, never taken from the client. What the AI reads and the export ships |
+| content_revision | bigint | Goes up on every write of `content`; every writer writes with a compare-and-set on it, and a save from an older revision is refused (NOTEBOOK_CONTENT_CONFLICT) and merged by the client. Added in V37 |
 | status | NotebookStatus | TO_STUDY, STUDYING or DONE. Stored, written only by `NotebookProgressService` |
 | status_manual | boolean | Set by hand on a page whose board has nodes. False lets the nodes decide |
 | position | integer | Order among siblings in the tree |

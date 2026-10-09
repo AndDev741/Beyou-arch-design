@@ -354,6 +354,7 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 | title / icon / description | varchar 255 / 64 / 512 | |
 | content | text | O documento BlockNote em JSON. Text e não JSONB, como todo JSON que este schema guarda, porque nada consulta dentro dele |
 | content_text | text | Texto puro extraído no servidor pelo `BlockText` a cada salvamento, nunca vindo do cliente. É o que a IA lê e o que a exportação leva |
+| content_revision | bigint | Sobe a cada escrita de `content`; toda escrita usa um compare-and-set sobre ele, e um salvamento de uma revisão mais antiga é recusado (NOTEBOOK_CONTENT_CONFLICT) e juntado pelo cliente. Entrou na V37 |
 | status | NotebookStatus | TO_STUDY, STUDYING ou DONE. Gravado, escrito só pelo `NotebookProgressService` |
 | status_manual | boolean | Escolhido à mão numa página cujo quadro tem nós. False deixa os nós decidirem |
 | position | integer | Ordem entre irmãs na árvore |

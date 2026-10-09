@@ -300,7 +300,14 @@ paths:
         the page. A document that fails to parse is still saved, with empty text: losing what the AI sees
         beats losing what the person typed.
 
-        Answers only the id and the time of the save, which keeps an autosave that fires on typing cheap.
+        The write only lands if the page is still at `baseRevision`, the `contentRevision` the editor
+        started from; it is one compare-and-set UPDATE, so two saves from the same revision cannot both
+        land. A save from an older revision answers 400 `NOTEBOOK_CONTENT_CONFLICT` and changes nothing:
+        the editor reads the page again and merges block by block. Without `baseRevision` (a client
+        from before revisions) the save still overwrites.
+
+        Answers the id, the time of the save and the new `contentRevision`, which the next save starts
+        from. Small on purpose: an autosave fires on typing.
   /notebook/pages/{pageId}/status:
     put:
       tags:
@@ -1834,6 +1841,10 @@ components:
         updatedAt:
           type: string
           format: date-time
+        contentRevision:
+          type: integer
+          format: int64
+          description: The revision the document is at now. The editor's next save sends it as `baseRevision`.
       description: The autosave's acknowledgement.
     ContinueDTO:
       type: object
@@ -2413,6 +2424,12 @@ components:
         updatedAt:
           type: string
           format: date-time
+        contentRevision:
+          type: integer
+          format: int64
+          description: |
+            Goes up on every write of the document (the autosave, an append, a block the server adds).
+            The editor saves from it, and merges when a newer one arrives.
       description: A page as its screen shows it. A topic is a page with kind TOPIC.
     PageSearchHitDTO:
       type: object
@@ -3198,6 +3215,13 @@ components:
           maxLength: 2000000
           minLength: 0
           description: The whole BlockNote document as a JSON string.
+        baseRevision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            The page's `contentRevision` the editor read. A save from an older one is refused with
+            NOTEBOOK_CONTENT_CONFLICT. Left out only by clients from before revisions, whose saves overwrite.
       required:
       - content
     UpdateNodeRequestDTO:
