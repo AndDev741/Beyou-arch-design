@@ -40,7 +40,15 @@ sequenceDiagram
   Note over I: todo useTranslation re-renderiza
 ```
 
-O hook tem uma regra que vale conhecer: idioma vazio é um no-op. Uma conta recém-criada carrega languageInUse vazio, e passar essa string vazia ao i18next resetaria a UI para o fallback, atropelando o que o usuário escolheu na tela de login antes de a conta existir. Então o valor da conta vence quando presente, e a escolha cacheada pelo detector sobrevive quando não. O dashboard aplica o idioma da conta em modo leitura ao carregar; o seletor de idioma é o único escritor, atualizando backend, store e i18next juntos.
+O hook tem uma regra que vale conhecer: idioma vazio é um no-op. Uma conta que ainda não tem idioma salvo carrega languageInUse vazio, e passar essa string vazia ao i18next resetaria a UI para o fallback, atropelando o que o navegador ou a tela de login definiu antes de a conta existir. Então o valor da conta vence quando presente, e a escolha cacheada pelo detector sobrevive quando não. O dashboard aplica o idioma da conta em modo leitura ao carregar. O seletor de idioma é o único escritor que uma pessoa aciona, atualizando backend, store e i18next juntos; o cadastro e a reconciliação no boot, descritos abaixo, preenchem o valor quando ele não existe.
+
+### De onde vem o idioma da conta
+
+O servidor lê `languageInUse` em todo prompt de modelo e em todo e-mail, por um único helper, `UserLanguage.forPrompt` (o e-mail passa por `UserLanguage.orDefault`), que trata valor vazio como inglês. Por muito tempo nada escrevia a coluna além do seletor das configurações, então uma conta que nunca abriu as configurações recebia o resumo do dia, o tutor do caderno e o e-mail de verificação em inglês, fosse qual fosse o idioma da tela em volta.
+
+Dois escritores fecham isso, o mesmo par que o fuso horário tem. Todo caminho de cadastro envia o idioma que a tela está mostrando: cadastro por e-mail e Google na web e no mobile, e login federado. O cliente lê esse idioma com `shownLanguage`, em `@beyou/api`, que prefere o idioma resolvido do i18next, então um navegador em francês lendo a tela em inglês envia `en`. O backend normaliza em `UserLanguage.usableOrNull` (`pt-BR` vira `pt`, um idioma que o app não tem é descartado) e só aplica quando cria a conta, a partir dos construtores de `User`, para nenhum caminho de cadastro esquecer. Para as contas que já existiam, `reconcileLanguage`, em `@beyou/state`, roda no boot junto da reconciliação do fuso e salva o idioma da tela uma vez, quando a conta não tem nenhum. Ela nunca substitui um idioma salvo: a tela segue o salvo, então gravar o da tela de volta só desfaria uma escolha.
+
+O texto do resumo do dia já guardado mantém o idioma em que foi escrito. Uma troca aparece no do dia seguinte.
 
 ## Tema
 

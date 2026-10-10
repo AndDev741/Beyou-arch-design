@@ -76,9 +76,9 @@ E-mail não é opcional. Os quatro valores centrais vêm sem defaults, e a resol
 
 Sem engine de template e sem arquivos de template: cada corpo é um text block Java inline, só HTML, formatado com String.formatted. Com dois idiomas por mensagem, isso dá treze templates hardcoded dividindo o mesmo cabeçalho, o azul da marca e o rodapé com o ano — um número ímpar e não par porque o aviso do console é só em inglês. O corpo do nudge é o único montado por partes: o título e o texto são escolhidos por gatilho e escapados antes de chegarem no frame, porque carregam números lidos da conta. Todos os outros templates escolhem idioma porque quem lê é um usuário; esse é endereçado a quem opera o produto, tem duas frases, e o conteúdo dele é uma URL.
 
-A escolha de idioma é uma decisão de dois ramos por mensagem: qualquer coisa começando com "pt" recebe português, todo o resto (incluindo nulo) recebe inglês. A parte interessante é de onde cada fluxo lê o idioma:
+A escolha de idioma é uma decisão de dois ramos por mensagem, feita em `UserLanguage.orDefault` para o e-mail e os prompts de IA concordarem: qualquer coisa começando com "pt" recebe português, todo o resto (incluindo nulo) recebe inglês. O cadastro agora salva o idioma que a tela estava mostrando, então o e-mail de verificação de uma conta nova chega nele. A parte interessante é de onde cada fluxo lê o idioma:
 
-- A confirmação de feedback prefere o idioma capturado no contexto de UI do envio ao invés da preferência do perfil, porque o recibo chega na hora e o campo do perfil fica nulo até o usuário abrir as configurações. Ler o perfil primeiro mandava um recibo em inglês para toda conta nova.
+- A confirmação de feedback prefere o idioma capturado no contexto de UI do envio ao invés da preferência do perfil, porque o recibo chega na hora e uma conta criada antes de o cadastro levar idioma ainda pode estar sem nenhum até o próximo boot. Ler o perfil primeiro mandava um recibo em inglês para toda conta nova.
 - A resposta de feedback prefere a preferência atual do perfil, porque uma resposta pode chegar dias depois, quando o contexto capturado já envelheceu.
 
 Texto escrito por usuário ou admin passa por escape de HTML antes da interpolação, então um corpo de feedback não consegue injetar markup no próprio recibo.

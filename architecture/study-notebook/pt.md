@@ -120,6 +120,8 @@ O `NotebookRetriever` encontra os trechos que melhor respondem uma pergunta, nes
 
 Existe UM modelo de embedding, definido por `notebook.embedding.*` (`EmbeddingProperties`). O padrão é o `mistral-embed` da Mistral, com a mesma `MISTRAL_API_KEY` que a cadeia de chat usa, e qualquer endpoint `/embeddings` compatível com OpenAI serve via `NOTEBOOK_EMBEDDING_BASE_URL`, `NOTEBOOK_EMBEDDING_API_KEY` e `NOTEBOOK_EMBEDDING_MODEL`. Sem chave nenhuma, os embeddings ficam desligados. Vetores de dois modelos vivem em espaços diferentes, então uma cadeia de fallback tornaria inútil todo vetor guardado para a pergunta feita. Cada trecho registra `embedding_model`, e o retriever só compara uma pergunta com trechos embedados pelo modelo configurado agora. Quando o provedor falha durante a ingestão, a fonte termina READY do mesmo jeito: os trechos estão gravados e dá para buscá-los por full-text. Os perfis de teste e e2e fixam a chave vazia, então o CI e a stack e2e sempre rodam na busca full-text.
 
+Os embeddings e a busca na web são as únicas chamadas de saída do caderno que não passam pela cadeia de fallback de LLM, então `ai.llm-chain.blocked` não consegue vetá-las. A política de privacidade cita a Mistral para a primeira e o Tavily ou o Gemini para a segunda; um endpoint novo para qualquer uma precisa entrar lá antes.
+
 O pgvector chegou a ser planejado e foi descartado. Ele exige trocar a imagem do banco em produção, em três arquivos compose, em todo serviço de CI e no Testcontainers. Um backend mergeado antes dessa troca quebraria na hora do Flyway e derrubaria a API junto. As fontes de uma pessoa cabem com folga numa passada de cosseno na JVM, e migrar para pgvector depois é uma troca de tipo de coluna e uma query.
 
 ## A IA de estudo

@@ -70,6 +70,8 @@ Beyou's controller is established in Portugal, so a request reaching a provider 
 
 Production therefore runs `order: mistral,gemini` with `blocked: glm,deepseek`, both pinned in `application-prod.yaml`. GLM and DeepSeek stay configured and usable in development, where the data is invented, and cannot join the chain in production even if someone widens the order. The published privacy policy tells users this, which is the second reason the blocklist exists: a promise printed there should not rest on someone remembering why the order was narrow.
 
+Two outbound calls from the study notebook sit outside this chain, and so outside the blocklist: the embeddings (`notebook.embedding.*`, any OpenAI-compatible endpoint, Mistral by default) and source discovery (Tavily, or Gemini with Google Search). Each takes its host from its own settings, and `blocked` has no say over either. The privacy policy names Mistral for the embeddings and Tavily or Gemini for discovery, so pointing either one somewhere else is a policy change before it is a config change. The daily briefing's prose and the notebook's study tools do go through the chain.
+
 The assistant is optional end to end. Nothing reaches a provider for a user who never opens it, and the chat history and both memory notes can be deleted from inside the app and come out in the data export.
 
 ## The tools
