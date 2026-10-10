@@ -563,6 +563,38 @@ paths:
         Both ends must be PAGE nodes on this board, and two different ones. A pair connects once per
         direction. Anything else answers `NOTEBOOK_EDGE_INVALID`. Edges draw the suggested order and play
         no part in progress or status.
+  /notebook/pages/{pageId}/board/order:
+    put:
+      tags:
+      - notebook-board-controller
+      operationId: order
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BoardOrderRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/BoardResponseDTO'
+      summary: Make the board one path in this order
+      description: |
+        What the phone's reorder sends. `order` names every PAGE node on the board exactly once; a
+        missing, repeated or foreign id is `INVALID_REQUEST`. The nodes go on the grid in that order and
+        every edge on the board is replaced by the chain, so a branch drawn on the web becomes a line.
+        Sections stay where they are. Answers the board as it is now.
   /notebook/pages/{pageId}/board/layout:
     put:
       tags:
@@ -622,7 +654,9 @@ paths:
         With a title, the server creates a child page and the node opens it. With `linkPageId`, the node
         opens an existing page, which keeps its home. That link is refused with `NOTEBOOK_NODE_DUPLICATE`
         when the page is already on this board, and with `NOTEBOOK_BOARD_CYCLE` when this board's page can
-        be reached from it.
+        be reached from it. Without `x` and `y` the node goes on the next free grid cell; only one of the
+        two is `INVALID_REQUEST`. The page's document gets its board block if it has none, so a board
+        started from the phone shows on the web.
 
         A SECTION needs a `label`. Its size defaults to 420 by 260.
 
@@ -1721,6 +1755,19 @@ components:
           type: string
           description: The topic a linked page lives in. Null otherwise.
       description: A node as the board draws it, with its page's live state.
+    BoardOrderRequestDTO:
+      type: object
+      properties:
+        order:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 500
+          minItems: 0
+          description: Every page node on the board, once each, in the order the path takes.
+      required:
+      - order
     BoardResponseDTO:
       type: object
       properties:
@@ -1970,7 +2017,8 @@ components:
         x:
           type: number
           format: double
-          description: Board coordinates of the node's top-left corner.
+          description: Board coordinates of the node's top-left corner. Send x and y together, or neither
+            and the node goes on the board's next free grid cell (what the phone and the assistant do).
         y:
           type: number
           format: double
@@ -1982,9 +2030,11 @@ components:
           type: number
           format: double
           description: SECTION only. 260 when left out.
-      required:
-      - x
-      - y
+        after:
+          type: string
+          format: uuid
+          description: 'PAGE only: a page node on this board to link to the new one, so it comes after it
+            on the path. Any other node answers NOTEBOOK_EDGE_INVALID and nothing is added.'
       description: A PAGE node (by title or by link) or a SECTION.
     CreatePageRequestDTO:
       type: object
