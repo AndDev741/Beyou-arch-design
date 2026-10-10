@@ -11,6 +11,29 @@ paths:
       tags:
       - user-export-controller
       operationId: exportUserData
+      summary: Everything the account holds, as one JSON object
+      description: |
+        The file behind the "Download my data" button, which sits beside the delete
+        button. Its contract is that anything it does not carry is named under
+        `notIncluded` with the reason, so the file can be read as a whole.
+
+        Top-level keys: `exportedAt`, `profile` (with the uploaded photo as base64,
+        `engagementEmails` and `linkedSignIns`), `categories`, `habits`, `goals`
+        (with `parentId` and `archivedAt`), `tasks`, `routines` (`type` is DAILY or
+        LIST, items carry `orderIndex`), `feedback`, `agentChats`, `checkHistory`
+        (the last 366 days), `moodEntries` (notes in full), `notebook` (`pages`,
+        `board`, `flashcards`, `flashcardReviews`, `sources`, `studyChats`,
+        `studyOutputs`, `roadmapDrafts`), `focus` (`cycles`, `microTasks`),
+        `dailyBriefings` (the generated lines for the days retention keeps),
+        `engagementEmailsSent` and `notIncluded`.
+
+        `notIncluded` names routine snapshots, the text read out of notebook
+        sources, the day-by-day XP ledger, the briefing's numbers (recomputed on
+        every open, never stored) and credentials.
+
+        Built in one read-only transaction at a flat number of queries however big
+        the account is. On a synthetic year of heavy use it is about 2.5 MB and
+        under half a second, so it stays synchronous. Rate limited to 5 an hour.
       responses:
         '200':
           description: OK

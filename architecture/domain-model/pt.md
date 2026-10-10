@@ -525,9 +525,13 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | RoutineSnapshot | SnapshotChecks | ALL | Sim |
 | User (nível BD) | Linhas DailyBriefing | ON DELETE CASCADE | Tratado pela FK do banco. Um resumo é dado derivado, sem sentido depois da conta |
 | User (nível de banco) | Todas as tabelas do caderno | ON DELETE CASCADE | A exclusão da conta leva o caderno inteiro |
+| User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
+| ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
 | NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
 | NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
 | Goal / Category / Habit (nível de banco) | Os vínculos de um tópico | ON DELETE SET NULL | Os vínculos decoram o tópico. Apagar a meta não pode apagar um caderno |
+
+Dois testes amarram esta tabela ao schema. O `AccountDeletionIntegrationTest` e o `ManualAccountDeleteRunbookTest` leem do banco cada chave estrangeira que aponta para `users`, colocam uma linha atrás de cada uma, apagam a conta e esperam que nada sobre. Uma tabela nova do usuário faz os dois falharem até ganhar uma linha ali, e é essa a ideia: um cascade que ninguém exercita é só um comentário. O `UserExportCompletenessIntegrationTest` lê a mesma lista e falha para qualquer tabela que não tenha uma seção no export nem uma entrada em `notIncluded`.
 
 ## Resumo das tabelas do banco
 

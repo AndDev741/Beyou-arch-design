@@ -527,9 +527,13 @@ Understanding the cascades matters most at account deletion, which relies on the
 | RoutineSnapshot | SnapshotChecks | ALL | Yes |
 | User (DB level) | DailyBriefing rows | ON DELETE CASCADE | Handled by the database FK. A briefing is derived data with no meaning past the account |
 | User (DB level) | Every notebook table | ON DELETE CASCADE | Account deletion takes the whole notebook |
+| User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
+| ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
 | NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
 | NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
 | Goal / Category / Habit (DB level) | A topic's links | ON DELETE SET NULL | The links decorate a topic. Deleting the goal must not delete a notebook |
+
+Two tests hold this table to the schema. `AccountDeletionIntegrationTest` and `ManualAccountDeleteRunbookTest` read every foreign key that points at `users` from the live database, put a row behind each one, delete the account, and expect nothing left. A new user-owned table fails both until it gets a row there, which is the point: a cascade nobody exercises is only a comment. `UserExportCompletenessIntegrationTest` reads the same list and fails for any table that has no section in the export and no entry under `notIncluded`.
 
 ## Database tables summary
 
