@@ -294,6 +294,10 @@ components:
         minutes:
           type: integer
           format: int32
+        notebookPageId:
+          type: string
+          format: uuid
+          description: The study notebook page the cycle was run on, or null.
     FocusMicroTaskResponseDTO:
       type: object
       description: One micro-task on one routine item. Defined in full in api/focus/openapi.yaml.

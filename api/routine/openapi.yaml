@@ -182,15 +182,24 @@ components:
         collections is read depends on `type`, and sending the wrong one is a 400 rather
         than a partial apply: a DAILY routine sends `routineSections` and no `items`, a
         LIST routine sends `items` and no `routineSections`.
+
+
+        The sizes below are checked before the service runs and answer INVALID_REQUEST with
+        the field named in details. A blank name is still the service's ROUTINE_NAME_REQUIRED,
+        which the clients already word for the person.
       properties:
         name:
           type: string
+          maxLength: 255
+          description: The column is varchar(255).
         iconId:
           type: string
+          maxLength: 255
         type:
           $ref: '#/components/schemas/RoutineType'
         routineSections:
           type: array
+          maxItems: 50
           description: >
             DAILY only. Rejected with ROUTINE_SHAPE_MISMATCH when sent for a LIST routine.
             Required and non-empty for a DAILY one, otherwise ROUTINE_SECTION_REQUIRED.
@@ -198,6 +207,7 @@ components:
             $ref: '#/components/schemas/RoutineSectionRequestDTO'
         items:
           type: array
+          maxItems: 500
           description: >
             LIST only, and required and non-empty there (otherwise ROUTINE_ITEMS_REQUIRED).
             Position in this array IS the order the user sees; there is no index to send.
@@ -457,18 +467,25 @@ components:
           format: uuid
         name:
           type: string
+          maxLength: 255
+          description: >
+            The column is varchar(255). A blank one is ROUTINE_SECTION_NAME_REQUIRED from the
+            service; one over the limit is INVALID_REQUEST before it.
         iconId:
           type: string
+          maxLength: 255
         startTime:
           type: string
         endTime:
           type: string
         taskGroup:
           type: array
+          maxItems: 500
           items:
             $ref: '#/components/schemas/TaskGroupDTO'
         habitGroup:
           type: array
+          maxItems: 500
           items:
             $ref: '#/components/schemas/HabitGroupDTO'
         favorite:

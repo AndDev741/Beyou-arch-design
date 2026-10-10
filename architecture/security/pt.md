@@ -134,6 +134,11 @@ ele:
    conta dele.
 4. **Endereço confiável e desconhecido** - cria a conta e o vínculo juntos.
 
+As duas recusas chegam ao cliente como um 403 no envelope de erro padrão: `errorKey`
+`FEDERATED_LINK_REQUIRED`, com o motivo e o slug do provedor em `details`. Toda outra
+recusa da API é um 400, e esta não é, porque não é uma falha. O cliente decide por ela e
+manda a pessoa entrar do jeito de sempre e depois vincular.
+
 `trustEmailVerified` é por provedor e o padrão é false. Ligá-lo é uma afirmação sobre o
 operador daquele emissor, não sobre o código dele: diz que um `true` ali significa que
 alguém provou controlar o endereço, e que ninguém vira a coluna à mão.
@@ -153,7 +158,7 @@ falhas ali são engolidas - um login não vale ser derrubado por escrituração,
 por endereço para o qual ele recai continua correto para o Google especificamente.
 
 Um provedor ausente da configuração não existe: `/auth/oidc/providers` o omite e os
-endpoints de login respondem 404. É o interruptor, e não precisa de mudança de código.
+endpoints de login respondem 400 `OIDC_PROVIDER_UNKNOWN`. É o interruptor, e não precisa de mudança de código.
 | /auth/refresh | POST | Não | Rotaciona o refresh token, emite novo JWT |
 | /auth/logout | POST | Não | Limpa o cookie, revoga o token |
 | /auth/verify | GET | Sim | Sonda de sessão; devolve "authenticated" |
@@ -222,7 +227,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 
 | Faixa | Endpoints | Limite | Chaveado por |
 |-------|-----------|--------|--------------|
-| auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile, POST oidc/{provider} e oidc/{provider}/mobile | 5 / 15 min | IP |
 | unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hora | usuário |
 | docs | /docs/* (público) | 30 / min | IP |
@@ -243,6 +248,8 @@ O Resumo do Dia fica acima da faixa de leitura genérica pelo motivo dele: a pri
 O export fica acima da faixa de leitura genérica por um motivo que vale registrar: é um GET, mas devolve a conta inteira em uma resposta — cada categoria, hábito, tarefa, meta, rotina, registo de humor, página do caderno, conversa de feedback e conversa com o assistente, montadas em memória e serializadas de uma vez. Sessenta por minuto disso é um jeito de segurar a heap, e ninguém que está levando os próprios dados precisa de uma sexta cópia dentro da hora.
 
 O caderno de estudos tem duas faixas próprias, as duas checadas antes da faixa de escrita genérica. Toda rota em `/notebook/ai/` é uma chamada de modelo: o chat e as saídas da sala de estudo, o rascunho de roadmap, as sugestões, o "explicar" e os flashcards da IA. Uma sessão de estudo é uma sequência de perguntas curtas sobre as mesmas fontes, e dividir os 30 por hora do assistente deixaria uma noite de estudo trancar a pessoa fora do assistente, então o caderno ganha 60, uma pergunta por minuto durante uma hora. Adicionar uma fonte lê um PDF em memória ou busca uma página na internet, e depois lê e embeda em segundo plano, e 20 por hora é uma lista de leitura inteira de uma vez.
+
+O login federado divide o bucket de auth porque é o mesmo tipo de porta: anônima, e capaz de criar uma conta. Antes ele caía na faixa de escrita, que deixa passar qualquer pedido sem id de usuário, então não tinha limite nenhum enquanto as rotas do Google ao lado tinham cinco. Só as rotas POST de login contam. O `GET /auth/oidc/providers` é o que a tela de login lê a cada visita e não pode gastar essas cinco tentativas, e o `/link` é autenticado, então a faixa de escrita já usa o usuário como chave.
 
 Rejeições respondem 429 com header `Retry-After`; sucessos carregam `X-Rate-Limit-Remaining`. Os dois estão citados no `Access-Control-Expose-Headers`, sem o que nenhum navegador consegue ler nenhum deles: nenhum está na safelist do CORS, então a espera ia no fio e era inalcançável para o cliente web.
 
@@ -306,7 +313,7 @@ O caderno guarda o segundo tipo de texto pessoal do produto, as anotações de e
 
 ## Posse: o modelo de autorização
 
-Não existe segurança em nível de método no código, de propósito. O modelo é uma regra aplicada em todo lugar: cada método de service recebe o id do usuário autenticado e o compara com o dono da entidade carregada, lançando um erro chaveado no desencontro (CATEGORY_NOT_OWNED, HABIT_NOT_OWNED, TASK_NOT_OWNED, GOAL_NOT_OWNED, ROUTINE_NOT_OWNED, SNAPSHOT_NOT_OWNED, CHAT_NOT_OWNED, FEEDBACK_NOT_OWNED, NOTEBOOK_PAGE_NOT_OWNED). Schedules passam pela rotina dona, o que fechou um IDOR antigo. O caderno de estudos passa todo card, fonte, saída, nó e aresta de quadro pela página a que pertence, via `NotebookOwnership`. Tudo isso aparece como HTTP 400 com errorKey; os clientes discriminam pela chave, não pelo status.
+Não existe segurança em nível de método no código, de propósito. O modelo é uma regra aplicada em todo lugar: cada método de service recebe o id do usuário autenticado e o compara com o dono da entidade carregada, lançando um erro chaveado no desencontro (CATEGORY_NOT_OWNED, HABIT_NOT_OWNED, TASK_NOT_OWNED, GOAL_NOT_OWNED, ROUTINE_NOT_OWNED, SNAPSHOT_NOT_OWNED, CHAT_NOT_OWNED, FEEDBACK_NOT_OWNED, NOTEBOOK_PAGE_NOT_OWNED, FOCUS_MICRO_TASK_NOT_OWNED). Schedules passam pela rotina dona, o que fechou um IDOR antigo. O caderno de estudos passa todo card, fonte, saída, nó e aresta de quadro pela página a que pertence, via `NotebookOwnership`. Tudo isso aparece como HTTP 400 com errorKey; os clientes discriminam pela chave, não pelo status.
 
 Existe exatamente uma regra de papel: `/feedback/admin/**` exige ADMIN. O papel ADMIN é concedido apenas por update manual no banco. Nenhum seed, endpoint ou variável de ambiente cria um admin.
 

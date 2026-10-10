@@ -143,6 +143,11 @@ through it:
    able to open their account.
 4. **Address trusted and unknown** - create the account and the link together.
 
+Both refusals reach the client as a 403 in the standard error envelope: `errorKey`
+`FEDERATED_LINK_REQUIRED`, with the reason and the provider's slug in `details`. Every
+other refusal in the API is a 400, and this one is not, because it is not a failure. The
+client branches on it and sends the person to sign in their usual way, then link.
+
 `trustEmailVerified` is per provider and defaults to false. Turning it on is a statement
 about the operator of that issuer, not about their code: it says a `true` there means
 somebody proved they control the address, and that nobody can flip the column by hand.
@@ -162,7 +167,7 @@ sign-in, and failures there are swallowed - a login is not worth failing over bo
 and the address path it falls back to stays correct for Google specifically.
 
 A provider absent from configuration does not exist: `/auth/oidc/providers` omits it and
-the login endpoints answer 404. That is the off switch, and it needs no code change.
+the login endpoints answer 400 `OIDC_PROVIDER_UNKNOWN`. That is the off switch, and it needs no code change.
 
 
 ## Tokens
@@ -223,7 +228,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 
 | Tier | Endpoints | Limit | Keyed by |
 |------|-----------|-------|----------|
-| auth | login, register, forgot-password, resend-verification, google, google/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile, POST oidc/{provider} and oidc/{provider}/mobile | 5 / 15 min | IP |
 | unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hour | user |
 | docs | /docs/* (public) | 30 / min | IP |
@@ -244,6 +249,8 @@ The Daily Briefing sits above the generic read tier for its own reason: the firs
 The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response — every category, habit, task, goal, routine, mood entry, notebook page, feedback thread and assistant conversation, assembled in memory and serialized in one go. Sixty a minute of that is a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
 
 The study notebook has two tiers of its own, both matched ahead of the generic write tier. Every route under `/notebook/ai/` is a model call: the study room's chat and outputs, the roadmap draft, suggestions, "explain" and AI flashcards. A study session is a run of short questions against the same sources, and sharing the assistant's 30 an hour would let an evening of studying lock the person out of the assistant, so the notebook gets 60, one question a minute for an hour. Adding a source parses a PDF in memory or fetches a page from the internet, then reads and embeds it in the background, and 20 an hour is a whole reading list in one sitting.
+
+Federated sign-in shares the auth bucket because it is the same kind of door: anonymous, and able to create an account. It used to fall through to the write tier, which waves through any request with no user id, so it had no limit at all while the Google routes beside it had five. Only the POST sign-in routes count. `GET /auth/oidc/providers` is what the login screen reads on every visit and must not spend those five attempts, and `/link` is authenticated, so the write tier already keys it on the user.
 
 Rejections answer 429 with a `Retry-After` header; successes carry `X-Rate-Limit-Remaining`. Both are named in `Access-Control-Expose-Headers`, without which a browser cannot read either one: neither is on the CORS safelist, so the wait was on the wire and unreachable by the web client.
 
@@ -304,7 +311,7 @@ The notebook holds the second kind of personal writing in the product, study not
 
 ## Ownership: the authorization model
 
-There is no method-level security in the codebase, on purpose. The model is one rule applied everywhere: every service method receives the authenticated user's id and compares it against the loaded entity's owner, throwing a keyed error on mismatch (CATEGORY_NOT_OWNED, HABIT_NOT_OWNED, TASK_NOT_OWNED, GOAL_NOT_OWNED, ROUTINE_NOT_OWNED, SNAPSHOT_NOT_OWNED, CHAT_NOT_OWNED, FEEDBACK_NOT_OWNED, NOTEBOOK_PAGE_NOT_OWNED). Schedules route through the owning routine, which is what closed an early IDOR. The study notebook routes every card, source, output, board node and edge through the page it hangs off, via `NotebookOwnership`. These all surface as HTTP 400 with an errorKey; clients discriminate on the key, not the status.
+There is no method-level security in the codebase, on purpose. The model is one rule applied everywhere: every service method receives the authenticated user's id and compares it against the loaded entity's owner, throwing a keyed error on mismatch (CATEGORY_NOT_OWNED, HABIT_NOT_OWNED, TASK_NOT_OWNED, GOAL_NOT_OWNED, ROUTINE_NOT_OWNED, SNAPSHOT_NOT_OWNED, CHAT_NOT_OWNED, FEEDBACK_NOT_OWNED, NOTEBOOK_PAGE_NOT_OWNED, FOCUS_MICRO_TASK_NOT_OWNED). Schedules route through the owning routine, which is what closed an early IDOR. The study notebook routes every card, source, output, board node and edge through the page it hangs off, via `NotebookOwnership`. These all surface as HTTP 400 with an errorKey; clients discriminate on the key, not the status.
 
 Exactly one role rule exists: `/feedback/admin/**` requires ADMIN. The ADMIN role is granted only by a manual database update. No seed, no endpoint, no environment variable can mint an admin.
 

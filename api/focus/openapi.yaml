@@ -162,7 +162,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
         '400':
-          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+          description: Belongs to another user (`FOCUS_MICRO_TASK_NOT_OWNED`), or was not found (`FOCUS_MICRO_TASK_NOT_FOUND`). Always 400, never 403.
 
   /focus/micro-tasks/{id}/pin:
     patch:
@@ -193,7 +193,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FocusMicroTaskResponseDTO'
         '400':
-          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+          description: Belongs to another user (`FOCUS_MICRO_TASK_NOT_OWNED`), or was not found (`FOCUS_MICRO_TASK_NOT_FOUND`). Always 400, never 403.
 
   /focus/micro-tasks/reorder:
     patch:
@@ -252,7 +252,7 @@ paths:
         '204':
           description: No Content
         '400':
-          description: Belongs to another user (`ROUTINE_NOT_OWNED`), or was not found. Always 400, never 403.
+          description: Belongs to another user (`FOCUS_MICRO_TASK_NOT_OWNED`), or was not found (`FOCUS_MICRO_TASK_NOT_FOUND`). Always 400, never 403.
 
 components:
   schemas:

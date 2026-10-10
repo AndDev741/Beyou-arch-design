@@ -442,7 +442,8 @@ paths:
           description: No Content
       summary: Remove an edge
       description: |
-        An unknown edge id answers `NOTEBOOK_EDGE_INVALID`.
+        An unknown edge id answers `NOTEBOOK_EDGE_NOT_FOUND`, which the client words as "already
+        gone" rather than as a link it refused to draw (`NOTEBOOK_EDGE_INVALID`).
   /notebook/board/nodes/{nodeId}:
     patch:
       tags:
