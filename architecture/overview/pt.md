@@ -130,6 +130,7 @@ sequenceDiagram
 - **Verificação de e-mail**: contas novas confirmam o endereço por e-mail antes do primeiro login, e podem pedir outro link se o primeiro não chegar.
 - **Redefinição de senha**: token seguro por e-mail, TTL de 15 minutos, 5 minutos de espera entre pedidos. Todos os refresh tokens são revogados na redefinição.
 - **Exclusão de conta**: confirmada com um código de vida curta (TTL de 15 minutos) antes de qualquer remoção.
+- **Login federado (OIDC)**: todo provedor configurado em `beyou.oidc.providers` ganha um botão no login web. O cliente envia o ID token que verificou pelo PKCE, e a conta é achada pelo emissor e pelo subject do token, nunca pelo e-mail, então um provedor novo só chega a uma conta existente por um vínculo feito de dentro dela. Desligado quando nada está configurado. O [tópico de segurança](/architecture/security) tem as regras.
 
 ## Camada de API
 

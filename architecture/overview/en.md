@@ -130,6 +130,7 @@ sequenceDiagram
 - **Email verification**: new accounts confirm their address by email before the first login, and can ask for another link if the first never arrives.
 - **Password reset**: secure token by email, 15 minute TTL, 5 minute cooldown between requests. All refresh tokens are revoked on reset.
 - **Account deletion**: confirmed with a short-lived code (15 minute TTL) before anything is removed.
+- **Federated sign-in (OIDC)**: any provider configured under `beyou.oidc.providers` gets a button on the web login. The client sends the ID token it verified through PKCE, and the account is found by the token's issuer and subject, never by its e-mail, so a new provider can only reach an existing account through a link made from inside it. Off when nothing is configured. The [security topic](/architecture/security) has the rules.
 
 ## API layer
 

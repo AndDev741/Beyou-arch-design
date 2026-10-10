@@ -1,6 +1,6 @@
 ---
 title: "Agente de IA"
-summary: "Um agente de chat com 54 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de LLMs configurável, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
+summary: "Um agente de chat com 63 ferramentas reais, transmitido por SSE, rodando sobre uma cadeia de fallback de LLMs configurável, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
 ---
 
 Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, como LLMs de camada gratuita são encadeados em um modelo confiável e o que acontece em cada ponto de falha.

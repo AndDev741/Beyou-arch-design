@@ -243,15 +243,23 @@ paths:
       responses:
         '200':
           description: Signed in. Same body as the Google endpoints.
+        '400':
+          description: >-
+            OIDC_PROVIDER_UNKNOWN when no provider is configured under that slug, or
+            OIDC_TOKEN_INVALID when the token fails any check. Every rejection reads the
+            same on purpose; which check failed is only in the server log.
         '403':
           description: >-
-            FEDERATED_LINK_REQUIRED. The token verified, but this identity may not
-            enter on its own: either the issuer is not trusted on addresses
-            (reason EMAIL_NOT_TRUSTED), or the address already belongs to an account
-            (reason ACCOUNT_EXISTS). Not a failure to retry. The client sends the user
-            to sign in the ordinary way and link the provider from settings.
-        '404':
-          description: No such provider is configured.
+            The token verified, but this identity may not enter on its own. The body is
+            the standard error envelope: errorKey FEDERATED_LINK_REQUIRED, with
+            details.reason (EMAIL_NOT_TRUSTED when the issuer is not trusted on
+            addresses, ACCOUNT_EXISTS when the address already belongs to an account)
+            and details.provider (the slug). Not a failure to retry. The client sends
+            the user to sign in the ordinary way and link the provider from settings.
+        '429':
+          description: >-
+            Too many sign-in attempts from this address. Federated sign-in spends the
+            same per-address bucket as the password and Google routes.
   /auth/oidc/{provider}/mobile:
     post:
       tags:
@@ -276,8 +284,12 @@ paths:
       responses:
         '200':
           description: Signed in.
+        '400':
+          description: OIDC_PROVIDER_UNKNOWN or OIDC_TOKEN_INVALID, as above.
         '403':
-          description: FEDERATED_LINK_REQUIRED, as above.
+          description: FEDERATED_LINK_REQUIRED in the standard error envelope, as above.
+        '429':
+          description: Too many sign-in attempts from this address, as above.
   /auth/oidc/{provider}/link:
     post:
       tags:

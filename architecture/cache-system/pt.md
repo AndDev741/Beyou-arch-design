@@ -119,6 +119,7 @@ Vários caches em memória vivem fora do gerenciador, invisíveis ao dashboard d
 | Baldes de rate limit | Baldes bucket4j por faixa | Caffeine, máx 10.000, 30 min após acesso |
 | Contadores de tentativa de login | O lockout por conta | Caffeine, máx 50.000, expiração igual à janela de lockout, chaveado por e-mail em minúsculas |
 | Chaves públicas do Google | Verificação de ID token | Cacheadas internamente pela biblioteca do Google |
+| Chaves dos provedores federados | Verificação de ID token OIDC: o JWKS de cada emissor, mais a hora do último refetch | Caffeine, máx 32 emissores, 6 h após escrita. Um `kid` desconhecido busca de novo no máximo uma vez por minuto por emissor (`OidcIdTokenVerifier`) |
 | Cooldowns de provedores de LLM | A cadeia de fallback pula um provedor falhando por um tempo | Mapa simples: 300 s após um 429, 30 s após outros erros |
 | Contadores de streams ativos | Limita streams SSE simultâneos do agente por usuário | Mapa simples |
 
