@@ -76,9 +76,9 @@ Mail is not optional. The four core values ship without defaults, and the from-a
 
 No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes thirteen hardcoded templates sharing the same header, the brand blue, and the year-stamped footer — an odd number rather than an even one because the inbox alert is English only. The nudge's is the only body assembled from parts: its headline and text are chosen per trigger and escaped before they reach the frame, because they carry numbers read off the account. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
 
-Language selection is a two-branch decision per mail: anything starting with "pt" gets Portuguese, everything else (including null) gets English. The interesting part is where each flow reads the language from:
+Language selection is a two-branch decision per mail, made in `UserLanguage.orDefault` so mail and the AI prompts agree: anything starting with "pt" gets Portuguese, everything else (including null) gets English. Signup now saves the language the screen was showing, so the verification mail of a new account arrives in it. The interesting part is where each flow reads the language from:
 
-- The feedback acknowledgement prefers the language captured in the submission's UI context over the profile preference, because the receipt lands immediately and the profile field stays null until the user ever opens settings. Reading the profile first used to send every new account an English receipt.
+- The feedback acknowledgement prefers the language captured in the submission's UI context over the profile preference, because the receipt lands immediately and an account created before signup carried a language can still have none until its next boot. Reading the profile first used to send every new account an English receipt.
 - The feedback reply prefers the current profile preference, because a reply can land days later, when the captured context is stale.
 
 User-authored and admin-authored text is HTML-escaped before interpolation, so a feedback body cannot inject markup into its own receipt.

@@ -70,6 +70,8 @@ O controlador do Beyou está estabelecido em Portugal, então uma requisição q
 
 Por isso a produção roda `order: mistral,gemini` com `blocked: glm,deepseek`, os dois fixados no `application-prod.yaml`. GLM e DeepSeek seguem configurados e utilizáveis em desenvolvimento, onde os dados são inventados, e não conseguem entrar na cadeia em produção mesmo que alguém alargue a ordem. A política de privacidade publicada conta isso ao usuário, e essa é a segunda razão da blocklist existir: uma promessa impressa lá não deveria depender de alguém lembrar por que a ordem estava estreita.
 
+Duas chamadas de saída do caderno de estudos ficam fora dessa cadeia, e portanto fora da blocklist: os embeddings (`notebook.embedding.*`, qualquer endpoint compatível com OpenAI, Mistral por padrão) e a busca de fontes (Tavily, ou Gemini com Google Search). Cada uma pega o host das próprias configurações, e `blocked` não manda em nenhuma das duas. A política de privacidade cita a Mistral para os embeddings e o Tavily ou o Gemini para a busca, então apontar qualquer uma para outro lugar é uma mudança de política antes de ser uma mudança de configuração. O texto do resumo do dia e as ferramentas de estudo do caderno passam, sim, pela cadeia.
+
 O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados.
 
 ## As ferramentas

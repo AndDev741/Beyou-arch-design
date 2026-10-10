@@ -120,6 +120,8 @@ Every result is opened before it is offered, through `LinkFetcher.resolve`: redi
 
 There is ONE embedding model, set by `notebook.embedding.*` (`EmbeddingProperties`). It defaults to Mistral's `mistral-embed` on the same `MISTRAL_API_KEY` the chat chain uses, and any OpenAI-compatible `/embeddings` endpoint works through `NOTEBOOK_EMBEDDING_BASE_URL`, `NOTEBOOK_EMBEDDING_API_KEY` and `NOTEBOOK_EMBEDDING_MODEL`. No key at all turns embeddings off. Vectors from two models live in different spaces, so a fallback chain would make every stored vector useless for the question asked. Each chunk records `embedding_model`, and the retriever only compares a question with chunks embedded by the model configured now. When the provider fails during ingestion the source still ends READY: its chunks are stored and searchable by full text. The test and e2e profiles pin the key empty, so CI and the e2e stack always run on full-text search.
 
+The embeddings and the web search are the notebook's only outbound calls that skip the LLM fallback chain, so `ai.llm-chain.blocked` cannot veto them. The privacy policy names Mistral for the first and Tavily or Gemini for the second; a new endpoint for either has to be added there first.
+
 pgvector was planned and dropped. It needs the database image swapped in prod, in three compose files, in every CI service and in Testcontainers. A backend merged before that swap would fail at Flyway time and take the API down with it. One person's sources fit comfortably in a JVM cosine pass, and moving to pgvector later is a column type change plus one query.
 
 ## The study AI

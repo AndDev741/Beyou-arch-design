@@ -17,6 +17,7 @@ flowchart TD
   LOC["💾 localStorage<br/>beyou-theme · detector cache"]
 
   ACC -->|"wins when set"| I18N
+  I18N -->|"signup · boot reconcile<br/>fill it when empty"| ACC
   ACC -->|"wins when set"| PREF
   LOC -->|"fallback below account"| PREF
 

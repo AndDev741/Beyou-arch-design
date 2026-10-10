@@ -55,7 +55,7 @@ flowchart TD
 | verificationTokenSentAt | Instant | Quando o último e-mail de verificação saiu, lido pelo cooldown do reenvio. Um Instant contra o LocalDateTime ao lado porque é comparado a um relógio e nunca exibido. Null significa nenhum e-mail registrado, que é como toda linha anterior à coluna se lê, e como fica uma linha cujo envio falhou |
 | perfilPhrase / perfilPhraseAuthor | String | Citação motivacional opcional |
 | perfilPhoto | String (512) | A URL do avatar no CDN do Google, gravada no login OAuth. NÃO é o caminho de uma foto enviada: o upload escreve `{upload-dir}/user-photos/{userId}.jpg` e nunca toca nesta coluna, então ela fica nula em contas que nunca entraram com o Google. O perfil serve o arquivo primeiro e esta coluna depois, e remover tem que limpar os dois |
-| themeInUse / languageInUse | String | Preferências |
+| themeInUse / languageInUse | String | Preferências. languageInUse é `en` ou `pt`, definido no cadastro a partir do idioma que o cliente está mostrando e preenchido no boot para contas antigas; vazio vale inglês para todo prompt e e-mail |
 | timezone | String | Obrigatório. O fuso IANA da conta, vindo do cliente no cadastro e caindo em UTC quando não vem. Toda data que o app escreve é resolvida contra ele |
 | timezoneSource | enum TimezoneSource | DEFAULT, DETECTED ou EXPLICIT: se o fuso acima chegou a ser escolhido por alguém. Só DEFAULT pode ser corrigido automaticamente |
 | widgetsIdInUse | Lista de String | IDs dos widgets ativos do dashboard |

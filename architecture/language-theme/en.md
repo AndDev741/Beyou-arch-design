@@ -40,7 +40,15 @@ sequenceDiagram
   Note over I: every useTranslation re-renders
 ```
 
-The hook has one rule worth knowing: an empty language is a no-op. A brand-new account carries an empty languageInUse, and passing that empty string to i18next would reset the UI to the fallback, clobbering whatever the user picked on the login screen before the account existed. So the account value wins when present, and the detector-cached choice survives when it is not. The dashboard applies the account language read-only on load; the language switcher is the only writer, updating backend, store, and i18next together.
+The hook has one rule worth knowing: an empty language is a no-op. An account that has no language saved yet carries an empty languageInUse, and passing that empty string to i18next would reset the UI to the fallback, clobbering whatever the browser or the login screen settled on before the account existed. So the account value wins when present, and the detector-cached choice survives when it is not. The dashboard applies the account language read-only on load. The language switcher is the only writer a person drives, updating backend, store, and i18next together; signup and the boot reconcile below fill the value in when there is none.
+
+### Where the account's language comes from
+
+The server reads `languageInUse` for every model prompt and every mail, through one helper, `UserLanguage.forPrompt` (mail goes through `UserLanguage.orDefault`), which treats an empty value as English. For a long time nothing wrote the column except the settings switcher, so an account that never opened settings got its daily briefing, its notebook tutor and its verification mail in English, whatever the screen around them said.
+
+Two writers close that, the same pair the timezone has. Every signup path sends the language the screen is showing: email register and Google on web and mobile, and federated sign-in. The client reads it with `shownLanguage` in `@beyou/api`, which prefers i18next's resolved language, so a French browser reading the English screen sends `en`. The backend normalises it in `UserLanguage.usableOrNull` (`pt-BR` becomes `pt`, a language the app does not ship is dropped) and applies it only when it creates the account, from the `User` constructors, so no signup path can forget it. For accounts that already existed, `reconcileLanguage` in `@beyou/state` runs on boot next to the timezone reconcile and saves the screen's language once, when the account has none. It never replaces a saved language: the screen follows the saved one, so writing the screen's back would only ever undo a choice.
+
+Briefing prose already stored for the day keeps the language it was written in. A switch shows up in the next day's.
 
 ## Theme
 
