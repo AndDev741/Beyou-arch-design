@@ -4,7 +4,7 @@ summary: "The Spring Boot API behind everything: domain services with per-user o
 ---
 # Beyou Backend
 
-The single API serving the web app, the native mobile app, and this documentation site. Spring Boot 4.1 on Java 25 with virtual threads, PostgreSQL 15 behind a Flyway-owned schema, and 34 REST controllers under `/api/v1`.
+The single API serving the web app, the native mobile app, and this documentation site. Spring Boot 4.1 on Java 25 with virtual threads, PostgreSQL 15 behind a Flyway-owned schema, and 36 REST controllers under `/api/v1`.
 
 ## What lives here
 

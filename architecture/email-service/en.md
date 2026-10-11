@@ -1,13 +1,13 @@
 ---
 title: "Email Service"
-summary: "Seven e-mails, one service class: six transactional and one that nobody asked for, how each decouples from its database transaction, the three limits standing between a nudge trigger and an inbox, and why the sender ships switched off."
+summary: "Eight e-mails, one service class: six transactional, one reminder the user set up and one that nobody asked for, how each decouples from its database transaction, the limits standing between a trigger and an inbox, and why the nudge sender ships switched off while the reminder sender does not."
 ---
 
 This document covers the e-mail subsystem: which mails exist, how each one is kept transaction-safe, how failures are handled per flow, and how the templates are built and localized.
 
 ## What gets sent
 
-The system sends seven e-mails, all owned by one service class in the notification package. Six are transactional — somebody asked for each by doing something — and that is why none of those consults a preference. The seventh is the engagement nudge, the first mail here that nobody asked for, which is why it is the only one that checks a switch, counts against a budget, and ships disabled. See [Engagement mail is opt-out](#engagement-mail-is-opt-out) and [The nudges, and when they do not go out](#the-nudges-and-when-they-do-not-go-out).
+The system sends eight e-mails, all owned by one service class in the notification package. Six are transactional (somebody asked for each by doing something), and that is why none of those consults a preference. The seventh is the engagement nudge, the first mail here that nobody asked for, which is why it checks a switch, counts against a budget, and ships disabled. The eighth is the calendar reminder, and it sits in between. The user asked for it by setting a reminder, so it ships on. It still arrives on a schedule rather than in answer to a click, so it has its own switch and its own budget. See [Engagement mail is opt-out](#engagement-mail-is-opt-out), [The nudges, and when they do not go out](#the-nudges-and-when-they-do-not-go-out) and [Calendar reminders](#calendar-reminders).
 
 | # | Mail | Trigger | Contains |
 |---|------|---------|----------|
@@ -17,7 +17,8 @@ The system sends seven e-mails, all owned by one service class in the notificati
 | 4 | Feedback acknowledgement | User submits feedback | Echo of the category and the submitted text |
 | 5 | Feedback reply | Admin replies | The reply plus the original quoted back |
 | 6 | Feedback inbox alert | User submits feedback | A link to the admin console, and nothing else |
-| 7 | Engagement nudge | A scheduled pass, at a civil hour where the reader lives | One thing at stake and the number behind it, a link into the app, and an unsubscribe line. The only mail that consults a preference, and the only one that can be switched off entirely |
+| 7 | Engagement nudge | A scheduled pass, at a civil hour where the reader lives | One thing at stake and the number behind it, a link into the app, and an unsubscribe line. The only mail that carries an unsubscribe link |
+| 8 | Calendar reminder | A pass every five minutes finds a reminder nobody reacted to within an hour of its instant | The task's title as the subject, its date, time and note, a button to the calendar on that day, and a footer pointing at the Reminders setting that turns these off |
 
 Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google sign-ups get nothing (Google already verified the address), and nothing announces password-reset completion or the account's actual deletion.
 
@@ -30,6 +31,7 @@ flowchart LR
   DEL["🗑️ Deletion code"] --> ES
   FB["💬 Feedback ack + reply"] --> ES
   FBA["🔔 Feedback inbox alert"] --> ES
+  CAL["⏰ Calendar reminder pass"] --> ES
   ES --> SMTP["📤 SMTP (StartTLS)"] --> INBOX["📬 Inbox"]
 ```
 
@@ -58,7 +60,9 @@ Each flow answers the failure differently, and the differences are the design:
 - **Registration verification**: nothing catches it. The exception dies in the async handler's default logging, and the user row and its token stay. That used to be unrecoverable — login refuses unverified accounts with EMAIL_NOT_VERIFIED, the email column is unique so registering again is refused too, and after 24 hours the token expired with nothing able to issue another. The only repair was an UPDATE by hand.
 - **Verification resend**: the cure for the line above, and it answers failure the way the deletion code does. The send runs in `afterCommit`, and a throw clears the account's `verificationTokenSentAt` through a REQUIRES_NEW helper, so nobody sits out a cooldown for a mail that never left. Worth saying plainly: this only catches SMTP refusing the handoff. A message the provider accepts and then bounces, or files as spam, throws nothing anywhere — which is why a second attempt the user can ask for matters more than any amount of failure logging.
 
-There is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
+- **Calendar reminder**: logged at ERROR with the task and user ids, never the title, which is the user's own words, and the pass moves on to the next reminder. The task stays unmarked, so the pass five minutes later tries again for as long as the reminder is under a day old.
+
+The reminder pass aside, there is no retry, no outbox, and no delivery tracking anywhere. What makes the swallowed failures visible is the logging pipeline: every failure logs at ERROR, and ERROR log lines become GlitchTip events. The error tracker is the retry bell.
 
 Two operational notes, both the result of a fix rather than a design choice. Spring's mail health indicator is off: it opened a real authenticated SMTP session on every hit of `/actuator/health`, uncached, which handed the uptime monitor's verdict to the mail provider. It was also redundant, since a failed send already logs at ERROR and every ERROR is already a GlitchTip event. And all three JavaMail timeouts are pinned at 5s, because the default is to wait forever: the reset and deletion sends run synchronously inside `afterCommit`, before the JDBC connection returns to the pool, so an unanswered SMTP session used to hold both the user's request and one of Hikari's ten connections indefinitely.
 
@@ -74,12 +78,13 @@ Mail is not optional. The four core values ship without defaults, and the from-a
 
 ## Templates and languages
 
-No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes thirteen hardcoded templates sharing the same header, the brand blue, and the year-stamped footer — an odd number rather than an even one because the inbox alert is English only. The nudge's is the only body assembled from parts: its headline and text are chosen per trigger and escaped before they reach the frame, because they carry numbers read off the account. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
+No template engine and no template files: each mail body is an inline Java text block, HTML only, formatted with String.formatted. With two languages per mail that makes fifteen hardcoded templates sharing the same header, the brand blue, and the year-stamped footer (an odd number rather than an even one because the inbox alert is English only). The nudge's and the calendar reminder's are the only bodies assembled from parts, escaped piece by piece before they reach the frame: the nudge picks its headline and text per trigger and carries numbers read off the account, and the reminder carries the user's own title and note. Every other template branches on the reader's language because a user reads it; that one is addressed to whoever operates the product, runs two sentences, and its payload is a URL.
 
 Language selection is a two-branch decision per mail, made in `UserLanguage.orDefault` so mail and the AI prompts agree: anything starting with "pt" gets Portuguese, everything else (including null) gets English. Signup now saves the language the screen was showing, so the verification mail of a new account arrives in it. The interesting part is where each flow reads the language from:
 
 - The feedback acknowledgement prefers the language captured in the submission's UI context over the profile preference, because the receipt lands immediately and an account created before signup carried a language can still have none until its next boot. Reading the profile first used to send every new account an English receipt.
 - The feedback reply prefers the current profile preference, because a reply can land days later, when the captured context is stale.
+- The calendar reminder reads the profile language too. A scheduled pass sends it, with no request or UI context in sight.
 
 User-authored and admin-authored text is HTML-escaped before interpolation, so a feedback body cannot inject markup into its own receipt.
 
@@ -99,13 +104,13 @@ One configuration nit carried here for honesty: the yaml default for the reset T
 
 ## Test coverage
 
-No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The resend flow arrived with its own suite, and one detail there is worth copying rather than rediscovering: it is the only mail test that is NOT `@Transactional`, because the send hangs off `afterCommit` and a test transaction that rolls back never commits, so every assertion about a mail going out would have passed against a service that sends nothing. Its negative assertions read the stored row rather than counting invocations, since the registration mail is async and racing it makes a coin toss of `verifyNoInteractions`. The one gap left: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
+No test ever speaks SMTP. The feedback flows mock the JavaMailSender itself and assert on captured messages (recipients, subject, body, and the load-bearing case: a submission survives a throwing send). The deletion flow mocks the EmailService and pins the six-digit format, the hash-only storage, and the discard-on-failure behavior. The inbox alert has its own suite, asserting per recipient rather than by counting sends: every admin alerted exactly once, the submitter never alerted about their own message, no feedback text anywhere in the body, and a throwing receipt still leaving the console alerted. The resend flow arrived with its own suite, and one detail there is worth copying rather than rediscovering: it is the only mail test that is NOT `@Transactional`, because the send hangs off `afterCommit` and a test transaction that rolls back never commits, so every assertion about a mail going out would have passed against a service that sends nothing. Its negative assertions read the stored row rather than counting invocations, since the registration mail is async and racing it makes a coin toss of `verifyNoInteractions`. The calendar reminder brought two suites. `CalendarReminderEmailIT` drives the pass against a mocked `EmailService` for an owner in Sao Paulo, so a reminder worked out in the server's zone would land three hours off and fail every boundary. It covers the grace hour, the 24-hour cut, both preferences, the click and the completion that cancel a mail, an unverified address, a failed send tried again, the daily cap, and a task moved while its mail was out. `CalendarReminderMailUnitTest` renders both languages and checks that a line break in a title cannot reach the subject header. The one gap left: the password-reset flow has no dedicated test of its own, so its token-cleanup-on-failure behavior rides on code review alone.
 
 ## Engagement mail is opt-out
 
 The switch was built before the sender, deliberately: a nudge is the first mail in this product that nobody asked for, and building consent after the thing that needs it is how a product ends up mailing people who cannot make it stop.
 
-The state is one boolean and one token in a `notification_preferences` table, keyed by user. A table rather than two columns on `users`, because `users` is loaded in full by the security filter on every authenticated request and those columns would be read thousands of times a day to answer a question a nightly job asks.
+The state is one boolean and one token in a `notification_preferences` table, keyed by user. A table rather than two columns on `users`, because `users` is loaded in full by the security filter on every authenticated request and those columns would be read thousands of times a day to answer a question a nightly job asks. Since V40 the same row also holds the calendar reminder settings, which are separate switches with their own defaults (see [Calendar reminders](#calendar-reminders)).
 
 The default is on. These are messages about the reader's own routine — a streak about to break, a goal running out of days — rather than offers, and they carry one-click opt-out; a default of off would mean the feature only ever reaches people who go looking for it in settings. Absence of a row means the default, so nothing was backfilled and no token exists until the first mail needs one.
 
@@ -158,12 +163,48 @@ The activation sequence therefore lives with the verification flow rather than h
 
 The pass checks in with the collector after each cycle, through the same inverted heartbeat the snapshot job uses — the monitor alerts on the *absence* of a check-in, because a health endpoint returning 200 says nothing about whether a scheduled pass still runs. It matters more here than for snapshots: a snapshot job that stops eventually shows up as missing history, whereas a nudge job that stops looks exactly like a quiet week. Nobody complains about mail they did not receive.
 
+## Calendar reminders
+
+A calendar task can carry a reminder, and the web app shows it as a browser notification at its instant while a Beyou tab is open. The mail is the fallback for every other case: the browser was closed, the permission was never granted, or the person is on the phone, which shows no notifications yet. It goes out once, and only when nobody reacted.
+
+### When it goes
+
+`CalendarReminderEmailScheduler` runs a pass every five minutes. A reminder is owed a mail when all of these hold:
+
+| Condition | Why |
+|---|---|
+| The task is still open and its notification was never clicked | Either one is a reaction, and a reminder somebody reacted to needs no mail |
+| An hour has passed since the instant (`email-grace-minutes: 60`) | The web app still shows a notification missed by less than an hour when a tab opens, so the two channels hand over at the same minute. The two numbers move together |
+| Less than a day has passed (`email-max-age-hours: 24`) | A reminder whose window closed while the job was down is skipped, never sent late. "Your 10:00 appointment" arriving the next afternoon is worse than nothing |
+| The account's `reminder_email` is on and its address is verified | The same verified-address gate the nudges use. Turning engagement mail off does not touch this one |
+| No mail went out for this reminder yet | Once per reminder. Moving the task's date, time or advance clears the mark, so a moved task is a new reminder and can be mailed again |
+
+The instant comes from `CalendarReminderTime`, the same function behind the screens and the browser, worked out per task in the owner's zone with their default time. The candidate query narrows by date only, from two days before today in UTC to nine days after, which covers the widest gap between UTC and any zone plus the longest advance a task can have. A partial index on the three empty timestamps keeps that scan cheap however many tasks are done.
+
+### Its own budget
+
+`calendar.reminders.daily-cap` (150 by default, `CALENDAR_REMINDER_DAILY_CAP`) caps reminder mails per UTC day across every account, counted from `reminder_email_sent_at`. It is a share of the provider's 300 a day, which also carries verification, resets, deletion codes and the nudges. Due reminders go out oldest first, so the ones closest to going stale get through, and the rest wait for the next day's budget or age out. Reaching the cap logs a WARN.
+
+### Send first, record second, unless the task moved
+
+Same order as the nudges, for the same reason: a failed send leaves the task unmarked, and the next pass tries again. The mark is conditional on `updated_at` still holding the value the pass read. If the owner moved the task while its mail was on the way, the late mark matches nothing, and the moved reminder stays armed instead of being stamped as sent. The price is a second mail in the rare case where only the title changed during the send. No transaction wraps the pass, so no database connection waits on the mail server.
+
+### The mail
+
+The task's title is the subject, "Reminder: …" or "Lembrete: …", with control characters flattened to spaces first because it is user input headed for a mail header. The body gives the date and time and the note, escaped, and a button to `/calendar?date=YYYY-MM-DD`, which opens the calendar on that day. It carries no unsubscribe token. The user set this reminder, so the footer says why the mail came and links to the Reminders settings, where the switch is.
+
+### On by default, unlike the nudges
+
+`calendar.reminders.email-enabled` (`CALENDAR_REMINDER_EMAILS_ENABLED`) defaults to true. Nothing here needs a launch gate: these are reminders people set on their own tasks, not mail the product decided to send, and each account can still turn them off. The flag is an incident switch. It is off in the test and e2e profiles, so no suite ever reaches a mail server, and the tests drive the service directly.
+
+The pass checks in after each cycle through its own heartbeat (`REMINDER_HEARTBEAT_URL`, blank by default), the same inverted check the snapshot and nudge jobs use. A reminder job that stops looks like a quiet day, and the first anyone hears of it is a missed appointment. With the flag on, expect a check-in every five minutes.
+
 ## What could be improved
 
 | Area | Current state | Note |
 |------|--------------|------|
-| Retry | Single attempt everywhere | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
+| Retry | Single attempt everywhere except the reminder pass, which tries an unmarked task again five minutes later | An outbox table or provider-side retry would remove the GlitchTip-as-retry-bell pattern |
 | Reset/deletion sending thread | Request thread waits on SMTP | Moving to the async listener pattern the feedback flows use would cut response latency |
-| Templates | Thirteen inline HTML blocks | The nudge added its own, and its chrome is a copy of the others'. Extracting the shared frame would shrink the duplication; a template engine is still overkill |
+| Templates | Fifteen inline HTML blocks | The nudge and the calendar reminder each added their own, and their chrome is a copy of the others'. Extracting the shared frame would shrink the duplication; a template engine is still overkill |
 | Reset flow tests | None | The only mail flow without direct coverage |
 | Verification token at rest | Stored in plaintext on the users row | The reset token is a BCrypt hash in `{UUID}.{raw}` form; a database read hands out email verification for free. Aligning the two breaks every link already sitting in an inbox, so it wants its own change |

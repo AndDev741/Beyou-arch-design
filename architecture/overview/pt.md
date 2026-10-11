@@ -49,6 +49,7 @@ erDiagram
   USER ||--o{ GOAL : possui
   USER ||--o{ ROUTINE : possui
   USER ||--o{ NOTEBOOK_PAGE : possui
+  USER ||--o{ CALENDAR_TASK : possui
 
   CATEGORY }o--o{ HABIT : marcado
   CATEGORY }o--o{ TASK : marcado
@@ -85,6 +86,7 @@ erDiagram
 - **Checks**: registros diários de check/skip para os grupos de hábitos e tarefas dentro das rotinas, com rastreio do XP gerado.
 - **Snapshots de rotina**: uma cópia diária imutável de cada rotina, tirada por timezone por um scheduler, para que o histórico sobreviva a edições futuras da rotina.
 - **Histórico de checks e XP**: registros por dia que sustentam os widgets de histórico e progresso do dashboard.
+- **Tarefa do calendário**: uma tarefa avulsa numa data, com horário opcional e um lembrete. Fica fora das rotinas, paga 10 XP fixos quando concluída e continua no próprio dia, feita ou não.
 - **Feedback**: relatos de feedback dentro do app, entregues com screenshots opcionais e navegáveis por um admin.
 - **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações. Os ciclos de estudo põem os tópicos numa fila de blocos de tempo e de objetivo, estudada volta após volta, alimentada pelos pomodoros nas páginas do tópico e pelas sessões lançadas à mão.
 
@@ -134,7 +136,7 @@ sequenceDiagram
 
 ## Camada de API
 
-34 controllers REST organizados por domínio, todos sob `/api/v1`:
+36 controllers REST organizados por domínio, todos sob `/api/v1`:
 
 | Grupo | Controllers | Caminhos base |
 |-------|-------------|---------------|
@@ -144,6 +146,7 @@ sequenceDiagram
 | **Histórico** | CheckHistory, XpHistory | /check-history, /xp |
 | **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diário** | Mood | /mood |
+| **Calendário** | Calendar | /calendar, /calendar/tasks |
 | **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
@@ -205,6 +208,7 @@ flowchart LR
 
 - **XpProgress** é um componente embutível compartilhado por User, Category, Habit e Routine.
 - O XP é gerado quando um hábito ou tarefa é marcado dentro de uma rotina.
+- Concluir uma tarefa do calendário paga 10 XP ao usuário, e desmarcar devolve esse valor.
 - O caderno de estudos paga valores fixos, uma vez cada: 15 por uma página concluída pela primeira vez, 20 por um quiz aprovado pela primeira vez, 1 por flashcard revisado até 30 por dia.
 - A progressão de level segue uma tabela semeada de XP por level (XpByLevelSeeder).
 - A constância (streak) rastreia dias consecutivos completados na entidade User.

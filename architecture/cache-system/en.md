@@ -1,6 +1,6 @@
 ---
 title: "Cache System"
-summary: "How the Caffeine layer works across the backend: three cache tiers, the per-user eviction strategy and its one global exception, and the caches that live outside Spring's manager."
+summary: "How the Caffeine layer works across the backend: three cache tiers, the per-user eviction strategy and its one global exception, the domains that are deliberately not cached, and the caches that live outside Spring's manager."
 ---
 
 This document explains the caching architecture of Beyou: what is cached and for how long, how writes invalidate stale data, why the AI agent sees the same cache the REST API does, and which in-memory caches exist outside Spring's cache manager entirely.
@@ -88,7 +88,7 @@ The split exists for a scaling reason the code spells out: the day-close and sna
 
 The honest cost of the design: because `routine` uses composite keys, one user editing one routine flushes every user's cached routine details. On a single-host deployment with a 30-minute TTL that is acceptable; it is also the first thing to revisit if routine reads ever get hot.
 
-**Write paths that evict** (always inside the service method, after the write): category, habit, task, goal, and schedule create/edit/delete; goal check, increase, and decrease; routine create, update, delete, add/remove items; live check and skip; and snapshot check-ins, which also mutate XP. The AI agent needs no separate list, as the next section explains.
+**Write paths that evict** (always inside the service method, after the write): category, habit, task, goal, and schedule create/edit/delete; goal check, increase, and decrease; routine create, update, delete, add/remove items; live check and skip; snapshot check-ins, which also mutate XP; and the two other paths that pay XP outside a routine, the study notebook's rewards and completing a calendar task. The AI agent needs no separate list, as the next section explains.
 
 The eviction annotations are deliberately duplicated between the two user-scoped methods rather than delegated, because a self-invocation would bypass the proxy and silently evict nothing. The comment in the class warns that a cache added to one block must be added to the other.
 
@@ -99,6 +99,21 @@ The agent's tools inject the same services the controllers use, so tool reads hi
 - The cached read methods carry `@Transactional(readOnly = true)` specifically because agent tools run on a reactive thread where Open-Session-in-View does not apply.
 - `getTodayRoutineScheduled` resolves "today" from the owner's timezone on the loaded data rather than from the request context, so it works off-request.
 - The check/skip eviction lives on the outer service methods that both the controller and the tools funnel through, and an integration test exercises that seam directly so relocating the eviction breaks the build.
+
+## What is deliberately not cached
+
+Six reads go to the database every time, and each service says why in its own javadoc. Most of them share one reason: the read takes a window of days, so a cache keyed on the user would answer one window with another window's rows, and a composite key would need its own eviction on every write that touches them.
+
+| Read | Why it is not cached |
+|------|----------------------|
+| Mood (`MoodService`) | A date range per read over one row per day. Not worth a cache's staleness |
+| XP history (`XpHistoryService`) | A window per read, and the rows move on every check-in |
+| Focus Mode (`FocusService`) | The micro-task read is also a write (it materialises pinned names), so a cached answer would skip the very rows the person is about to tick |
+| Study notebook (`NotebookPageService`) | Computed from the whole notebook graph, and the autosave writes on every pause in typing |
+| Study cycles (`StudyCycleService`) | The reads also write (a GOAL block gets its concept fixed when it is first opened), and every pomodoro and page status change moves the numbers, so a cached answer would need evicting from the focus, page, board and quiz paths |
+| Calendar (`CalendarService`) | A range per read, and the overview also draws on routine snapshots, goals and mood entries, so every routine check, goal edit and mood tap would have to evict it. What it costs instead is a handful of indexed queries over at most nine weeks |
+
+None of them is read by a cached method either, which is why their writes evict nothing. The exception is XP: completing a calendar task and the notebook's rewards change the user's XP, so those two paths run the ordinary per-user eviction.
 
 ## Scheduled task cleanup
 

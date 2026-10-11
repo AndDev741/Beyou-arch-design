@@ -1,6 +1,6 @@
 ---
 title: "Domain Model"
-summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, study notebook, feedback, and AI chat families built around it."
+summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, calendar, study notebook, feedback, and AI chat families built around it."
 ---
 
 This document covers every entity in the Beyou domain, explaining what each one does for the user and how it is structured in the database. The goal is a clear mental model of the data layer before reading or writing code.
@@ -9,7 +9,7 @@ One ground rule shapes everything here: the schema belongs to Flyway. Migrations
 
 ## The big picture
 
-Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, the study notebook, feedback threads, and the AI agent's chats.
+Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, dated calendar tasks, the study notebook, feedback threads, and the AI agent's chats.
 
 ```mermaid
 flowchart TD
@@ -340,6 +340,34 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 
 **Privacy**: the note is the one place in the product where somebody writes at length for themselves. It never reaches browser storage (the `mood` slice is on the web persist blacklist and mobile redux is in-memory), the account export carries every entry with the words intact, and the assistant's read tool returns dates, levels and whether a day has a note, never the note itself.
 
+## Calendar tasks
+
+**Product role**: a one-off obligation that belongs to a date, like signing a lease or booking the dentist, with a reminder before it. Before the calendar the only way to get one into the app was a one-time task added to a routine, which was slow enough that it rarely happened.
+
+**CalendarTask** (table calendar_tasks): one row per task, added in V40.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| title | String (255) | Required, 2 to 255 characters |
+| note | String (1000), nullable | A short note, not a journal. The cap sits in the column as well, so a client that skips the DTO cannot put a novel in a reminder mail |
+| taskDate | LocalDate | The owner's own day, like every other date here |
+| taskTime | LocalTime, nullable | Minutes only. Null means "some time that day", and the reminder then uses the owner's default reminder time |
+| advanceMinutes | int | How long before the time the reminder fires. 0 to 10080 (a week), with a CHECK mirroring the DTO; the clients offer up to a day |
+| completedAt | Instant, nullable | Completion is this timestamp. There is no separate flag |
+| xpAwarded | double | What completing paid, so un-completing takes back exactly that and not whatever the formula says that day |
+| acknowledgedAt | Instant, nullable | When the browser notification was clicked |
+| reminderEmailSentAt | Instant, nullable | When the fallback mail went out |
+| createdAt / updatedAt | Instant | `updatedAt` is also how the mail job tells that a task was edited while its mail was being sent |
+
+- **A table of its own rather than a date on `tasks`.** A routine task completes only through a routine check, pays streak-aware XP and deletes itself the day after a one-time check. A calendar task does none of that: it completes on its own, pays a flat amount, and stays on its day for good, done or not. Folding the two together would bend all three rules for every routine task to serve this one. A past task nobody completed stays on its own day as not done and never moves to today.
+- **No stored reminder instant.** The instant is the date at its time (or at the owner's default time), minus the advance, in the owner's timezone, and `CalendarReminderTime.instantOf` works it out on every read. The response's `notifyAt`, the upcoming list the browser polls and the mail job all call that one function. A stored column would go stale the day the owner changed timezone or default time, and nothing would notice. Whole days of advance come off the calendar and the rest off the clock, so "1 day before" keeps its wall-clock time across a daylight-saving change.
+- **Whether anyone reacted is two timestamps.** `acknowledged_at`, `reminder_email_sent_at` and `completed_at` are the whole reminder state. Editing the date, time or advance clears the first two, so a moved task reminds again on both channels.
+- Every lookup is by id and owner together (`findByIdAndUserId`), so someone else's task reads exactly like one that does not exist: 404 `CALENDAR_TASK_NOT_FOUND`.
+- Three indexes. `(user_id, task_date)` serves every client read. A partial one on `task_date` covers the tasks nobody has reacted to yet, which is what the mail job scans every five minutes across all accounts, and a partial one on `reminder_email_sent_at` lets the job count the day's mails for its cap. Done and answered tasks, most of the table after a while, cost the job nothing.
+- The calendar's day view joins these rows with routine snapshots, the routine schedule, goal end dates and mood entries at read time. None of that is copied here.
+- `ON DELETE CASCADE`, like `mood_entries`. A to-do list means nothing past the account that wrote it.
+- Deliberately not cached, like mood and the notebook. Every read is a date range.
+
 ## Study notebook
 
 **Product role**: where somebody organises a subject they are learning. A topic is laid out as a roadmap board, every node opens a page of notes, sources attach to pages for a grounded study AI, and flashcards come back on a spaced schedule. Nine tables arrived together in V34, every one cascading from `users`. The rules and the class that owns each are in the [study notebook topic](/architecture/study-notebook).
@@ -469,14 +497,14 @@ resolution rule these rows feed.
 
 ## Auth and account entities
 
-Five small entities hang off the account. Three hold hashes for the security flows, all ManyToOne to User; the other two hold a preference and a log of the mail that preference allowed:
+Five small entities hang off the account. Three hold hashes for the security flows, all ManyToOne to User; the other two hold the mail preferences and a log of the engagement mail they allowed:
 
 | Entity | Table | What it holds |
 |--------|-------|---------------|
 | RefreshToken | refresh_tokens | Hash of the 15-day refresh token, expiry, revokedAt |
 | PasswordResetToken | password_reset_tokens | Hash of the reset token, expiry, usedAt |
 | AccountDeletionCode | account_deletion_codes | BCrypt hash of a six-digit code, expiry, usedAt, and an attempts counter that kills the code after a few wrong guesses |
-| NotificationPreferences | notification_preferences | Whether the account may be sent engagement mail, plus the token an unsubscribe link carries. OneToOne rather than ManyToOne, keyed by the user's own id via `@MapsId` so the key and the association cannot disagree |
+| NotificationPreferences | notification_preferences | Whether the account may be sent engagement mail, the token an unsubscribe link carries, and since V40 how calendar reminders reach the account (columns below). OneToOne rather than ManyToOne, keyed by the user's own id via `@MapsId` so the key and the association cannot disagree |
 | NotificationSend | notification_sends | One row per engagement mail actually sent: the kind, and the RECIPIENT'S local date rather than the server's. A UNIQUE constraint on (user, kind, day) is what stops the hourly pass mailing the same thing twice; the same rows answer the per-account gap and the global daily cap |
 
 E-mail verification is the exception: it lives as columns on the users table rather than as its own entity. That also means the token sits there in plaintext, unlike the reset and deletion tokens beside it, which are stored as BCrypt hashes.
@@ -484,6 +512,20 @@ E-mail verification is the exception: it lives as columns on the users table rat
 The unsubscribe token is stored raw too, and that one is a decision rather than an inheritance. The three above are one-shot secrets, so a hash is free. An unsubscribe token is stable — every engagement mail for the rest of the account's life links to it — and a hash cannot be un-hashed to build that link, so hashing would force a new token per send and kill the link in every message already delivered. A row's absence means the account has never been mailed and never opened the setting; readers must treat that as opted in.
 
 Unlike the three token tables, this one has no expiry and no single-use marker: a preference is not spent by being used.
+
+**notification_preferences columns**
+
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| user_id | UUID | | Primary key and foreign key to `users` |
+| engagement_email | boolean | true | Engagement nudges. The one switch the unsubscribe link flips |
+| reminder_email | boolean | true | The calendar's fallback mail for a reminder nobody reacted to. Independent of `engagement_email`: turning off nudges nobody asked for must not silence a reminder somebody set |
+| reminder_web | boolean | true | Browser notifications for calendar reminders. Stored so the choice follows the account; each browser still grants its own permission, and only the client reads it |
+| reminder_default_time | time | 09:00 | When a calendar task with no time of its own reminds, before its advance is taken off |
+| unsubscribe_token | String (64) | | Stored raw, for the reason above |
+| created_at / updated_at | Instant | | |
+
+The three reminder columns arrived in V40 with constant defaults, and a missing row reads as those same defaults, so `NotificationPreferencesService` and the migration have to agree on them. The calendar reads the settings without creating a row, inside read-only transactions where `getOrCreate` could not insert.
 
 ## XP progression system
 
@@ -555,7 +597,7 @@ Understanding the cascades matters most at account deletion, which relies on the
 | User (DB level) | Every notebook table | ON DELETE CASCADE | Account deletion takes the whole notebook |
 | User (DB level) | StudyCycle, StudySession | ON DELETE CASCADE | The other five study cycle tables cascade through `study_cycles`, so account deletion takes all seven |
 | StudyCycle (DB level) | Its days, topics, blocks, lap blocks and closed laps; StudySession.cycle_id | ON DELETE CASCADE, and SET NULL for the session | Deleting a cycle takes everything under it. A logged session stays as the topic's history |
-| User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
+| User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
 | ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
 | NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
 | NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
@@ -604,6 +646,10 @@ flowchart LR
     focus_micro_tasks
     mood_entries
     daily_briefing
+  end
+
+  subgraph calendar["Calendar"]
+    calendar_tasks
   end
 
   subgraph notebook["Study notebook"]

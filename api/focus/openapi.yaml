@@ -54,7 +54,8 @@ paths:
             Ends before it starts, minutes outside 1..180 — or the item group belongs to another
             user, or the notebook page does. Ownership refusals come back as 400 with the
             `ROUTINE_NOT_OWNED` or `NOTEBOOK_PAGE_NOT_OWNED` error key, not 403: every
-            `BusinessException` in this API maps to 400, and a client branching on the status
+            `BusinessException` the focus routes raise maps to 400 (only the calendar's
+            `CALENDAR_TASK_NOT_FOUND` answers 404), and a client branching on the status
             alone would mis-handle the refusal.
   /focus/day:
     get:

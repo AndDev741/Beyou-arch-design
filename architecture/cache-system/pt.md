@@ -1,6 +1,6 @@
 ---
 title: "Sistema de Cache"
-summary: "Como a camada Caffeine funciona no backend: três tiers de cache, a estratégia de evicção por usuário e sua única exceção global, e os caches que vivem fora do gerenciador do Spring."
+summary: "Como a camada Caffeine funciona no backend: três tiers de cache, a estratégia de evicção por usuário e sua única exceção global, os domínios que ficam sem cache de propósito, e os caches que vivem fora do gerenciador do Spring."
 ---
 
 Este documento explica a arquitetura de cache do Beyou: o que é cacheado e por quanto tempo, como escritas invalidam dados velhos, por que o agente de IA enxerga o mesmo cache que a API REST e quais caches em memória existem completamente fora do gerenciador do Spring.
@@ -88,7 +88,7 @@ A separação existe por uma razão de escala que o código explica: os jobs de 
 
 O custo honesto do design: como `routine` usa chaves compostas, um usuário editando uma rotina descarta o detalhe de rotina cacheado de todos os usuários. Em um deployment de host único com TTL de 30 minutos isso é aceitável; também é a primeira coisa a revisitar se leituras de rotina esquentarem.
 
-**Caminhos de escrita que evictam** (sempre dentro do método de service, depois da escrita): create/edit/delete de categoria, hábito, tarefa, meta e schedule; check, increase e decrease de meta; create, update, delete e adição/remoção de itens de rotina; check e skip ao vivo; e os check-ins de snapshot, que também mexem em XP. O agente de IA não precisa de lista própria, como a próxima seção explica.
+**Caminhos de escrita que evictam** (sempre dentro do método de service, depois da escrita): create/edit/delete de categoria, hábito, tarefa, meta e schedule; check, increase e decrease de meta; create, update, delete e adição/remoção de itens de rotina; check e skip ao vivo; os check-ins de snapshot, que também mexem em XP; e os dois outros caminhos que pagam XP fora de uma rotina, as recompensas do caderno de estudos e a conclusão de uma tarefa do calendário. O agente de IA não precisa de lista própria, como a próxima seção explica.
 
 As anotações de evicção são deliberadamente duplicadas entre os dois métodos por usuário em vez de delegadas, porque uma auto-invocação passaria por fora do proxy e silenciosamente não evictaria nada. O comentário na classe avisa que um cache adicionado a um bloco precisa entrar no outro.
 
@@ -99,6 +99,21 @@ As ferramentas do agente injetam os mesmos services que os controllers usam, ent
 - Os métodos de leitura cacheados carregam `@Transactional(readOnly = true)` especificamente porque as ferramentas do agente rodam em uma thread reativa onde o Open-Session-in-View não vale.
 - O `getTodayRoutineScheduled` resolve o "hoje" pelo timezone do dono a partir dos dados carregados, não do contexto da requisição, então funciona fora de uma requisição.
 - A evicção de check/skip mora nos métodos externos de service por onde tanto o controller quanto as ferramentas passam, e um teste de integração exercita exatamente essa costura, então realocar a evicção quebra o build.
+
+## O que fica sem cache de propósito
+
+Seis leituras vão ao banco toda vez, e cada service explica o motivo no próprio javadoc. A maioria divide um motivo só: a leitura recebe uma janela de dias, então um cache com chave no usuário responderia a uma janela com as linhas de outra, e uma chave composta precisaria da própria evicção em toda escrita que mexe nelas.
+
+| Leitura | Por que fica sem cache |
+|---------|------------------------|
+| Humor (`MoodService`) | Um intervalo de datas por leitura, sobre uma linha por dia. Não compensa o risco de dado velho |
+| Histórico de XP (`XpHistoryService`) | Uma janela por leitura, e as linhas mudam a cada check-in |
+| Modo Foco (`FocusService`) | A leitura de micro-tarefas também é uma escrita (materializa os nomes fixados), então uma resposta em cache pularia justamente as linhas que a pessoa está para marcar |
+| Caderno de estudos (`NotebookPageService`) | Calculado a partir do grafo inteiro do caderno, e o autosave escreve a cada pausa na digitação |
+| Ciclos de estudo (`StudyCycleService`) | As leituras também escrevem (um bloco GOAL tem o conceito fixado quando é aberto pela primeira vez), e cada pomodoro e cada mudança de status de página mexe nos números, então uma resposta em cache precisaria ser evictada nos caminhos de foco, página, quadro e quiz |
+| Calendário (`CalendarService`) | Um intervalo por leitura, e a visão geral também lê snapshots de rotina, metas e registros de humor, então todo check de rotina, edição de meta e toque no humor teria que evictá-la. O que ela custa no lugar disso é um punhado de consultas indexadas sobre no máximo nove semanas |
+
+Nenhum deles é lido por um método com cache, e por isso as escritas deles não evictam nada. A exceção é o XP: concluir uma tarefa do calendário e as recompensas do caderno mudam o XP do usuário, então esses dois caminhos passam pela evicção comum por usuário.
 
 ## Limpeza agendada de tarefas
 

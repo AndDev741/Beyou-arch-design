@@ -18,17 +18,29 @@ paths:
         `notIncluded` with the reason, so the file can be read as a whole.
 
         Top-level keys: `exportedAt`, `profile` (with the uploaded photo as base64,
-        `engagementEmails` and `linkedSignIns`), `categories`, `habits`, `goals`
-        (with `parentId` and `archivedAt`), `tasks`, `routines` (`type` is DAILY or
-        LIST, items carry `orderIndex`), `feedback`, `agentChats`, `checkHistory`
-        (the last 366 days), `moodEntries` (notes in full), `notebook` (`pages`,
-        `board`, `flashcards`, `flashcardReviews`, `sources`, `studyChats`,
-        `studyOutputs`, `roadmapDrafts`, `studyCycles` with each cycle's week, topics,
-        blocks, lap progress and closed laps, archived cycles included, and
-        `studySessions` with the cycle and lap each one went into), `focus` (`cycles`,
-        `microTasks`),
-        `dailyBriefings` (the generated lines for the days retention keeps),
-        `engagementEmailsSent` and `notIncluded`.
+        `engagementEmails`, `reminders` and `linkedSignIns`), `categories`, `habits`,
+        `goals` (with `parentId` and `archivedAt`), `tasks`, `routines` (`type` is
+        DAILY or LIST, items carry `orderIndex`), `feedback`, `agentChats`,
+        `checkHistory` (the last 366 days), `moodEntries` (notes in full),
+        `calendarTasks`, `notebook` (`pages`, `board`, `flashcards`,
+        `flashcardReviews`, `sources`, `studyChats`, `studyOutputs`, `roadmapDrafts`,
+        `studyCycles` with each cycle's week, topics, blocks, lap progress and closed
+        laps, archived cycles included, and `studySessions` with the cycle and lap
+        each one went into), `focus` (`cycles`, `microTasks`), `dailyBriefings` (the
+        generated lines for the days retention keeps), `engagementEmailsSent` and
+        `notIncluded`.
+
+        `profile.reminders` is the calendar reminder settings: `emails`,
+        `browserNotifications` and `defaultTime` (HH:mm). An account that never
+        opened the settings exports the defaults, all on and 09:00, the same way
+        `engagementEmails` exports true.
+
+        `calendarTasks` holds every calendar task, done or not, oldest day first:
+        `id`, `title`, `note`, `date`, `time` (null when untimed), `advanceMinutes`,
+        `completedAt`, `xpAwarded` and `createdAt`, plus what happened to its
+        reminder: `reminderClickedAt` (the browser notification was clicked) and
+        `reminderEmailSentAt`. The reminder instant is not exported. It is computed
+        on every read from the fields above and the account's timezone.
 
         `notIncluded` names routine snapshots, the text read out of notebook
         sources, the day-by-day XP ledger, the briefing's numbers (recomputed on

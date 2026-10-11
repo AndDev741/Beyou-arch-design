@@ -4,7 +4,7 @@ summary: "A API Spring Boot por trás de tudo: services de domínio com checagem
 ---
 # Beyou Backend
 
-A única API servindo o web app, o app mobile nativo e este site de documentação. Spring Boot 4.1 sobre Java 25 com virtual threads, PostgreSQL 15 atrás de um schema controlado pelo Flyway e 34 controllers REST sob `/api/v1`.
+A única API servindo o web app, o app mobile nativo e este site de documentação. Spring Boot 4.1 sobre Java 25 com virtual threads, PostgreSQL 15 atrás de um schema controlado pelo Flyway e 36 controllers REST sob `/api/v1`.
 
 ## O que vive aqui
 

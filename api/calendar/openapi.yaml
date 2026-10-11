@@ -1,0 +1,499 @@
+openapi: 3.1.0
+info:
+  title: Calendar and reminders
+  version: v0
+  description: |
+    The calendar: one-off tasks that belong to a date ("sign the lease", "book the dentist"),
+    each with an optional time and a reminder, plus one read that lays a range of days out with
+    everything else that happens on them. Every route is authenticated by the default rule;
+    writes fall under the `write` rate-limit tier and the reads under `read`.
+
+    A calendar task is its own entity and not a Task with a date. A routine task completes only
+    through a routine check, pays streak-aware XP and deletes itself the day after a one-time
+    check. A calendar task completes on its own, pays a flat amount and stays on its date for
+    good, done or not. A past task nobody completed is still on its own day, marked as not done;
+    it never moves to today. Calendar tasks never appear in a routine, on the Tasks page or in a
+    routine snapshot.
+
+    **The reminder instant is computed in one place, on the server**, and comes back on every
+    task as `notifyAt`. It is the task's date at its time (or at the owner's default reminder
+    time from `/notification/preferences` when the task has none), minus the advance notice, in
+    the owner's timezone. Whole days of advance come off the calendar and the rest off the clock,
+    so "1 day before" a 09:00 task is 09:00 the day before even when a daylight-saving change
+    falls in between, while "2 hours before" is two real hours. No column stores the instant and
+    no client recomputes it: a stored value would go stale the moment the owner changed
+    timezone or default time, and the web notifier, the mail job and the screens have to agree
+    on the minute.
+
+    A reminder reaches the owner two ways. The web app shows a browser notification at
+    `notifyAt` while a Beyou tab is open, and when nobody reacts within an hour the server mails
+    it once. A reaction is either a click on the notification (`POST .../ack`) or completing the
+    task. Moving a task's date, time or advance notice re-arms the reminder on both channels. The
+    mobile app shows no notifications yet; the mail covers it.
+
+    **Someone else's task does not exist.** Every lookup is by id AND owner, so a task the
+    caller does not own answers 404 `CALENDAR_TASK_NOT_FOUND` on every route, exactly like an id
+    that was never used, and no route can confirm which ids are taken. This is the one error key
+    in the API that answers 404; every other business error, the older domains' not-found keys
+    included, still answers 400.
+
+    Nothing here is cached. Every read is a range of days, so a cache keyed on the user would
+    answer one range with another's days, and the overview feeds on routine checks, goals and
+    mood taps that would all have to evict it.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /calendar:
+    get:
+      tags:
+      - calendar-controller
+      operationId: getOverview
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: First day, inclusive, as yyyy-MM-dd.
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: Last day, inclusive. Not before `from`, and at most 62 days counting both ends.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CalendarOverviewDTO'
+        '400':
+          description: |
+            `CALENDAR_RANGE_INVALID`: a bound is missing, `to` is before `from`, or the range
+            spans more than 62 days.
+      summary: Everything the calendar draws for a range of days
+      description: |
+        One entry per date in `[from, to]`, ascending, empty days included, so a client never
+        has to fill gaps. Each day carries its calendar tasks, its routines, the goals that end
+        on it and its mood. Both clients make one request per visible range and share the rules
+        below instead of each joining four sources its own way.
+
+        The range is capped at 62 days, counted inclusively. A month grid with its padding weeks
+        is at most 42, which leaves room for a client asking for two months at once. A wider range
+        is refused with `CALENDAR_RANGE_INVALID` rather than trimmed, so a client never draws days
+        it did not get. Both bounds are required, and a missing one gets the same key.
+
+        `today` in the answer is the owner's today in their own timezone. It is the line between
+        a routine's snapshot and its schedule, and what the clients highlight.
+
+        How a day's routines are chosen:
+
+        - A day up to today that has its snapshot shows the snapshot (`source: SNAPSHOT`): the
+          name the routine had that day, and how it went (`checkedItems` of `totalItems`).
+        - Today before its snapshot exists, and every future day, shows what the weekday schedule
+          assigns (`source: SCHEDULE`), with no counts.
+        - A past day with no snapshot shows no routine at all. The schedule may have changed
+          since, and drawing today's schedule over an old day would invent history.
+
+        Goals are the ones whose `endDate` is that day. Archived goals are left out, the way the
+        goals page hides them.
+  /calendar/tasks:
+    post:
+      tags:
+      - calendar-controller
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarTaskRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CalendarTaskResponseDTO'
+        '400':
+          description: '`INVALID_REQUEST` with a per-field map: a title shorter than 2 or longer than
+            255 characters, a note over 1000, no date, or an advance outside 0..10080 minutes.'
+      summary: Write a task down on a date
+      description: |
+        Only the title and the date are required. Any date is accepted, past ones included: a
+        task written down after the fact is still a task. The answer carries the reminder
+        instant already resolved (`notifyAt`).
+  /calendar/tasks/{id}:
+    put:
+      tags:
+      - calendar-controller
+      operationId: update
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarTaskRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CalendarTaskResponseDTO'
+        '400':
+          description: '`INVALID_REQUEST`, on the same rules as create.'
+        '404':
+          description: '`CALENDAR_TASK_NOT_FOUND`: no such task, or it belongs to someone else.'
+      summary: Replace the task, re-arming its reminder when it moved
+      description: |
+        The body is the whole task, so a null field means "none" and never "unchanged": a null
+        `time` makes the task untimed and a null `note` clears it.
+
+        When the date, the time or the advance notice changed, the reminder is re-armed: the
+        acknowledgement and the mail mark are both cleared, so the browser shows it again and,
+        if nobody reacts, the mail goes out again. Changing only the title or the note leaves the
+        reminder as it was. The re-arm also happens on a completed task, where it changes nothing
+        until the task is un-completed.
+    delete:
+      tags:
+      - calendar-controller
+      operationId: delete
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: '`CALENDAR_TASK_NOT_FOUND`: no such task, or it belongs to someone else.'
+      summary: Delete the task
+      description: |
+        XP a completed task paid stays paid. The task was done, and deleting it afterwards is
+        tidying up, not undoing.
+  /calendar/tasks/{id}/complete:
+    put:
+      tags:
+      - calendar-controller
+      operationId: toggleComplete
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/CalendarTaskCompletionDTO'
+        '404':
+          description: '`CALENDAR_TASK_NOT_FOUND`: no such task, or it belongs to someone else.'
+      summary: Complete an open task or re-open a completed one, moving XP with it
+      description: |
+        A toggle with no body. Completing pays what a task check pays at the lowest priority
+        rung with no streak bonus, the same as an unrated one-time routine task: 10 XP today. It
+        goes to the person only, since a calendar task has no category, habit or routine to share
+        it with, and it lands in the daily XP ledger like any other payment.
+
+        The amount paid is stored on the task (`xpAwarded`), and un-completing takes back exactly
+        that and zeroes it. A change to the formula between the two can never leave XP behind or
+        take more than was given.
+
+        Completing also counts as a reaction to the reminder, so a task done before its mail was
+        due is never mailed. The answer carries the task as it now stands and the same
+        `RefreshUiDTO` a goal completion returns, so the client can repaint the XP bar and queue a
+        level-up from this one response.
+  /calendar/tasks/{id}/ack:
+    post:
+      tags:
+      - calendar-controller
+      operationId: acknowledge
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: '`CALENDAR_TASK_NOT_FOUND`: no such task, or it belongs to someone else.'
+      summary: Record that the reminder's notification was clicked
+      description: |
+        What the web app sends when someone clicks a reminder notification. It is the reaction
+        that stops the mail: an acknowledged reminder is never mailed and no longer appears in
+        `/calendar/tasks/upcoming`. It does not complete the task.
+
+        Idempotent. The first click is the one kept, and a second call changes nothing. Moving the
+        task's date, time or advance clears it, because a moved task has a new reminder that
+        nobody has seen yet.
+  /calendar/tasks/upcoming:
+    get:
+      tags:
+      - calendar-controller
+      operationId: upcoming
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarTaskResponseDTO'
+      summary: The reminders the browser should show, soonest first
+      description: |
+        Open, unacknowledged tasks whose `notifyAt` falls between an hour ago and a day ahead,
+        ordered by `notifyAt`. The web notifier polls this while a tab is open and arms a timer
+        per entry. The hour behind matches the mail's grace period: a reminder missed by less than
+        an hour is still shown when a tab opens, and one missed by more is the mail's to deliver.
+
+        The account's `reminderWeb` switch is NOT applied here. Whether to show a notification
+        also depends on a permission only the browser knows, so the client checks both and this
+        stays a plain list.
+components:
+  schemas:
+    CalendarTaskRequestDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 2
+          description: Required. Leading and trailing spaces are stripped.
+        note:
+          type: string
+          maxLength: 1000
+          description: Optional, and short on purpose; the diary is where long writing goes. Null
+            clears it, and a note of nothing but spaces is stored as none.
+        date:
+          type: string
+          format: date
+          description: The day the task belongs to, in the owner's own calendar.
+        time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$'
+          examples:
+          - '10:00'
+          description: Optional, as HH:mm. Seconds are accepted and dropped. Null means "some time
+            that day", and the reminder then uses the owner's default reminder time.
+        advanceMinutes:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10080
+          description: How long before the task's time the reminder fires. Null means 0. The
+            clients offer 0, 15, 30, 60, 120 and 1440; the server takes anything up to a week.
+      required:
+      - date
+      - title
+      description: The create and edit body. An edit sends the whole task, so null means none,
+        never unchanged.
+    CalendarTaskResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        note:
+          type: string
+          description: Null when there is none.
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          examples:
+          - '10:00'
+          description: HH:mm, or null for an untimed task.
+        advanceMinutes:
+          type: integer
+          format: int32
+        completed:
+          type: boolean
+        completedAt:
+          type: string
+          format: date-time
+          description: When it was completed, or null. Completion is this timestamp; `completed`
+            only restates it.
+        xpAwarded:
+          type: number
+          format: double
+          description: What completing it paid, and so what un-completing takes back. 0 while open.
+        notifyAt:
+          type: string
+          format: date-time
+          description: The reminder instant in UTC, resolved by the server from the date, the time
+            (or the owner's default time), the advance and the owner's timezone. Clients schedule
+            from it and never compute it themselves.
+      description: One calendar task. No user id, and no acknowledgement or mail fields; whether a
+        reminder got a reaction is the server's business.
+    CalendarTaskCompletionDTO:
+      type: object
+      properties:
+        task:
+          $ref: '#/components/schemas/CalendarTaskResponseDTO'
+        refreshUi:
+          $ref: '#/components/schemas/RefreshUiDTO'
+      description: The task after the toggle, and the XP numbers to repaint from.
+    CalendarOverviewDTO:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        today:
+          type: string
+          format: date
+          description: The owner's today in their own timezone.
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarDayDTO'
+          description: One entry per date in [from, to], ascending, empty days included.
+    CalendarDayDTO:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarTaskResponseDTO'
+          description: Timed tasks first by time, then untimed ones in the order they were written.
+        routines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarRoutineDTO'
+          description: Ordered by name. Empty on a past day with no snapshot.
+        goals:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarGoalDTO'
+          description: Goals ending this day, archived ones left out, ordered by name.
+        mood:
+          $ref: '#/components/schemas/CalendarMoodDTO'
+          description: Null when the day has no mood entry.
+    CalendarRoutineDTO:
+      type: object
+      properties:
+        routineId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: For a snapshot, the name the routine had on that day.
+        iconId:
+          type: string
+        source:
+          type: string
+          enum:
+          - SNAPSHOT
+          - SCHEDULE
+          description: SNAPSHOT is the day's frozen record, so the counts say how it went. SCHEDULE
+            is what the weekday schedule assigns, so it only says what the day holds.
+        totalItems:
+          type: integer
+          format: int32
+          description: Every item on the day's record. Null for SCHEDULE.
+        checkedItems:
+          type: integer
+          format: int32
+          description: Items checked that day; a skip counts as not checked. Null for SCHEDULE.
+        completed:
+          type: boolean
+          description: Whether the day's record says the routine was completed. Always false for
+            SCHEDULE.
+    CalendarGoalDTO:
+      type: object
+      properties:
+        goalId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        complete:
+          type: boolean
+      description: A goal whose end date is this day.
+    CalendarMoodDTO:
+      type: object
+      properties:
+        level:
+          type: integer
+          format: int32
+          description: 1 (awful) to 5 (great).
+        hasNote:
+          type: boolean
+          description: Whether the day has diary text. The text itself never travels here; it stays
+            on the mood page, which is where someone goes to read what they wrote.
+    RefreshUiDTO:
+      type: object
+      properties:
+        refreshUser:
+          $ref: '#/components/schemas/RefreshUserDTO'
+        refreshCategories:
+          type: array
+          items:
+            type: object
+          description: Always empty for a calendar task, which pays no category.
+        refreshHabit:
+          type: object
+          description: Always null for a calendar task.
+        refreshItemChecked:
+          type: object
+          description: Always null for a calendar task.
+      description: The shape every XP-moving route returns. A calendar completion fills only the
+        user.
+    RefreshUserDTO:
+      type: object
+      properties:
+        currentConstance:
+          type: integer
+          format: int32
+        alreadyIncreaseConstanceToday:
+          type: boolean
+        maxConstance:
+          type: integer
+          format: int32
+        xp:
+          type: number
+          format: double
+        level:
+          type: integer
+          format: int32
+        actualLevelXp:
+          type: number
+          format: double
+        nextLevelXp:
+          type: number
+          format: double

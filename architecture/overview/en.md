@@ -49,6 +49,7 @@ erDiagram
   USER ||--o{ GOAL : owns
   USER ||--o{ ROUTINE : owns
   USER ||--o{ NOTEBOOK_PAGE : owns
+  USER ||--o{ CALENDAR_TASK : owns
 
   CATEGORY }o--o{ HABIT : tagged
   CATEGORY }o--o{ TASK : tagged
@@ -85,6 +86,7 @@ erDiagram
 - **Checks**: daily check/skip records for habit and task groups inside routines, with XP generation tracking.
 - **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.
 - **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
+- **Calendar task**: a one-off task on a date, with an optional time and a reminder. It lives outside routines, pays a flat 10 XP when completed, and stays on its own day whether done or not.
 - **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
 - **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations. Study cycles put topics in a queue of time and goal blocks studied lap after lap, fed by pomodoros on the topic's pages and by sessions logged by hand.
 
@@ -134,7 +136,7 @@ sequenceDiagram
 
 ## API layer
 
-34 REST controllers organized by domain, all under `/api/v1`:
+36 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
@@ -144,6 +146,7 @@ sequenceDiagram
 | **History** | CheckHistory, XpHistory | /check-history, /xp |
 | **Focus Mode** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diary** | Mood | /mood |
+| **Calendar** | Calendar | /calendar, /calendar/tasks |
 | **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Daily Briefing** | DailyBriefing | /daily-briefing |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
@@ -205,6 +208,7 @@ flowchart LR
 
 - **XpProgress** is an embeddable component shared by User, Category, Habit, and Routine.
 - XP is generated when a habit or task is checked inside a routine.
+- Completing a calendar task pays the user 10 XP, and un-completing takes that back.
 - The study notebook pays fixed amounts once each: 15 for a page finished the first time, 20 for a quiz passed the first time, 1 per reviewed flashcard up to 30 a day.
 - Level progression follows a seeded XP-per-level table (XpByLevelSeeder).
 - Constance (streak) tracks consecutive completed days on the User entity.
