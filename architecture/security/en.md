@@ -144,9 +144,11 @@ through it:
 4. **Address trusted and unknown** - create the account and the link together.
 
 Both refusals reach the client as a 403 in the standard error envelope: `errorKey`
-`FEDERATED_LINK_REQUIRED`, with the reason and the provider's slug in `details`. Every
-other refusal in the API is a 400, and this one is not, because it is not a failure. The
-client branches on it and sends the person to sign in their usual way, then link.
+`FEDERATED_LINK_REQUIRED`, with the reason and the provider's slug in `details`. Nearly
+every other refusal in the API is a 400 (the calendar's not-found is the other exception,
+see [Ownership](#ownership-the-authorization-model)), and this one is not, because it is
+not a failure. The client branches on it and sends the person to sign in their usual way,
+then link.
 
 `trustEmailVerified` is per provider and defaults to false. Turning it on is a statement
 about the operator of that issuer, not about their code: it says a `true` there means
@@ -246,7 +248,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 
 The Daily Briefing sits above the generic read tier for its own reason: the first call of a user's day creates a row and may hold the request for up to eight seconds waiting on the LLM that writes the briefing's prose, and the 60-a-minute read budget is sized for list reads. Ten an hour covers two clients, a reload and a retry, against an answer that is cached on the row for the rest of the day. Its sibling `POST /daily-briefing/seen` deliberately stays in the generic write tier, being a single-column update with no model behind it. `GET /daily-briefing/narrative` is matched out of the tier too, by an exact path match on the briefing route: it is the dialog polling for prose that landed after the eight seconds, about ten primary-key reads over a minute, and on ten an hour it would run dry inside that first minute.
 
-The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response, from habits and routines to the diary, the notebook, focus history, morning briefings and every assistant conversation, assembled in memory and serialized in one go. Measured on a synthetic account with a year of heavy use, that is about 2.5 MB of JSON built in under half a second, which is why it stays a plain request and not a background job. Sixty a minute of it is still a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
+The export sits above the generic read tier for a reason worth stating: it is a GET, but it returns the entire account in one response, from habits and routines to the diary, calendar tasks, the notebook, focus history, morning briefings and every assistant conversation, assembled in memory and serialized in one go. Measured on a synthetic account with a year of heavy use, that is about 2.5 MB of JSON built in under half a second, which is why it stays a plain request and not a background job. Sixty a minute of it is still a way to hold the heap, and nobody taking their data needs a sixth copy inside the hour.
 
 The study notebook has two tiers of its own, both matched ahead of the generic write tier. Every route under `/notebook/ai/` is a model call: the study room's chat and outputs, the roadmap draft, suggestions, "explain" and AI flashcards. A study session is a run of short questions against the same sources, and sharing the assistant's 30 an hour would let an evening of studying lock the person out of the assistant, so the notebook gets 60, one question a minute for an hour. Adding a source parses a PDF in memory or fetches a page from the internet, then reads and embeds it in the background, and 20 an hour is a whole reading list in one sitting. The study cycle routes, `/notebook/cycles/**` and `/notebook/sessions/**`, have no tier of their own: their reads spend the generic read budget and every other method the generic write one, the editor's `POST /notebook/cycles/plan` preview included, even though it writes nothing.
 
@@ -273,7 +275,7 @@ Deleting an account is the one action where a logged-in session is deliberately 
 1. `POST /user/deletion/code` mails a six-digit code. BCrypt-hashed at rest, 15-minute TTL, 60-second cooldown between requests, and each new code invalidates the previous ones.
 2. `POST /user/deletion/confirm` checks, in order: already used, expired, too many attempts (5), then the hash comparison. The attempts counter increments in its own REQUIRES_NEW transaction, because the exception that follows a wrong guess rolls the outer transaction back, and counting inline would have left the cap unreachable.
 3. Spending the code deletes its row inside the same transaction, which doubles as a lock: a racing second confirm blocks, loses, and gets a keyed error.
-4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, history rows through database-level cascades, and the mood entries with the journal text in them, also by database cascade. Every table added since cascades from `users` the same way: focus, linked sign-ins, the briefing, the notebook and its study cycles, the nudge mails. `AccountDeletionIntegrationTest` and the runbook's test read the tables pointing at `users` from the live schema, put a row in each, delete, and expect none left, so a new table that forgets its cascade fails there. Files on disk are purged after commit, best-effort: feedback attachments and the profile photo. The photo was missed at first, because the database rows cascade and the bytes on disk do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
+4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, history rows through database-level cascades, and the mood entries with the journal text in them, also by database cascade. Every table added since cascades from `users` the same way: focus, linked sign-ins, the briefing, the notebook and its study cycles, the nudge mails, the calendar tasks. `AccountDeletionIntegrationTest` and the runbook's test read the tables pointing at `users` from the live schema, put a row in each, delete, and expect none left, so a new table that forgets its cascade fails there. Files on disk are purged after commit, best-effort: feedback attachments and the profile photo. The photo was missed at first, because the database rows cascade and the bytes on disk do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
 5. The refresh cookie is cleared only after success, so a refused code leaves the session intact.
 
 ## The journal, and what is done with it
@@ -312,6 +314,10 @@ The notebook holds the second kind of personal writing in the product, study not
 ## Ownership: the authorization model
 
 There is no method-level security in the codebase, on purpose. The model is one rule applied everywhere: every service method receives the authenticated user's id and compares it against the loaded entity's owner, throwing a keyed error on mismatch (CATEGORY_NOT_OWNED, HABIT_NOT_OWNED, TASK_NOT_OWNED, GOAL_NOT_OWNED, ROUTINE_NOT_OWNED, SNAPSHOT_NOT_OWNED, CHAT_NOT_OWNED, FEEDBACK_NOT_OWNED, NOTEBOOK_PAGE_NOT_OWNED, FOCUS_MICRO_TASK_NOT_OWNED, STUDY_CYCLE_NOT_OWNED). Schedules route through the owning routine, which is what closed an early IDOR. The study notebook routes every card, source, output, board node and edge through the page it hangs off, via `NotebookOwnership`. A study cycle checks its own owner in `StudyCycleService` and its blocks are reached only through it, while the topics and pages a cycle names get the notebook's page refusals. A logged study session that belongs to somebody else answers `STUDY_SESSION_NOT_FOUND`, the same as one that does not exist. These all surface as HTTP 400 with an errorKey; clients discriminate on the key, not the status.
+
+The calendar is built the other way round, and it is the one exception to that 400. `CalendarTaskRepository.findByIdAndUserId` puts the owner inside the lookup instead of checking it afterwards, so a task that belongs to someone else and an id nobody ever used get the same answer on every route (edit, delete, complete, acknowledge): 404 `CALENDAR_TASK_NOT_FOUND`. A NOT_OWNED key tells the caller the id exists; this answer tells them nothing. The status comes from `GlobalExceptionHandler.NOT_FOUND_KEYS`, an opt-in list that holds this one key today. The older domains keep answering 400 for their own not-found keys, because the web and mobile clients were written against that and moving them is a coordinated change of its own. A domain designed from now on puts its not-found key on the list from the start. `calendar.spec.ts` sends all four writes from a second account and expects the 404 on each.
+
+The calendar's reminder mail carries the task's title and note, which are the user's own words. Both are HTML-escaped, the title has control characters flattened before it becomes the subject header, and a failed send logs ids only.
 
 Exactly one role rule exists: `/feedback/admin/**` requires ADMIN. The ADMIN role is granted only by a manual database update. No seed, no endpoint, no environment variable can mint an admin.
 
@@ -425,7 +431,7 @@ The agent chat can call real tools, so its authority model matters:
 | Brute-force login | Yes | 5/15min per IP plus 10-failure account lockout |
 | User enumeration | Mostly | Login and reset are silent; registration and the reset cooldown are the documented exceptions |
 | Token replay after rotation | Yes | Old refresh tokens are revoked transactionally |
-| IDOR | Yes | Ownership check in every service, keyed errors, schedule routed through its routine |
+| IDOR | Yes | Ownership check in every service, keyed errors, schedule routed through its routine, calendar lookups scoped to the owner |
 | Decompression bombs | Yes | Header-level pixel cap before decode |
 | Confused-deputy AI tools | Yes | Server-built ToolContext; tools inherit caller authority only |
 | Session fixation | Yes | No sessions exist |

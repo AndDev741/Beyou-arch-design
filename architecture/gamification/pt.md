@@ -1,6 +1,6 @@
 ---
 title: "Gamificação"
-summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento, o livro-razão diário assinado que torna cada número auditável, como o fuso da própria conta decide em que dia tudo isso cai, e as três recompensas de pagamento único do caderno de estudos."
+summary: "A fórmula de XP, a curva quadrática de levels, dois sistemas de streak que só quebram numa falta real, check-ins atrasados com decaimento, o livro-razão diário assinado que torna cada número auditável, como o fuso da própria conta decide em que dia tudo isso cai, as três recompensas de pagamento único do caderno de estudos, e os dez fixos que uma tarefa do calendário paga."
 ---
 
 Tudo na gamificação do Beyou serve a um comportamento: aparecer todo dia. Este documento explica a mecânica exata, fórmula por fórmula, incluindo de onde os números vêm e o que deliberadamente não existe.
@@ -98,6 +98,12 @@ Checks atrasados nunca recebem bônus de streak (o streak já tinha quebrado na 
 
 Metas pagam uma vez, pelo endpoint explícito de conclusão, calculadas por tamanho do alvo, dificuldade, urgência e terminar antes do prazo (a tabela completa de fatores vive no tópico do modelo de domínio). A recompensa vai para o usuário e as categorias da meta; metas não têm level próprio. Completar é um toggle: descompletar devolve o XP e retorna a meta a em-progresso. Atualizações de progresso não pagam nada, e é isso que torna uma meta falsa pré-completada inútil. Metas aninhadas mantêm a mesma regra em cada nível: uma submeta paga quando é concluída, o pai paga quando é concluído, e não há bónus por fechar uma árvore inteira, pela mesma razão que o pomodoro não paga nada por cima do check que embrulha. A única coisa que uma submeta faz ao pai é começá-lo: o primeiro increment numa filha move um pai NOT_STARTED para IN_PROGRESS.
 
+## Tarefas do calendário
+
+Uma tarefa do calendário paga o que um check de tarefa paga no degrau de prioridade mais baixo, sem bônus de streak: `5 × (1 + 1)`, ou seja, 10 XP. É o mesmo que uma tarefa única de rotina sem prioridade ganha, porque tudo o que o app chama de tarefa deve pagar do mesmo jeito. O XP vai só para o usuário. Uma tarefa do calendário não tem categoria, hábito nem rotina com quem dividir, e cai no livro-razão diário como qualquer outro pagamento.
+
+Concluir é um toggle, e o valor pago fica guardado na tarefa. Desmarcar devolve exatamente esse valor, então uma mudança na fórmula entre uma coisa e outra nunca deixa XP para trás nem tira mais do que foi dado. Apagar uma tarefa concluída mantém o que ela pagou: a tarefa foi feita, e removê-la depois é arrumação. Tarefas do calendário não escrevem linhas de resultado, não têm streak próprio e não contam para o streak da conta. Acontecem uma vez, numa data, e um streak precisa de algo que se repita.
+
 ## O caderno de estudos
 
 O caderno paga três valores fixos, todos guardados no `NotebookRewards`, e nenhum depende de dificuldade, importância ou streak:
@@ -122,6 +128,6 @@ Os frontends detectam momentos por comparação, não por flag do backend: a res
 
 ## O que deliberadamente não existe
 
-Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os quatro caminhos de XP com reversão (check de hábito, check de tarefa, check de snapshot, conclusão de meta) e as três recompensas de pagamento único do caderno são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
+Sem bônus de dia completo, sem pagamento por rotina completa, sem XP de resumo semanal. Os cinco caminhos de XP com reversão (check de hábito, check de tarefa, check de snapshot, conclusão de meta, conclusão de tarefa do calendário) e as três recompensas de pagamento único do caderno são a economia inteira. Skips não podem ser colocados no futuro, já que um skip adiantado sem limite tornaria um streak inquebrável.
 
 Registar um humor também não paga nada, e essa é uma decisão de produto e não um esquecimento. Pagar por um sentimento transforma uma escala de cinco pontos em algo para farmar, e uma escala farmada deixa de descrever o que quer que seja, o que custaria ao diário a única coisa para que ele serve. A contagem de dias seguidos que o diário mostra é derivada no cliente a partir dos próprios registos. Não é um streak deste sistema, não alimenta multiplicador nenhum e nada a paga.

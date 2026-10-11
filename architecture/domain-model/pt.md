@@ -1,6 +1,6 @@
 ---
 title: "Modelo de Domínio"
-summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, caderno de estudos, feedback e chats de IA construídas ao redor."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, calendário, caderno de estudos, feedback e chats de IA construídas ao redor."
 ---
 
 Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
@@ -9,7 +9,7 @@ Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações e
 
 ## O quadro geral
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, o caderno de estudos, as threads de feedback e os chats do agente de IA.
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, as tarefas com data do calendário, o caderno de estudos, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -338,6 +338,34 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 
 **Privacidade**: a nota é o único sítio do produto onde alguém escreve longamente para si próprio. Nunca chega ao armazenamento do navegador (a slice `mood` está na blacklist do persist na web e o redux do mobile é só em memória), a exportação da conta leva cada registo com as palavras intactas, e a ferramenta de leitura do assistente devolve datas, níveis e se um dia tem nota, nunca a nota.
 
+## Tarefas do calendário
+
+**Papel no produto**: uma obrigação avulsa que pertence a uma data, como assinar um contrato ou marcar o dentista, com um lembrete antes. Antes do calendário, o único jeito de colocar uma dessas no app era criar uma tarefa única e adicioná-la a uma rotina, o que dava trabalho o bastante para quase nunca acontecer.
+
+**CalendarTask** (tabela calendar_tasks): uma linha por tarefa, adicionada na V40.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| title | String (255) | Obrigatório, de 2 a 255 caracteres |
+| note | String (1000), anulável | Uma nota curta, não um diário. O limite também está na coluna, então um cliente que pule o DTO não consegue colocar um romance num e-mail de lembrete |
+| taskDate | LocalDate | O dia do próprio dono, como toda data aqui |
+| taskTime | LocalTime, anulável | Só minutos. Null quer dizer "em algum momento do dia", e aí o lembrete usa o horário padrão de lembrete do dono |
+| advanceMinutes | int | Quanto tempo antes do horário o lembrete dispara. De 0 a 10080 (uma semana), com um CHECK espelhando o DTO; os clientes oferecem até um dia |
+| completedAt | Instant, anulável | A conclusão é este timestamp. Não existe flag separada |
+| xpAwarded | double | O que concluir pagou, para que desmarcar devolva exatamente isso e não o que a fórmula disser naquele dia |
+| acknowledgedAt | Instant, anulável | Quando a notificação do navegador foi clicada |
+| reminderEmailSentAt | Instant, anulável | Quando o e-mail de reserva saiu |
+| createdAt / updatedAt | Instant | `updatedAt` também é como o job de e-mail percebe que uma tarefa foi editada enquanto o e-mail dela estava saindo |
+
+- **Uma tabela própria em vez de uma data em `tasks`.** Uma tarefa de rotina só é concluída por um check de rotina, paga XP que depende da sequência e se apaga no dia seguinte a um check de tarefa única. Uma tarefa do calendário não faz nada disso: é concluída por conta própria, paga um valor fixo e fica no seu dia para sempre, feita ou não. Juntar as duas entortaria as três regras para toda tarefa de rotina só para servir a esta. Uma tarefa passada que ninguém concluiu continua no seu próprio dia como não feita e nunca vai para hoje.
+- **Nenhum instante de lembrete guardado.** O instante é a data no horário da tarefa (ou no horário padrão do dono), menos a antecedência, no fuso do dono, e `CalendarReminderTime.instantOf` calcula isso a cada leitura. O `notifyAt` da resposta, a lista de próximos lembretes que o navegador consulta e o job de e-mail chamam essa mesma função. Uma coluna guardada ficaria velha no dia em que o dono trocasse de fuso ou de horário padrão, e ninguém perceberia. Dias inteiros de antecedência saem do calendário e o resto sai do relógio, então "1 dia antes" mantém o horário de parede mesmo com uma mudança de horário de verão no meio.
+- **Se alguém reagiu são dois timestamps.** `acknowledged_at`, `reminder_email_sent_at` e `completed_at` são todo o estado do lembrete. Editar a data, o horário ou a antecedência limpa os dois primeiros, então uma tarefa movida lembra de novo nos dois canais.
+- Toda busca é por id e dono juntos (`findByIdAndUserId`), então a tarefa de outra pessoa se comporta igual a uma que não existe: 404 `CALENDAR_TASK_NOT_FOUND`.
+- Três índices. `(user_id, task_date)` atende toda leitura dos clientes. Um parcial em `task_date` cobre as tarefas que ainda não tiveram reação, que é o que o job de e-mail varre a cada cinco minutos em todas as contas, e um parcial em `reminder_email_sent_at` deixa o job contar os e-mails do dia para o seu teto. Tarefas feitas e respondidas, que são a maior parte da tabela depois de um tempo, não custam nada ao job.
+- A visão de dia do calendário junta estas linhas com snapshots de rotina, a agenda da rotina, as datas finais das metas e os registros de humor na hora da leitura. Nada disso é copiado para cá.
+- `ON DELETE CASCADE`, como `mood_entries`. Uma lista de afazeres não significa nada depois da conta que a escreveu.
+- Deliberadamente sem cache, como o humor e o caderno. Toda leitura é um intervalo de datas.
+
 ## Caderno de estudos
 
 **Papel no produto**: onde alguém organiza um assunto que está aprendendo. Um tópico vira um quadro de roadmap, cada nó abre uma página de anotações, fontes entram nas páginas para uma IA de estudo ancorada nelas, e flashcards voltam num cronograma espaçado. Nove tabelas chegaram juntas na V34, todas com cascade a partir de `users`. As regras e a classe dona de cada uma estão no [tópico do caderno de estudos](/architecture/study-notebook).
@@ -467,14 +495,14 @@ documento de segurança para a regra de resolução que essas linhas alimentam.
 
 ## Entidades de auth e conta
 
-Cinco pequenas entidades pendem da conta. Três guardam hashes para os fluxos de segurança, todas ManyToOne para User; as outras duas guardam uma preferência e um log do e-mail que essa preferência permitiu:
+Cinco pequenas entidades pendem da conta. Três guardam hashes para os fluxos de segurança, todas ManyToOne para User; as outras duas guardam as preferências de e-mail e um log do e-mail de engajamento que elas permitiram:
 
 | Entidade | Tabela | O que guarda |
 |----------|--------|--------------|
 | RefreshToken | refresh_tokens | Hash do refresh token de 15 dias, expiração, revokedAt |
 | PasswordResetToken | password_reset_tokens | Hash do token de reset, expiração, usedAt |
 | AccountDeletionCode | account_deletion_codes | Hash BCrypt de um código de seis dígitos, expiração, usedAt e um contador de tentativas que mata o código depois de alguns erros |
-| NotificationPreferences | notification_preferences | Se a conta pode receber e-mail de engajamento, mais o token que um link de cancelamento carrega. OneToOne em vez de ManyToOne, chaveada pelo próprio id do usuário via `@MapsId` para que a chave e a associação não possam divergir |
+| NotificationPreferences | notification_preferences | Se a conta pode receber e-mail de engajamento, o token que um link de cancelamento carrega e, desde a V40, como os lembretes do calendário chegam à conta (colunas abaixo). OneToOne em vez de ManyToOne, chaveada pelo próprio id do usuário via `@MapsId` para que a chave e a associação não possam divergir |
 | NotificationSend | notification_sends | Uma linha por e-mail de engajamento efetivamente enviado: o tipo e a data local de QUEM RECEBE, não a do servidor. Uma constraint UNIQUE em (usuário, tipo, dia) é o que impede a passada horária de enviar a mesma coisa duas vezes; as mesmas linhas respondem ao intervalo por conta e ao teto diário global |
 
 A verificação de e-mail é a exceção: vive como colunas na tabela users em vez de entidade própria. Isso também quer dizer que o token fica ali em texto plano, ao contrário dos tokens de reset e de exclusão ao lado, que são guardados como hash BCrypt.
@@ -482,6 +510,20 @@ A verificação de e-mail é a exceção: vive como colunas na tabela users em v
 O token de cancelamento também é guardado cru, e esse é uma decisão, não uma herança. Os três acima são segredos de uso único, então o hash é de graça. Um token de cancelamento é estável — todo e-mail de engajamento pelo resto da vida da conta aponta para ele — e um hash não pode ser desfeito para montar esse link, então hashear forçaria um token novo por envio e mataria o link de toda mensagem já entregue. A ausência de linha significa que a conta nunca recebeu e-mail e nunca abriu a configuração; quem lê tem que tratar isso como opt-in.
 
 Diferente das três tabelas de token, esta não tem expiração nem marca de uso único: uma preferência não é gasta ao ser usada.
+
+**Colunas de notification_preferences**
+
+| Coluna | Tipo | Padrão | Notas |
+|--------|------|--------|-------|
+| user_id | UUID | | Chave primária e chave estrangeira para `users` |
+| engagement_email | boolean | true | Os nudges de engajamento. A única chave que o link de cancelamento vira |
+| reminder_email | boolean | true | O e-mail de reserva do calendário para um lembrete que ninguém respondeu. Independente de `engagement_email`: desligar nudges que ninguém pediu não pode silenciar um lembrete que alguém criou |
+| reminder_web | boolean | true | Notificações do navegador para lembretes do calendário. Guardada para a escolha acompanhar a conta; cada navegador ainda concede a própria permissão, e só o cliente lê esta coluna |
+| reminder_default_time | time | 09:00 | Quando uma tarefa do calendário sem horário próprio lembra, antes de a antecedência ser descontada |
+| unsubscribe_token | String (64) | | Guardado cru, pelo motivo acima |
+| created_at / updated_at | Instant | | |
+
+As três colunas de lembrete chegaram na V40 com padrões constantes, e uma linha ausente é lida com esses mesmos padrões, então o `NotificationPreferencesService` e a migração precisam concordar. O calendário lê as configurações sem criar a linha, dentro de transações só de leitura em que o `getOrCreate` não conseguiria inserir.
 
 ## Sistema de progressão de XP
 
@@ -553,7 +595,7 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | User (nível de banco) | Todas as tabelas do caderno | ON DELETE CASCADE | A exclusão da conta leva o caderno inteiro |
 | User (nível de banco) | StudyCycle, StudySession | ON DELETE CASCADE | As outras cinco tabelas do ciclo de estudos vêm em cascade por `study_cycles`, então a exclusão da conta leva as sete |
 | StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
-| User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
+| User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
 | NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
 | NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
@@ -602,6 +644,10 @@ flowchart LR
     focus_micro_tasks
     mood_entries
     daily_briefing
+  end
+
+  subgraph calendar["Calendário"]
+    calendar_tasks
   end
 
   subgraph notebook["Caderno de estudos"]

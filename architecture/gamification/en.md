@@ -1,6 +1,6 @@
 ---
 title: "Gamification"
-summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, the signed daily ledger that makes every number auditable, how the account's own timezone decides which day any of it lands on, and the study notebook's three pay-once rewards."
+summary: "The XP formula, the quadratic level curve, two streak systems that only break on a real miss, decayed late check-ins, the signed daily ledger that makes every number auditable, how the account's own timezone decides which day any of it lands on, the study notebook's three pay-once rewards, and the flat ten a calendar task pays."
 ---
 
 Everything in Beyou's gamification serves one behavior: showing up daily. This document explains the exact mechanics, formula by formula, including where the numbers come from and what deliberately does not exist.
@@ -98,6 +98,12 @@ Late checks never receive a streak bonus (the streak was already broken by the m
 
 Goals pay once, through the explicit complete endpoint, calculated from target size, difficulty, urgency, and finishing before the deadline (the full factor table lives in the domain model topic). The reward goes to the user and the goal's categories; goals themselves have no level. Completing is a toggle: un-completing takes the XP back and returns the goal to in-progress. Progress updates pay nothing, which is what makes a fake pre-completed goal worthless. Nested goals keep the same rule at every level: a sub-goal pays when it is completed, its parent pays when it is completed, and there is no bonus for finishing a whole tree, for the same reason the pomodoro pays nothing on top of the check it wraps. The only thing a sub-goal does to its parent is start it: the first increment on a child moves a NOT_STARTED parent to IN_PROGRESS.
 
+## Calendar tasks
+
+A calendar task pays what a task check pays at the lowest priority rung, with no streak bonus: `5 × (1 + 1)`, so 10 XP. That is what an unrated one-time routine task earns too, since anything the app calls a task should pay the same way. The XP goes to the user only. A calendar task has no category, habit or routine to share it with, and it lands in the daily ledger like every other payment.
+
+Completing is a toggle, and the amount paid is stored on the task. Un-completing takes back exactly that, so a change to the formula between the two can never leave XP behind or take back more than was given. Deleting a completed task keeps what it paid: the task was done, and removing it afterwards is tidying up. Calendar tasks write no outcome rows, build no streak of their own and do not count toward the account streak. They happen once, on one date, and a streak needs something that repeats.
+
 ## The study notebook
 
 The notebook pays three fixed amounts, all held in `NotebookRewards`, and none of them depends on difficulty, importance or a streak:
@@ -122,6 +128,6 @@ The frontends detect moments by comparison, not by backend flags: a check respon
 
 ## What deliberately does not exist
 
-No daily completion bonus, no routine-completion payout, no weekly recap XP. The four XP paths with reversals (habit check, task check, snapshot check, goal completion) and the notebook's three pay-once rewards are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
+No daily completion bonus, no routine-completion payout, no weekly recap XP. The five XP paths with reversals (habit check, task check, snapshot check, goal completion, calendar task completion) and the notebook's three pay-once rewards are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
 
 Recording a mood earns nothing either, and that one is a product decision rather than an omission. Paying for a feeling turns a five-point scale into something to farm, and a farmed scale stops describing anything, which would cost the diary the only thing it is for. The days-in-a-row count the diary shows is derived in the client from the entries themselves. It is not a streak in this system, it feeds no multiplier, and nothing pays it out.
