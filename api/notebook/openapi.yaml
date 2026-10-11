@@ -42,6 +42,12 @@ info:
     - 1 per reviewed card, collected by `POST /notebook/reviews/finish`, at most 30 a day. Reviews
       past the cap still move the schedule.
 
+    Study cycles (`/notebook/cycles/**`, `/notebook/sessions/**`) pay no XP. A cycle is an ordered
+    queue of TIME and GOAL blocks over notebook topics, studied lap after lap. Minutes reach it from
+    finished pomodoros on a topic's pages and from sessions logged by hand; a GOAL block also closes
+    when the page it aims at reaches DONE. A cycle that belongs to somebody else answers
+    `STUDY_CYCLE_NOT_OWNED`, and the topics and pages a cycle names are checked like every other page.
+
     The study AI is grounded. Chat answers, summaries, study guides, quizzes and AI flashcards are
     written from numbered passages, the page's own notes and its ancestors' first, then the passages
     retrieved from its sources. Answers cite them as `[n]`. The server drops any number the model
@@ -1748,8 +1754,9 @@ paths:
         topics or their weights) the server plans again and merges: the k-th block of a topic in the new
         plan keeps the id, the lap progress and the per-block settings of the k-th block of that topic in
         the old list. Unmatched old blocks go, with their progress. A rename alone keeps a hand-arranged
-        order. Removing a topic frees it for another cycle. Archived cycles answer STUDY_CYCLE_NOT_FOUND to
-        every write. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+        order. Removing a topic frees it for another cycle. An archived cycle answers STUDY_CYCLE_NOT_FOUND
+        here and on the block routes; it can still be deleted. Cycles that belong to somebody else answer
+        STUDY_CYCLE_NOT_OWNED.
     delete:
       tags:
       - study-cycle-controller
@@ -1925,7 +1932,8 @@ paths:
         into the current lap of the active cycle that holds the topic, through the same walk a pomodoro
         takes: the topic's first open block, then its next one, anything left on its last. `studiedOn` only
         places the session in the history and must be within the last 30 days on the owner's calendar
-        (STUDY_SESSION_DATE). `credited` is null when the topic is in no active cycle. No XP.
+        (STUDY_SESSION_DATE). `credited` is null when no active cycle holds the topic, or the topic has no
+        block in it; the session is kept for the history either way. No XP.
   /notebook/sessions/{sessionId}:
     delete:
       tags:

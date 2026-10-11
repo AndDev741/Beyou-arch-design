@@ -8,7 +8,7 @@ One TypeScript codebase, two clients. npm workspaces with Turborepo hold the Rea
 
 ## What is shared, what is not
 
-The state (20 Redux slices and the gamification logic), the API layer behind a narrow HttpClient interface, the theme tokens, the translations, the validation schemas, and the icon registry are all one implementation. Each platform keeps only what must differ: persistence, navigation, token storage, and the entire render layer. The marketing site lives at the repo root, deliberately outside the workspace, and ships to Cloudflare Pages on its own.
+The state (21 Redux slices and the gamification logic), the API layer behind a narrow HttpClient interface, the theme tokens, the translations, the validation schemas, and the icon registry are all one implementation. Each platform keeps only what must differ: persistence, navigation, token storage, and the entire render layer. The marketing site lives at the repo root, deliberately outside the workspace, and ships to Cloudflare Pages on its own.
 
 ## How it ships
 

@@ -309,7 +309,7 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - `kind` is POMODORO, SHORT_BREAK or LONG_BREAK, stored as a varchar mirrored by a CHECK constraint (the V19/V25 pattern). `minutes` is bounded 1..180 by a CHECK too, restating the client's own clamp where it cannot be bypassed.
 - `item_group_id` is nullable and `ON DELETE SET NULL`: a cycle can run with nothing selected, and deleting a routine must not erase the fact that somebody focused for 25 minutes that morning.
 - `cycle_date` is the OWNER's local day, resolved from their timezone, like every other dated row here.
-- `notebook_page_id` (added in V34) names the study notebook page the cycle was run on, when it started from one. A plain id, not an association: nothing here reads the page, and the notebook only sums POMODORO minutes by page id. `ON DELETE SET NULL` for the same reason as the item group.
+- `notebook_page_id` (added in V34) names the study notebook page the cycle was run on, when it started from one. A plain id, not an association: nothing here reads the page, and the notebook only sums POMODORO minutes by page id. The study cycles read the same column: a pomodoro recorded with a page credits the cycle that holds the page's topic, and today's slice and a cycle's history sum these minutes by topic. `ON DELETE SET NULL` for the same reason as the item group.
 
 **FocusMicroTask** (table focus_micro_tasks): a small thing done alongside one routine item, on one day.
 
@@ -397,6 +397,32 @@ A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE h
 - A "New topic with AI" draft, kept until a topic is created from it or the person deletes it. `status` is DRAFTING while the model writes it in the background, then READY or FAILED with an `error_key`.
 - `request` is what was asked for, `result` the drafted nodes and `choices` the person's ticks, one per node, all JSON in `text`. `started_at` is when the current model call began, for the dialog's timer.
 - Only a DRAFTING row receives a result, so deleting a draft mid-call is final. At most 20 per person.
+
+**Study cycles**, seven tables added in V39. A cycle is an ordered queue of study blocks over notebook topics, studied lap after lap; the rules are in the study notebook topic. The enums are `varchar` columns with a CHECK, as in V19, and the small numbers are `integer` for the reason V31 gives.
+
+**StudyCycle** (study_cycles) and **StudyCycleDay** (study_cycle_days):
+
+- A cycle has its `name` (80 characters), the `default_mode` new blocks get (TIME or GOAL, GOAL by default), `max_block_minutes` (15 to 240, 90 by default), and `position` among the person's cycles. `lap_number` and `lap_started_at` describe the lap in progress; closed laps are rows of their own. `archived_at` set means archived: the cycle keeps its history and frees its topics, and nothing unarchives it.
+- `@DynamicUpdate`, and every write that moves the lap takes the row's lock first, so a rename and a credit that closes the lap cannot overwrite each other.
+- The week is seven rows, one per `weekday` (MONDAY to SUNDAY), keyed by `(cycle_id, weekday)`. All seven always exist, so a rest day is a row with `minutes = 0` (0 to 720) and the week's minutes are a plain sum. `start_time` is optional and gives the day's slice its clock times.
+
+**StudyCycleTopic** (study_cycle_topics): a notebook TOPIC page inside a cycle, with `importance` and `mastery` (1 to 5 each, the planner's weights), an optional `minutes_override` per lap (5 to 600), `position`, and `active`.
+
+- `UNIQUE (cycle_id, topic_id)` lists a topic once per cycle.
+- A partial unique index on `(topic_id) WHERE active` keeps a topic in one active cycle at a time, whatever two concurrent saves do. Archiving sets `active` to false, which is what frees the topic.
+- Deleting the topic page cascades here and takes the topic out of the cycle.
+
+**StudyCycleBlock** (study_cycle_blocks): one block of the queue. Configuration only, so a re-plan can rewrite it without touching what was studied.
+
+- `position` is the 1-based place in the queue, `topic_id` the topic it studies (cascade), `mode` TIME or GOAL, and `planned_minutes` 5 to 600.
+- `goal_source` (NEXT or PAGE) is set on GOAL blocks only. `page_id` is the chosen concept of a GOAL + PAGE block, or an optional hint on a TIME block, and `ON DELETE SET NULL` leaves the block when the page goes. `require_quiz` asks for the page's quiz as well, and `note` holds up to 200 characters.
+
+**StudyCycleLapBlock** (study_cycle_lap_blocks) and **StudyCycleLap** (study_cycle_laps):
+
+- A lap block is the progress of one block in one lap: `minutes` (can pass the planned minutes, since a topic's last block takes the leftover), `target_page_id` (the concept a GOAL block resolved to, `SET NULL` if the page is deleted), `state` (OPEN, DONE, UNDERSTOOD or TURN_USED) and `closed_at`. `UNIQUE (block_id, lap_number)`. The row is created the first time the lap credits, resolves or closes the block, so a block with no row is OPEN with no minutes. `@DynamicUpdate`, because a credit writes the minutes and a page finishing elsewhere writes the state.
+- A lap row is a closed lap, frozen: `number`, `started_at`, `closed_at`, `minutes`, `planned_minutes`, `understood`, `turns_used` and `blocks`, `UNIQUE (cycle_id, number)`. The figures are stored because a block edited or deleted later would change them if they were recomputed.
+
+**StudySession** (study_sessions): study logged by hand. `topic_id` (cascade), an optional `page_id` (SET NULL), `minutes` 1 to 600, `studied_on` (the owner's local date, which only places the session in the history), a `note` of up to 200 characters, and `created_at`. `cycle_id` and `lap_number` record where the minutes were credited, so a delete takes them back from that lap and no other; both are null when nothing was credited, and `cycle_id` is `SET NULL` when the cycle is deleted, which keeps the session as the topic's history. Indexed on `(user_id, studied_on)`.
 
 ## FederatedIdentity
 
@@ -527,10 +553,13 @@ Understanding the cascades matters most at account deletion, which relies on the
 | RoutineSnapshot | SnapshotChecks | ALL | Yes |
 | User (DB level) | DailyBriefing rows | ON DELETE CASCADE | Handled by the database FK. A briefing is derived data with no meaning past the account |
 | User (DB level) | Every notebook table | ON DELETE CASCADE | Account deletion takes the whole notebook |
+| User (DB level) | StudyCycle, StudySession | ON DELETE CASCADE | The other five study cycle tables cascade through `study_cycles`, so account deletion takes all seven |
+| StudyCycle (DB level) | Its days, topics, blocks, lap blocks and closed laps; StudySession.cycle_id | ON DELETE CASCADE, and SET NULL for the session | Deleting a cycle takes everything under it. A logged session stays as the topic's history |
 | User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
 | ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
 | NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
 | NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
+| NotebookPage (DB level) | A cycle's topic rows and blocks, and sessions, by `topic_id`; a block's `page_id` and a lap block's `target_page_id` | ON DELETE CASCADE by topic, SET NULL by page | Deleting a topic takes it out of its cycle. A deleted page leaves the block in the queue with no page |
 | Goal / Category / Habit (DB level) | A topic's links | ON DELETE SET NULL | The links decorate a topic. Deleting the goal must not delete a notebook |
 
 Two tests hold this table to the schema. `AccountDeletionIntegrationTest` and `ManualAccountDeleteRunbookTest` read every foreign key that points at `users` from the live database, put a row behind each one, delete the account, and expect nothing left. A new user-owned table fails both until it gets a row there, which is the point: a cascade nobody exercises is only a comment. `UserExportCompletenessIntegrationTest` reads the same list and fails for any table that has no section in the export and no entry under `notIncluded`.
@@ -588,6 +617,16 @@ flowchart LR
     notebook_study_outputs
     notebook_chat_messages
     notebook_roadmap_drafts
+  end
+
+  subgraph cycles["Study cycles"]
+    study_cycles
+    study_cycle_days
+    study_cycle_topics
+    study_cycle_blocks
+    study_cycle_lap_blocks
+    study_cycle_laps
+    study_sessions
   end
 
   subgraph support["Feedback & AI"]
