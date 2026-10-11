@@ -9,9 +9,9 @@ The single API serving the web app, the native mobile app, and this documentatio
 ## What lives here
 
 - **The domain**: categories, habits, tasks, goals, and routines, with the gamification engine on top: the check-in XP formula, the quadratic level curve, derived streaks, daily routine snapshots with XP decay, and the signed per-day XP ledger.
-- **The study notebook**: topics laid out as roadmap boards of pages, with flashcards scheduled by SM-2. Sources (PDF, link, pasted text) are read in the background into passages, and a grounded study AI answers from them with citations.
+- **The study notebook**: topics laid out as roadmap boards of pages, with flashcards scheduled by SM-2. Sources (PDF, link, pasted text) are read in the background into passages, and a grounded study AI answers from them with citations. Study cycles rotate topics through a queue of time and goal blocks, fed by pomodoros and logged sessions.
 - **Security**: stateless JWT auth with rotating refresh tokens, e-mail verification, two-factor account deletion, fifteen rate-limit tiers plus a login lockout, a link fetcher that refuses SSRF, and boot-time validators that refuse a misconfigured production.
-- **The AI agent**: a chat with 54 tools over the same domain services, streamed by SSE, running on a five-provider free-tier LLM fallback chain, plus the stateless onboarding suggestion endpoint.
+- **The AI agent**: a chat with 67 tools over the same domain services, streamed by SSE, running on a five-provider free-tier LLM fallback chain, plus the stateless onboarding suggestion endpoint.
 - **The docs system**: imports this documentation from GitHub into Postgres and serves the public read and search API the docs site runs on.
 
 ## How it ships

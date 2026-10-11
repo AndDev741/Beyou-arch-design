@@ -1,9 +1,9 @@
 ---
 title: "Study Notebook"
-summary: "Topics laid out as roadmap boards, a page of notes behind every node, an AI that answers from the person's own notes and sources with citations, and flashcards on a spaced schedule. The model, its rules, and the class that owns each one."
+summary: "Topics laid out as roadmap boards, a page of notes behind every node, an AI that answers from the person's own notes and sources with citations, flashcards on a spaced schedule, and study cycles that rotate topics through a queue of time and goal blocks. The model, its rules, and the class that owns each one."
 ---
 
-The study notebook is where somebody organises a subject they are learning. They open a topic, say "Software Engineering", and lay it out as a roadmap board. Each node on that board opens a page for notes, and the page can hold a board of its own, so "Data Structures" breaks down into trees and heaps without leaving the notebook. PDFs, web pages and pasted text attach to pages as sources, and a study AI answers from them with citations. Flashcards written on a page come back on a schedule.
+The study notebook is where somebody organises a subject they are learning. They open a topic, say "Software Engineering", and lay it out as a roadmap board. Each node on that board opens a page for notes, and the page can hold a board of its own, so "Data Structures" breaks down into trees and heaps without leaving the notebook. PDFs, web pages and pasted text attach to pages as sources, and a study AI answers from them with citations. Flashcards written on a page come back on a schedule. A study cycle lines several topics up in a queue of blocks and tells the person what to study today, and for how long.
 
 This document covers the model, the rules and the class each rule lives in, then the choices that shaped the two clients. The routes themselves are in the Study Notebook Controller API.
 
@@ -181,7 +181,7 @@ Matching is by block id. Blocks the server writes get a random UUID, like the on
 | Rule | Lives in |
 |------|----------|
 | A page belongs to the caller. Every path checks it first, focus cycles that name a page included | `NotebookOwnership` |
-| Status, its walk up the boards, and paying on first DONE | `NotebookProgressService` |
+| Status, its walk up the boards, paying on first DONE, and telling the study cycles which pages finished | `NotebookProgressService` |
 | Progress, derived status, reachability, the next leaf to study, a page's subtree | `ProgressGraph` |
 | Every XP amount and the daily review cap | `NotebookRewards` |
 | The plain text of a document | `BlockText` |
@@ -203,6 +203,14 @@ Matching is by block id. Blocks the server writes get a random UUID, like the on
 | The model call, its retry, the 90-second budget and `AI_UNAVAILABLE` | `NotebookLlm` |
 | No transaction open while the model answers: a short read before, a short write after | `NotebookTransactions` |
 | A stored roadmap draft: one call at a time, results only on a DRAFTING row, gone once the topic exists | `RoadmapDraftService`, `RoadmapDraftWrites` |
+| A study cycle's blocks from its week and topics: weights, minutes per topic, block sizes, the interleave | `StudyCyclePlanner` |
+| How minutes and understanding move a lap: the credit walk, the spill, the leftover, the quiz wait, the debit, a complete lap | `StudyLap` |
+| Today's slice: the budget, the next-lap wrap, clock times | `StudyDaySlice` |
+| One active cycle per topic, the limits, re-planning and the merge, the row lock, closing a lap, the reads that fix a concept, sessions | `StudyCycleService` |
+| What a GOAL block aims at (the chosen page or the roadmap's next leaf), and the notebook facts a cycle reads once per request | `NotebookFacts` |
+| A cycle's history, day by day | `StudyCycleHistoryService` |
+| The assistant's cycle tools: names and loose values to ids and requests | `StudyCycleAssistant` |
+| How a block reads on both apps (its title and the figure beside it), and the web's preview of where a logged session will land | `studyCycleView` in `@beyou/state` |
 
 ## The web editor and the board
 
@@ -221,6 +229,10 @@ The routes:
 | `/notebook/:pageId` | A page: tree, notes, the inline board, status |
 | `/notebook/:pageId/board` | The board full screen, covering the shell like `/focus` |
 | `/notebook/:pageId/study` | The study room full screen: sources, chat, studio outputs, or the page's notes beside the chat |
+| `/notebook/cycles` | The study cycles: the active cycles as chips, the lap so far, the ordered blocks, the week and the laps before |
+| `/notebook/cycles/new` | The cycle editor with its calculator, for a new cycle |
+| `/notebook/cycles/:cycleId/edit` | The same editor on an existing cycle |
+| `/notebook/cycles/:cycleId/history` | A cycle's history, a week at a time |
 
 Notebook sits in the sidebar's main group after Goals (icon `NotebookPen`), and in the bottom nav's sheet. Every notebook screen is a lazy chunk. The editor ships inside the page screen's chunk and never loads at boot.
 
@@ -230,7 +242,7 @@ A switch in the room's header picks what it shows: the room, the page's notes be
 
 ## Mobile
 
-The phone reads and writes notes. The screens are the topics home (`app/(app)/notebook/index.tsx`), a topic or page with Path and Notes tabs (`app/(app)/notebook/[id].tsx`), the notes editor (`app/notebook-editor.tsx`), the review (`app/notebook-review.tsx`), the study room (`app/notebook-study.tsx`) and the roadmap draft (`app/notebook-draft.tsx`). The editor, the review, the study room and the draft are full screen and outside the `(app)` group, so the bottom bar never sits between the text and the keyboard or in a session that wants the whole screen.
+The phone reads and writes notes. The screens are the topics home (`app/(app)/notebook/index.tsx`), a topic or page with Path and Notes tabs (`app/(app)/notebook/[id].tsx`), the notes editor (`app/notebook-editor.tsx`), the review (`app/notebook-review.tsx`), the study room (`app/notebook-study.tsx`), the roadmap draft (`app/notebook-draft.tsx`) and the three study cycle screens (`app/notebook-cycles.tsx`, `app/notebook-cycle-edit.tsx`, `app/notebook-cycle-history.tsx`, covered under "Study cycles" below). The editor, the review, the study room, the draft and the cycle screens are full screen and outside the `(app)` group, so the bottom bar never sits between the text and the keyboard or in a session that wants the whole screen.
 
 A canvas panned with one thumb is no way to read a roadmap, so the Path tab reads the board as levels (`pathLevels` in `@beyou/state`). Every node comes after the nodes that point to it, and a level with more than one node gets "Then, in any order". The Notes tab draws the document with native views (`src/notebook/BlockRenderer.tsx`), and "Edit notes" or a tap on them opens the editor. Pages under this one that are not on its board are listed below, read from the topic tree, since the phone has no sidebar.
 
@@ -254,9 +266,108 @@ Three things the web view needed that the rest of the app does not. `react` and 
 
 Notebook is in the mobile bottom nav's sheet. The reducer is registered in `apps/mobile/src/store.ts`, and mobile redux is in-memory as always.
 
+## Study cycles
+
+A study cycle is the Brazilian *ciclo de estudos*: an ordered queue of study blocks with no weekday attached. Each block belongs to one notebook topic. When a block closes, the next one comes up, and when every block in the queue is closed the lap (*volta*) is complete and the queue starts over. Somebody preparing for a public exam while finishing a degree can keep two cycles running at once.
+
+A topic sits in one active cycle at most. `StudyCycleService` checks that first, so the refusal can name the cycle that holds it: `STUDY_CYCLE_TOPIC_TAKEN`, with `topicId`, `cycleId` and `cycleName` in its `details`. Two saves can race past that check, and what holds then is the database: a partial unique index, `uq_study_cycle_topics_active`, on `study_cycle_topics (topic_id) WHERE active`. Taking a topic out of a cycle frees it. Archiving a cycle sets `active` to false on all its topics, which frees them too.
+
+Each cycle has a week, with minutes for every weekday (0 is a rest day) and an optional start time per day. The week's minutes are the sum of its seven days, so nobody types the same number twice. A person keeps at most 10 active cycles, and a cycle holds up to 30 topics and 60 blocks; past any of those the answer is `STUDY_CYCLE_LIMIT`.
+
+The feature pays no XP anywhere. The notebook already pays for a finished page and a passed quiz, and the cycle only decides what comes next. It is uncached like the rest of the notebook: its reads write (see below), and every pomodoro and every status change elsewhere moves its numbers, so a cache would need evicting from the focus, page, board and quiz paths.
+
+### Time blocks and goal blocks
+
+Every block is TIME or GOAL, chosen block by block. The cycle carries a default mode for the blocks the planner creates, GOAL unless the person picks TIME.
+
+A TIME block is minutes on a topic, "70 minutes of Portuguese". It closes as DONE once it holds its planned minutes.
+
+A GOAL block is a concept to understand, and a concept is a notebook page. With `goalSource = PAGE` it aims at a page the person picked, which has to belong to the block's topic (the topic page itself is allowed). With `goalSource = NEXT` it aims at whatever the topic's roadmap says comes next, `ProgressGraph.nextLeaf`: the first leaf in reading order that is being studied, or failing that the first one not started. That target is always a leaf, and it moves along the roadmap by itself. The block is UNDERSTOOD when its page reaches DONE. A block can also ask for the page's quiz, and then a DONE page with no passed quiz leaves it open; the screens say the page is done and the quiz is missing.
+
+A GOAL block has planned minutes too. For it they are an estimate, used to lay out the day and to rotate subjects. When those minutes run out before the concept is understood, the block closes as TURN_USED and the cycle moves on. The topic's next block then picks up the same concept, since that page is still not done. Understanding early closes the block at once, however few minutes it holds.
+
+A GOAL block with nothing left to understand runs like a TIME block and closes as DONE on its minutes. That happens to a NEXT block whose roadmap is finished, which the screens show as review, and to a PAGE block whose page was already done (with its quiz passed, when the block asks for one). Marking a page undone later never reopens a closed block.
+
+### Where the minutes come from
+
+Two things credit minutes, and nothing else does. One is a finished pomodoro run on any page of the topic, which the focus timer already files with its `notebookPageId`; the topic is that page's root, and breaks never count. `FocusService.recordCycle` calls `StudyCycleService.credit` after it saves the cycle. The other is a session logged by hand for study done away from the timer, through `POST /notebook/sessions`.
+
+`StudyLap.credit` is the walk. It finds the active cycle holding the topic and works in that cycle's current lap. The topic's open blocks, in queue order, each take what they still lack, up to the minutes left. A block that reaches its planned minutes closes, as DONE, or as TURN_USED for a GOAL block whose concept is still open. Whatever remains after the topic's last open block goes onto the topic's last block, which then reads something like "80 of 70 min", so no studied minute disappears. Studying out of order is fine: the minutes go to that topic's first open block wherever it sits in the queue. A topic with no block in the lap credits nothing, and a logged session is kept for the history anyway.
+
+Once every block of the lap is closed, the lap closes. A row in `study_cycle_laps` freezes its numbers (minutes studied and planned, concepts understood, turns used, blocks), the cycle's lap number goes up by one and the next lap starts at that instant. The overflow from the session that closed it stays in the closed lap. Those numbers are stored because a block edited or deleted later would change them if they were recomputed.
+
+Progress lives per lap in `study_cycle_lap_blocks`, one row per block per lap, created the first time the lap credits, resolves or closes that block. A block with no row is open with no minutes. The block row itself is configuration and carries no progress, which is what lets a re-plan rewrite blocks and leave what was studied alone.
+
+Every write that moves a lap takes the cycle's row lock first: `StudyCycleRepository.lockById`, or `lockActive` for all of a person's cycles, taken in id order so two writers cannot deadlock. Without it, two pomodoros finishing in the same second would both read a block at 50 of 70 and both write their own total. `StudyCycle` and `StudyCycleLapBlock` are `@DynamicUpdate` as well, since a rename and a credit can land together.
+
+### The hooks into the notebook
+
+Understanding reaches the cycle through two funnels. `NotebookProgressService` is the only class that writes a page's status, and at the end of every status change it hands `StudyCycleService.onPagesDone` every page the change finished, parents that rolled up included. Every way of finishing a page passes through there, the assistant's tools among them, so a new one added later cannot forget the cycle. `NotebookStudyService` calls `onQuizPassed` on a quiz's first pass, where `passed_at` is set, and that closes the blocks that were waiting on the quiz of a page already DONE.
+
+`NotebookFacts` reads the page graph for the cycle straight from the repositories. Going through `NotebookProgressService` would make a constructor loop, since that service calls into the cycle.
+
+### Why reading a cycle can write to it
+
+A NEXT block gets its concept the first time something works on it. The concept is then stored on the lap row (`target_page_id`), so the block knows which page to wait for. Reads fix it as well. `GET /notebook/cycles/today`, `GET /notebook/cycles/{cycleId}` and the cycle that comes back from creating or editing one all write down the concept of the first open GOAL block of each topic.
+
+The reason is somebody who opens the page the Today card points at, studies it with no timer running and marks it done. The block has to close as UNDERSTOOD, and it can only do that if its concept was written down before the page moved. Later open blocks of the same topic show what the roadmap says now, with `targetPreview: true`, and store nothing: the concept they end up with depends on what happens first. These reads take the same row lock as the writes, so two screens opening together cannot both create the lap row.
+
+Changing what a block aims at (its mode, its source or its page) forgets the concept its open lap row had fixed, and the next read or credit resolves it again. The Daily Briefing reads the day through `todayPreview`, inside its own read-only transaction, and fixes nothing.
+
+### The planner, shared by the editor and the assistant
+
+`StudyCyclePlanner` turns a week and a set of topics into blocks. It is pure arithmetic:
+
+1. Each topic weighs `importance × (6 − mastery)`, both on a 1 to 5 scale. An important subject the person barely knows weighs 25; a minor one they master weighs 1.
+2. A topic's suggested minutes per lap are its share of the week's minutes, rounded to 5 and never under 5. The person can set a topic's minutes themselves (`minutesOverride`, 5 to 600), and their number wins.
+3. Those minutes are cut into blocks no longer than `maxBlockMinutes` (15 to 240), as even as 5-minute steps allow. The first blocks take the extra fives, and anything under 5 left over joins the first block.
+4. Topics are ranked by weight, ties keeping the order given, and round r takes the r-th block of every topic that still has one. The interleave is the point of a cycle. Every subject comes back every few blocks, and no single subject eats the week.
+
+`lapDays` says how many days one lap takes at the week's pace, at least 1, and is null for a week with no minutes.
+
+Everything that makes blocks calls it: creating a cycle, re-planning one, the assistant's `createStudyCycle`, and `POST /notebook/cycles/plan`. That last route is a stateless preview. The editor on both apps asks it again about 300 ms after the last change, drops an answer that arrives late, and never does the sum on its own. So what the editor previews is what gets saved, and a cycle the assistant builds from the same inputs comes out the same. Being a POST, the preview spends the generic write budget like the rest of the notebook's writes.
+
+### Editing a cycle mid-lap
+
+`PUT /notebook/cycles/{cycleId}` takes the whole configuration again, and it re-plans only when the plan's inputs moved: the week's total minutes, the block size, or the topics with their order, weights and overrides. Anything else, a rename or new start times for instance, leaves the queue as it is, so an order the person arranged by hand survives it.
+
+A re-plan is merged onto the old list topic by topic. The k-th block of a topic in the new plan takes the id of the k-th block of that topic in the old list, and with the id it keeps that block's progress in the lap and its own settings: mode, goal source, page, quiz and note. Its position and minutes come from the new plan. Old blocks left without a match are deleted along with their progress, and new ones get the cycle's default mode.
+
+Blocks have their own routes. `PUT /notebook/cycles/{cycleId}/blocks` replaces the ordered list. A block sent with its id keeps its progress, one sent without an id is new, and a block cannot move to another topic, because its minutes were studied on that one. `PATCH /notebook/cycles/{cycleId}/blocks/{blockId}` changes some fields of one block: a field left out stays as it is, and an explicit null clears it. A block that already closed keeps its state whatever changes. Lowering a block's minutes to what it already holds closes it on save (`StudyLap.closeFull`), and removing the last open block can close the lap.
+
+`POST /notebook/cycles/{cycleId}/archive` frees the cycle's topics and keeps the cycle and its history readable. Editing an archived cycle, its settings or its blocks, answers `STUDY_CYCLE_NOT_FOUND`, it takes no more credits, and there is no unarchive. `DELETE` removes the cycle and everything under it; logged sessions stay in the account, with no cycle, as the topic's history. A cycle that belongs to somebody else answers `STUDY_CYCLE_NOT_OWNED` on every route, and the topics and pages a request names get the notebook's own refusals (`NOTEBOOK_PAGE_NOT_FOUND`, `NOTEBOOK_PAGE_NOT_OWNED`, and `NOTEBOOK_TOPIC_REQUIRED` for a page that is not a topic).
+
+### Today
+
+`GET /notebook/cycles/today` lays out the owner's local day for each active cycle with minutes on that weekday, and `StudyDaySlice` builds each cycle's part:
+
+- Minutes already studied today on the cycle's topics come off first: pomodoros dated today on their pages, plus sessions dated today. The day's budget is its minutes less those, never below zero.
+- Blocks closed today are listed first, as done.
+- From the lap's first open block onward, in queue order, each open block takes what it still lacks until the budget runs out.
+- When the lap ends inside the budget, the slice carries on into the next lap from its first block, flagged `nextLap` and with no progress yet. It wraps once at most. Somebody with more hours in a day than two laps needs a bigger cycle, and a longer list would not help.
+- With a start time, every entry gets a clock range. The cursor starts at the start time plus what was already studied today, so a person who did an hour from 19:00 sees the next block at 20:00.
+
+Cycles with a start time today come first, by that time, and the others keep their order. A cycle with no minutes today goes into `restingCycles` by name, so the screen can say it rests. Each entry also carries the topic's flashcards due today.
+
+The Today card on the notebook home of both apps, the `studyToday` dashboard widget and the assistant's `getStudyToday` read this route. The briefing reads the same slice through `todayPreview`.
+
+### History and logged sessions
+
+`GET /notebook/cycles/{cycleId}/history` covers 31 days at most (`StudyCycleHistoryService`). Every day has the minutes the week planned for that weekday, the minutes studied on the cycle's topics with their split by topic, and the day's entries in time order: FOCUS for a pomodoro, MANUAL for a logged session, UNDERSTOOD for a block its page closed, and LAP_CLOSED. Minutes count on the day they happened, wherever the lap put them, so a session logged today for last Tuesday shows on Tuesday. The topics are the ones the cycle holds now, active or not, which gives an archived cycle a history too.
+
+`POST /notebook/sessions` credits a session at once, into the current lap, whatever its `studiedOn` says. The date only places it in the history, and it has to be the owner's today or one of the 30 days before it (`STUDY_SESSION_DATE`, checked against `UserDateResolver.today`). The row keeps the `cycle_id` and `lap_number` it went into, and `DELETE /notebook/sessions/{sessionId}` uses them. When the session went into the lap still running, its minutes come back off the topic's blocks from the last one backward, taken only from blocks that hold minutes. A DONE or TURN_USED block that falls under its planned minutes opens again. An UNDERSTOOD block stays closed, because the concept was understood whatever the minutes say. A session that went into a lap closed since then is only deleted, and the closed lap keeps its numbers. Somebody else's session answers `STUDY_SESSION_NOT_FOUND`.
+
+### Screens, and the rest of Beyou
+
+On the web, the Today card sits at the top of `/notebook`: per cycle with minutes today, the blocks that fit the day with their clock times, "Focus 25" and "Open" on the block the day is on, and a way to log a session. A person with no cycle sees an invitation to build one, and a rest day is one line. `/notebook/cycles` holds the active cycles. A block opens a dialog with its own settings, saved as a PATCH, and blocks move up and down with one PUT of the whole order. The editor at `/notebook/cycles/new` and `/notebook/cycles/:cycleId/edit` shows the planner's answer as the person changes the week and the topics. The history at `/notebook/cycles/:cycleId/history` draws a week of minutes stacked by topic against each day's target, and a logged session can be deleted from a day's entries. The phone has the same three screens in `app/notebook-cycles.tsx`, `app/notebook-cycle-edit.tsx` and `app/notebook-cycle-history.tsx`, and the Today card on its notebook home. On the web, the dialog that logs a session previews where the minutes will land by walking the loaded cycle the way the server credits it (`previewCredit`), and the toast afterwards reads the server's answer. The phone's sheet names the block too, with the shorter rule `creditTarget`: the topic's first open block, else its last.
+
+Both apps keep what they loaded in the `studyCycles` slice (today's slice, the list, each cycle opened in full). `refreshStudyCycles` reads it all again after the app's own writes, and when an assistant tool reports the `studyCycles` domain. `studyCycleView` in `@beyou/state` words a block for both platforms, "Understand Recursion" for a concept and the topic's name otherwise, with the figure beside it, so the card, the cycle screen, the widget and the briefing say the same thing.
+
+The Daily Briefing's Today page lists each cycle with minutes on the day, its start time and its first three open blocks (`TodayAhead.study`). The server builds each block's title in the account's language, since the clients print it as it arrives. Yesterday's recap gains the minutes studied on the active cycles' topics and the concepts understood. A cycle with minutes today, or study yesterday, makes a briefing worth showing, and the narrator gets one line of these facts among what is already on screen. The assistant has four tools for cycles, which the [AI agent topic](/architecture/ai-agent) lists.
+
 ## The focus timer
 
-"Focus 25 min" on a notebook page starts the app's one pomodoro, the same timer the focus screen runs. The `FocusTimer` state carries an optional `notebookPageId`, kept through the break handover, and `PomodoroOwner` on web and mobile reports the cycle with it. The button refuses while a cycle is running or paused anywhere in the app, because replacing it would drop minutes somebody is in the middle of and the cycle it replaced would never be reported. That rule is `notebookFocusStart` in `@beyou/state`, and both apps only dispatch what it returns. Web shipped without the check at first, which is why it moved there. The server stores it in `focus_cycles.notebook_page_id` after an ownership check, and a page's `focusMinutes` sums the POMODORO minutes run on it and on every page whose home is under it. Breaks do not count. Deleting the page sets the column to null and keeps the cycle.
+"Focus 25 min" on a notebook page starts the app's one pomodoro, the same timer the focus screen runs. The `FocusTimer` state carries an optional `notebookPageId`, kept through the break handover, and `PomodoroOwner` on web and mobile reports the cycle with it. The button refuses while a cycle is running or paused anywhere in the app, because replacing it would drop minutes somebody is in the middle of and the cycle it replaced would never be reported. That rule is `notebookFocusStart` in `@beyou/state`, and both apps only dispatch what it returns. Web shipped without the check at first, which is why it moved there. The server stores it in `focus_cycles.notebook_page_id` after an ownership check, and a page's `focusMinutes` sums the POMODORO minutes run on it and on every page whose home is under it. Breaks do not count. Deleting the page sets the column to null and keeps the cycle. The same report also credits the topic's study cycle, when one holds the topic (see "Study cycles" above).
 
 The server checks nothing in. When the topic is linked to a habit that is on today's routine, the timer preselects that routine item, the focus screen opens on it, and the check stays one tap for the person.
 
@@ -266,6 +377,10 @@ Notes are as personal as the mood journal and get the same treatment. The `noteb
 
 `GET /user/export` carries every page as plain text and the boards that arrange them, with positions and links kept, since a board is a layout the person made. Flashcards come with their due dates and every review given to them, sources with their details, and the study room's chats and outputs with their quiz scores, plus the roadmap drafts. The text read out of sources is named under `notIncluded` as `notebookSourceText`: it is a copy of documents the person already has, and a book's worth of it per source would bury the rest of the file. Every notebook table cascades from `users`, so account deletion takes the whole notebook.
 
+The study cycles get the same treatment on the device. The `studyCycles` slice is server data read on demand, so it sits on the web persist blacklist next to `notebook` and lives in memory on the phone; `PERSIST_VERSION` did not move for it. The export carries every cycle under `notebook.studyCycles`, archived ones included, with its week, its topics and their weights, its blocks, each block's progress in every lap and the closed laps. The logged sessions come under `notebook.studySessions` with the cycle and lap they went into. It is one query per table however many cycles there are. `study_cycles` and `study_sessions` cascade from `users` directly and the other five tables cascade through `study_cycles`, so deleting the account takes all seven. Deleting a topic takes it out of its cycle, along with its blocks and sessions, and a deleted page leaves a block or a lap row that pointed at it with no page.
+
 ## Tests
 
 On the backend, the pure rules have unit tests under `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` and others), and `integration/notebook/` runs the services against Postgres, concurrent writes, source ingestion and the assistant's `StudyBoardEditor` included. Six e2e specs drive the stack: `notebook.spec.ts` for the UI path from topic to finished node, `notebook-rules.spec.ts` for ownership, pay-once, the cycle refusal, SSRF and source scope on the wire, `notebook-study.spec.ts` for review XP and the AI screens with only the model routes stubbed, the question box's Shift+Enter included, and notes beside the chat taking a saved answer with no save refused, `notebook-agent.spec.ts`, which plays an assistant turn back over an open page and checks the board, the tree, the title and the editor all show it, and `notebook-sync.spec.ts`, two tabs on one page: notes appended to an open page survive the next edit there, different paragraphs merge with no question, the same paragraph asks, and `notebook-trail.spec.ts`, a roadmap edited the phone's way on the wire: a node with no coordinates on the next free cell, after the node named, with the page's board block, and an order that makes the board one path. `NotebookConcurrentWritesIT` replays the revision's races on one thread, and `mergeDocuments`, `DocumentSync` and `editorDocument` have unit tests in `@beyou/state`. On mobile, `notebook-editor-screen.test.tsx` stands a stub in for the web view and covers the screen's half of the bridge: the page the editor starts from, saving from its revision, the conflict sheet, the toolbar's commands and leaving only once the last edit is saved. `notebook-page-actions.test.tsx` covers rename, a new page, delete and a new topic, `notebook-trail.test.tsx` the node sheet, a node added after another and the reorder, and `notebook-cards.test.tsx` the cards tab: the due count, the answer on a tap, drafting with AI, writing, editing and deleting. `notebook-study.test.tsx` covers the study room: the first setup, a question whose cited answer is saved to the page and turned into cards, sources added and one switched off, a PDF from the phone with its size check, and a quiz graded and paid. `notebook-draft.test.tsx` covers a draft from the form to the topic (read back until it is ready, the ticks saved, the topic created from the kept nodes), a change applied to a reopened draft, a draft that failed, and the drafts on the home.
+
+The study cycle has tests of its own. Under `unit/notebook/cycle`, `StudyCyclePlannerTest` covers the planner's arithmetic and interleave, `StudyLapTest` the credit walk with its spill and leftover, understanding, the quiz wait and the debit, and `StudyDaySliceTest` the day's slice with its wrap and clock. `StudyCycleServiceIT` and `StudyCycleApiIT` under `integration/notebook` run against Postgres: the partial unique index, ownership, the hooks from a pomodoro, a page finishing and a passed quiz, the merge on re-plan, the limits, today, the history and the response shapes. `StudyCycleAssistantTest` covers the assistant's side, and `DailyBriefingServiceIT` the briefing's study fields. Two e2e specs drive the stack. `study-cycle-rules.spec.ts` works on the wire: one active cycle per topic, the planner's split, a pomodoro that fills a block, spills into the next and closes the lap, a concept carried to the topic's next block and understood when its page is done, a logged session credited and taken back, today's slice with its clock, and another person's cycle refused. `study-cycle.spec.ts` goes through the UI: a cycle built in the editor, the Today card, a session logged from it landing on the topic's first open block, and the dashboard widget. On the clients, `studyCycleView` has unit tests in `@beyou/state`, the web's cycle screens, dialogs and Today card have component tests, and the phone tests its three screens, its Today card and its widget in `__tests__/`.

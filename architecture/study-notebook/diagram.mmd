@@ -38,3 +38,14 @@ flowchart TD
   CARDS -->|"/reviews/finish"| REW
   LLM -->|"quiz pass"| REW
   REW --> XP["🎮 User + topic category XP"]
+
+  subgraph cycles["Study cycles · no XP"]
+    CYC["StudyCycleService<br/>one active cycle per topic · row lock"]
+    LAP["StudyLap<br/>credit walk · understood · lap close"]
+    PLAN["StudyCyclePlanner<br/>weights → blocks · shared by editor and assistant"]
+    CYC --> LAP
+    PLAN --> CYC
+  end
+
+  POMO["⏱️ Pomodoro on a page<br/>or a logged session"] -->|"minutes"| CYC
+  PROG -->|"pages DONE"| CYC

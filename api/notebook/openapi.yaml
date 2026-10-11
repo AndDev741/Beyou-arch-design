@@ -42,6 +42,12 @@ info:
     - 1 per reviewed card, collected by `POST /notebook/reviews/finish`, at most 30 a day. Reviews
       past the cap still move the schedule.
 
+    Study cycles (`/notebook/cycles/**`, `/notebook/sessions/**`) pay no XP. A cycle is an ordered
+    queue of TIME and GOAL blocks over notebook topics, studied lap after lap. Minutes reach it from
+    finished pomodoros on a topic's pages and from sessions logged by hand; a GOAL block also closes
+    when the page it aims at reaches DONE. A cycle that belongs to somebody else answers
+    `STUDY_CYCLE_NOT_OWNED`, and the topics and pages a cycle names are checked like every other page.
+
     The study AI is grounded. Chat answers, summaries, study guides, quizzes and AI flashcards are
     written from numbered passages, the page's own notes and its ancestors' first, then the passages
     retrieved from its sources. Answers cite them as `[n]`. The server drops any number the model
@@ -1598,6 +1604,357 @@ paths:
         gone, or somebody else's, is left alone.
 
         Answers the new topic, the same shape as `GET /notebook/pages/{pageId}`.
+  /notebook/cycles:
+    get:
+      tags:
+      - study-cycle-controller
+      operationId: list_1
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudyCycleSummaryDTO'
+      summary: List the active study cycles
+      description: |
+        Every cycle that is not archived, in `position` order, with its current lap and today's minutes and
+        start time. No blocks: open one cycle for those.
+    post:
+      tags:
+      - study-cycle-controller
+      operationId: create_1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CycleConfigRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyCycleDTO'
+      summary: Create a study cycle
+      description: |
+        Seven days (minutes 0 to 720 in steps of 5, optional `HH:mm` start), 1 to 30 topics with importance
+        and mastery 1 to 5, a maximum block of 15 to 240 minutes and a default mode for new blocks. The
+        server plans the blocks with the same arithmetic as `POST /notebook/cycles/plan`. A topic must be a
+        TOPIC page of the caller (`NOTEBOOK_PAGE_NOT_OWNED`, `NOTEBOOK_TOPIC_REQUIRED`) and not in another
+        active cycle (`STUDY_CYCLE_TOPIC_TAKEN`, with `details.topicId`, `details.cycleId` and
+        `details.cycleName`). Ten active cycles, thirty topics and sixty blocks at most
+        (`STUDY_CYCLE_LIMIT`).
+  /notebook/cycles/plan:
+    post:
+      tags:
+      - study-cycle-controller
+      operationId: plan
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/PlanResponseDTO'
+      summary: Preview the plan for a week and some weights
+      description: |
+        Stateless: nothing is read or written. Each topic weighs `importance * (6 - mastery)`. The week's
+        minutes (the sum of its days) are split by weight in steps of five, at least five per topic, unless
+        the topic carries `minutesOverride`. A topic longer than `maxBlockMinutes` becomes several blocks of
+        near-equal size, and the blocks interleave from the heaviest topic down, round by round. `lapDays`
+        is how many days a lap takes at the week's pace, null for an empty week. The editor shows this while
+        the person types, and the assistant's `createStudyCycle` uses the same class, so the two never
+        disagree. More than 60 blocks is refused only when saving.
+  /notebook/cycles/today:
+    get:
+      tags:
+      - study-cycle-controller
+      operationId: today
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyTodayDTO'
+      summary: Today's slice of every active cycle
+      description: |
+        For each cycle with minutes on the owner's local day: blocks closed today first (`doneToday`, no
+        clock), then the open blocks from the current one on, each taking what it still needs until the
+        day's minutes, less what was already studied today, run out. A lap that ends inside the budget
+        continues into the next lap (`nextLap`), at most once, so the same `blockId` can appear twice: key
+        rows on `blockId`, `doneToday` and `nextLap`. With a start time each entry gets `start` and `end`,
+        counted from the start plus what was studied today. Cycles with no minutes today come back in
+        `restingCycles`. Reading also fixes the concept of each topic's first open GOAL block, on purpose: a
+        concept understood on the page screen without a timer must still close its block.
+  /notebook/cycles/{cycleId}:
+    get:
+      tags:
+      - study-cycle-controller
+      operationId: get
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyCycleDTO'
+      summary: One study cycle in full
+      description: |
+        Settings, week, topics with weights, the current lap's summary, every block with its progress in the
+        lap, and the last five closed laps. A NEXT block that is the topic's first open GOAL block shows its
+        concept fixed; later ones show what the roadmap says now, with `targetPreview: true`. Cycles that
+        belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+    put:
+      tags:
+      - study-cycle-controller
+      operationId: update
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CycleConfigRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyCycleDTO'
+      summary: Change a cycle's settings
+      description: |
+        Same body as creating. When the plan's inputs change (the week's minutes, the maximum block, the
+        topics or their weights) the server plans again and merges: the k-th block of a topic in the new
+        plan keeps the id, the lap progress and the per-block settings of the k-th block of that topic in
+        the old list. Unmatched old blocks go, with their progress. A rename alone keeps a hand-arranged
+        order. Removing a topic frees it for another cycle. An archived cycle answers STUDY_CYCLE_NOT_FOUND
+        here and on the block routes; it can still be deleted. Cycles that belong to somebody else answer
+        STUDY_CYCLE_NOT_OWNED.
+    delete:
+      tags:
+      - study-cycle-controller
+      operationId: delete
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a cycle
+      description: |
+        The cycle and everything under it: days, topics, blocks, lap progress and closed laps. Logged
+        sessions stay in the account and lose their link to the cycle. Cycles that belong to somebody else
+        answer STUDY_CYCLE_NOT_OWNED.
+  /notebook/cycles/{cycleId}/archive:
+    post:
+      tags:
+      - study-cycle-controller
+      operationId: archive
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      responses:
+        '204':
+          description: No Content
+      summary: Archive a cycle
+      description: |
+        Ends the cycle and frees its topics for another one. The cycle and its history stay readable. There
+        is no unarchive. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+  /notebook/cycles/{cycleId}/blocks:
+    put:
+      tags:
+      - study-cycle-controller
+      operationId: replaceBlocks
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/BlockRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyCycleDTO'
+      summary: Replace the ordered block list
+      description: |
+        For reordering and per-block edits. Blocks sent with an `id` keep their progress; `id: null` creates
+        one. Every topic must already be in the cycle. A TIME block carries no goal source and no quiz
+        requirement; a GOAL block with `goalSource: PAGE` needs a page of its topic. Cycles that belong to
+        somebody else answer STUDY_CYCLE_NOT_OWNED.
+  /notebook/cycles/{cycleId}/blocks/{blockId}:
+    patch:
+      tags:
+      - study-cycle-controller
+      operationId: patchBlock
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      - name: blockId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockPatchDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyCycleDTO'
+      summary: Change one block
+      description: |
+        A field that is missing stays as it is; an explicit null clears it. A block id that is not in the
+        cycle answers STUDY_CYCLE_NOT_FOUND. Cycles that belong to somebody else answer
+        STUDY_CYCLE_NOT_OWNED.
+  /notebook/cycles/{cycleId}/history:
+    get:
+      tags:
+      - study-cycle-controller
+      operationId: history_1
+      parameters:
+      - name: cycleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The cycle. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: First day, YYYY-MM-DD.
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: Last day, YYYY-MM-DD, at most 31 days after `from`.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/StudyHistoryDTO'
+      summary: What was studied, day by day
+      description: |
+        At most 31 days. Per day: the minutes the week planned for that weekday, the minutes studied on the
+        cycle's topics, the split by topic, and the entries in time order: FOCUS (a pomodoro on a page of a
+        cycle topic), MANUAL (a logged session, deletable), UNDERSTOOD (a block closed by its page being
+        done) and LAP_CLOSED. Cycles that belong to somebody else answer STUDY_CYCLE_NOT_OWNED.
+  /notebook/sessions:
+    post:
+      tags:
+      - study-cycle-controller
+      operationId: logSession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SessionResponseDTO'
+      summary: Log a study session
+      description: |
+        Study done away from the timer: a book, a class, exercises on paper. The minutes are credited now,
+        into the current lap of the active cycle that holds the topic, through the same walk a pomodoro
+        takes: the topic's first open block, then its next one, anything left on its last. `studiedOn` only
+        places the session in the history and must be within the last 30 days on the owner's calendar
+        (STUDY_SESSION_DATE). `credited` is null when no active cycle holds the topic, or the topic has no
+        block in it; the session is kept for the history either way. No XP.
+  /notebook/sessions/{sessionId}:
+    delete:
+      tags:
+      - study-cycle-controller
+      operationId: deleteSession
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+      summary: Delete a logged session
+      description: |
+        When the session went into the current lap its minutes are taken back from the topic's blocks, last
+        first, and a DONE or TURN_USED block that falls under its planned minutes opens again. UNDERSTOOD
+        blocks stay closed. A session from a lap that already closed is only deleted. Somebody else's
+        session answers STUDY_SESSION_NOT_FOUND.
 components:
   schemas:
     AddLinkRequestDTO:
@@ -3324,3 +3681,728 @@ components:
           description: False keeps the source and stops the AI reading it.
       required:
       - enabled
+    Block:
+      type: object
+      properties:
+        position:
+          type: integer
+          format: int32
+        topicId:
+          type: string
+          format: uuid
+        plannedMinutes:
+          type: integer
+          format: int32
+    BlockPatchDTO:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        plannedMinutes:
+          type: integer
+          format: int32
+          maximum: 600
+          minimum: 5
+        goalSource:
+          type: string
+          enum:
+          - NEXT
+          - PAGE
+        pageId:
+          type: string
+          format: uuid
+        requireQuiz:
+          type: boolean
+        note:
+          type: string
+          maxLength: 200
+          minLength: 0
+    BlockProgressDTO:
+      type: object
+      properties:
+        lapNumber:
+          type: integer
+          format: int32
+        minutes:
+          type: integer
+          format: int32
+        state:
+          type: string
+          enum:
+          - OPEN
+          - DONE
+          - UNDERSTOOD
+          - TURN_USED
+        closedAt:
+          type: string
+          format: date-time
+        target:
+          $ref: '#/components/schemas/TargetDTO'
+        targetPreview:
+          type: boolean
+        quizPassed:
+          type: boolean
+    BlockRequestDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        topicId:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        plannedMinutes:
+          type: integer
+          format: int32
+          maximum: 600
+          minimum: 5
+        goalSource:
+          type: string
+          enum:
+          - NEXT
+          - PAGE
+        pageId:
+          type: string
+          format: uuid
+        requireQuiz:
+          type: boolean
+        note:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - mode
+      - plannedMinutes
+      - topicId
+    Credited:
+      type: object
+      properties:
+        cycleId:
+          type: string
+          format: uuid
+        cycleName:
+          type: string
+        blockId:
+          type: string
+          format: uuid
+        position:
+          type: integer
+          format: int32
+        minutesBefore:
+          type: integer
+          format: int32
+        minutesAfter:
+          type: integer
+          format: int32
+        plannedMinutes:
+          type: integer
+          format: int32
+        state:
+          type: string
+          enum:
+          - OPEN
+          - DONE
+          - UNDERSTOOD
+          - TURN_USED
+    CycleConfigRequestDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        defaultMode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        maxBlockMinutes:
+          type: integer
+          format: int32
+          maximum: 240
+          minimum: 15
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleDayDTO'
+          maxItems: 7
+          minItems: 7
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleTopicDTO'
+          maxItems: 2147483647
+          minItems: 1
+      required:
+      - days
+      - defaultMode
+      - maxBlockMinutes
+      - name
+      - topics
+    CycleDayDTO:
+      type: object
+      properties:
+        weekday:
+          type: string
+          enum:
+          - MONDAY
+          - TUESDAY
+          - WEDNESDAY
+          - THURSDAY
+          - FRIDAY
+          - SATURDAY
+          - SUNDAY
+        minutes:
+          type: integer
+          format: int32
+          maximum: 720
+          minimum: 0
+        startTime:
+          type: string
+          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+      required:
+      - minutes
+      - weekday
+    CycleTopicDTO:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        importance:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        mastery:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        minutesOverride:
+          type: integer
+          format: int32
+          maximum: 600
+          minimum: 5
+      required:
+      - importance
+      - mastery
+      - topicId
+    CycleTopicViewDTO:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        importance:
+          type: integer
+          format: int32
+        mastery:
+          type: integer
+          format: int32
+        minutesOverride:
+          type: integer
+          format: int32
+        topic:
+          $ref: '#/components/schemas/PageRefDTO'
+    Day:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        plannedMinutes:
+          type: integer
+          format: int32
+        minutes:
+          type: integer
+          format: int32
+        byTopic:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopicMinutes'
+        entries:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/Focus'
+            - $ref: '#/components/schemas/LapClosed'
+            - $ref: '#/components/schemas/Manual'
+            - $ref: '#/components/schemas/Understood'
+    Focus:
+      allOf:
+      - $ref: '#/components/schemas/HistoryEntryDTO'
+      - type: object
+        properties:
+          kind:
+            type: string
+          at:
+            type: string
+            format: date-time
+          topic:
+            $ref: '#/components/schemas/PageRefDTO'
+          page:
+            $ref: '#/components/schemas/PageRefDTO'
+          minutes:
+            type: integer
+            format: int32
+    HistoryEntryDTO: {}
+    LapClosed:
+      allOf:
+      - $ref: '#/components/schemas/HistoryEntryDTO'
+      - type: object
+        properties:
+          kind:
+            type: string
+          at:
+            type: string
+            format: date-time
+          lapNumber:
+            type: integer
+            format: int32
+    LapSummaryDTO:
+      type: object
+      properties:
+        number:
+          type: integer
+          format: int32
+        startedAt:
+          type: string
+          format: date-time
+        closedAt:
+          type: string
+          format: date-time
+        minutes:
+          type: integer
+          format: int32
+        plannedMinutes:
+          type: integer
+          format: int32
+        blocksClosed:
+          type: integer
+          format: int32
+        blocks:
+          type: integer
+          format: int32
+        understood:
+          type: integer
+          format: int32
+        turnsUsed:
+          type: integer
+          format: int32
+    Manual:
+      allOf:
+      - $ref: '#/components/schemas/HistoryEntryDTO'
+      - type: object
+        properties:
+          kind:
+            type: string
+          at:
+            type: string
+            format: date-time
+          sessionId:
+            type: string
+            format: uuid
+          topic:
+            $ref: '#/components/schemas/PageRefDTO'
+          page:
+            $ref: '#/components/schemas/PageRefDTO'
+          minutes:
+            type: integer
+            format: int32
+          note:
+            type: string
+    PlanRequestDTO:
+      type: object
+      properties:
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleDayDTO'
+          maxItems: 7
+          minItems: 7
+        maxBlockMinutes:
+          type: integer
+          format: int32
+          maximum: 240
+          minimum: 15
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleTopicDTO'
+          maxItems: 30
+          minItems: 0
+      required:
+      - days
+      - maxBlockMinutes
+      - topics
+    PlanResponseDTO:
+      type: object
+      properties:
+        weekMinutes:
+          type: integer
+          format: int32
+        plannedMinutes:
+          type: integer
+          format: int32
+        lapDays:
+          type: integer
+          format: int32
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Block'
+    Resting:
+      type: object
+      properties:
+        cycleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+    SessionRequestDTO:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        pageId:
+          type: string
+          format: uuid
+        minutes:
+          type: integer
+          format: int32
+          maximum: 600
+          minimum: 1
+        studiedOn:
+          type: string
+          format: date
+        note:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - minutes
+      - studiedOn
+      - topicId
+    SessionResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        credited:
+          $ref: '#/components/schemas/Credited'
+    StudyBlockDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+          format: int32
+        topic:
+          $ref: '#/components/schemas/PageRefDTO'
+        mode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        plannedMinutes:
+          type: integer
+          format: int32
+        goalSource:
+          type: string
+          enum:
+          - NEXT
+          - PAGE
+        page:
+          $ref: '#/components/schemas/PageRefDTO'
+        requireQuiz:
+          type: boolean
+        note:
+          type: string
+        progress:
+          $ref: '#/components/schemas/BlockProgressDTO'
+    StudyCycleDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        defaultMode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        maxBlockMinutes:
+          type: integer
+          format: int32
+        position:
+          type: integer
+          format: int32
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleDayDTO'
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CycleTopicViewDTO'
+        lap:
+          $ref: '#/components/schemas/LapSummaryDTO'
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyBlockDTO'
+        previousLaps:
+          type: array
+          items:
+            $ref: '#/components/schemas/LapSummaryDTO'
+    StudyCycleSummaryDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        position:
+          type: integer
+          format: int32
+        lap:
+          $ref: '#/components/schemas/LapSummaryDTO'
+        today:
+          $ref: '#/components/schemas/Today'
+    StudyHistoryDTO:
+      type: object
+      properties:
+        cycleId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageRefDTO'
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/Day'
+    StudyTodayCycleDTO:
+      type: object
+      properties:
+        cycleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        startTime:
+          type: string
+        dayMinutes:
+          type: integer
+          format: int32
+        studiedMinutes:
+          type: integer
+          format: int32
+        lapNumber:
+          type: integer
+          format: int32
+        position:
+          type: integer
+          format: int32
+        blocksInLap:
+          type: integer
+          format: int32
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodayEntryDTO'
+    StudyTodayDTO:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        weekday:
+          type: string
+          enum:
+          - MONDAY
+          - TUESDAY
+          - WEDNESDAY
+          - THURSDAY
+          - FRIDAY
+          - SATURDAY
+          - SUNDAY
+        plannedMinutes:
+          type: integer
+          format: int32
+        studiedMinutes:
+          type: integer
+          format: int32
+        blocksDone:
+          type: integer
+          format: int32
+        blocksTotal:
+          type: integer
+          format: int32
+        cycles:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyTodayCycleDTO'
+        restingCycles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resting'
+    TargetDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+        status:
+          type: string
+          enum:
+          - TO_STUDY
+          - STUDYING
+          - DONE
+        progress:
+          $ref: '#/components/schemas/ProgressDTO'
+    Today:
+      type: object
+      properties:
+        minutes:
+          type: integer
+          format: int32
+        startTime:
+          type: string
+    TodayEntryDTO:
+      type: object
+      properties:
+        blockId:
+          type: string
+          format: uuid
+        position:
+          type: integer
+          format: int32
+        topic:
+          $ref: '#/components/schemas/PageRefDTO'
+        mode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        goalSource:
+          type: string
+          enum:
+          - NEXT
+          - PAGE
+        page:
+          $ref: '#/components/schemas/PageRefDTO'
+        note:
+          type: string
+        requireQuiz:
+          type: boolean
+        plannedMinutes:
+          type: integer
+          format: int32
+        credited:
+          type: integer
+          format: int32
+        minutesToday:
+          type: integer
+          format: int32
+        state:
+          type: string
+          enum:
+          - OPEN
+          - DONE
+          - UNDERSTOOD
+          - TURN_USED
+        doneToday:
+          type: boolean
+        nextLap:
+          type: boolean
+        start:
+          type: string
+        end:
+          type: string
+        target:
+          $ref: '#/components/schemas/TargetDTO'
+        targetPreview:
+          type: boolean
+        quizPassed:
+          type: boolean
+        cardsDue:
+          type: integer
+          format: int32
+    Topic:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        weight:
+          type: integer
+          format: int32
+        share:
+          type: number
+          format: double
+        suggestedMinutes:
+          type: integer
+          format: int32
+        minutes:
+          type: integer
+          format: int32
+        blocks:
+          type: integer
+          format: int32
+    TopicMinutes:
+      type: object
+      properties:
+        topicId:
+          type: string
+          format: uuid
+        minutes:
+          type: integer
+          format: int32
+    Understood:
+      allOf:
+      - $ref: '#/components/schemas/HistoryEntryDTO'
+      - type: object
+        properties:
+          kind:
+            type: string
+          at:
+            type: string
+            format: date-time
+          topic:
+            $ref: '#/components/schemas/PageRefDTO'
+          page:
+            $ref: '#/components/schemas/PageRefDTO'
+          minutes:
+            type: integer
+            format: int32

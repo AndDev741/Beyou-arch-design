@@ -86,7 +86,7 @@ erDiagram
 - **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.
 - **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
 - **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
-- **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations.
+- **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations. Study cycles put topics in a queue of time and goal blocks studied lap after lap, fed by pomodoros on the topic's pages and by sessions logged by hand.
 
 ## Authentication flow
 
@@ -144,7 +144,7 @@ sequenceDiagram
 | **History** | CheckHistory, XpHistory | /check-history, /xp |
 | **Focus Mode** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diary** | Mood | /mood |
-| **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi | /notebook/* |
+| **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Daily Briefing** | DailyBriefing | /daily-briefing |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
 | **AI** | AiAgent, Onboarding | /ai/agent, /onboarding |
@@ -189,7 +189,7 @@ flowchart TD
   AX -->|"auto 401 → refresh"| AX
 ```
 
-The Redux slices live in a shared workspace package (`packages/state`, 20 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist and deliberately excludes the profile, snapshot, celebration, mood and notebook slices, so no PII, journal text or study notes land in localStorage. The mobile app keeps its store in memory and refetches on launch.
+The Redux slices live in a shared workspace package (`packages/state`, 21 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist and deliberately excludes the profile, snapshot, celebration, mood, notebook and studyCycles slices, so no PII, journal text or study notes land in localStorage. The mobile app keeps its store in memory and refetches on launch.
 
 ## Gamification system
 

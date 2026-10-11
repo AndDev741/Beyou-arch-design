@@ -1,9 +1,9 @@
 ---
 title: "Caderno de Estudos"
-summary: "Tópicos organizados em quadros de roadmap, uma página de anotações atrás de cada nó, uma IA que responde a partir das anotações e fontes da própria pessoa com citações, e flashcards em revisão espaçada. O modelo, as regras e a classe dona de cada uma."
+summary: "Tópicos organizados em quadros de roadmap, uma página de anotações atrás de cada nó, uma IA que responde a partir das anotações e fontes da própria pessoa com citações, flashcards em revisão espaçada e ciclos de estudo que fazem os tópicos girarem numa fila de blocos de tempo e de objetivo. O modelo, as regras e a classe dona de cada uma."
 ---
 
-O caderno de estudos é onde alguém organiza um assunto que está aprendendo. A pessoa abre um tópico, digamos "Engenharia de Software", e monta um quadro de roadmap para ele. Cada nó desse quadro abre uma página de anotações, e essa página pode ter um quadro próprio, então "Estruturas de Dados" se divide em árvores e heaps sem sair do caderno. PDFs, páginas da web e texto colado entram nas páginas como fontes, e uma IA de estudo responde a partir delas com citações. Os flashcards escritos numa página voltam num cronograma.
+O caderno de estudos é onde alguém organiza um assunto que está aprendendo. A pessoa abre um tópico, digamos "Engenharia de Software", e monta um quadro de roadmap para ele. Cada nó desse quadro abre uma página de anotações, e essa página pode ter um quadro próprio, então "Estruturas de Dados" se divide em árvores e heaps sem sair do caderno. PDFs, páginas da web e texto colado entram nas páginas como fontes, e uma IA de estudo responde a partir delas com citações. Os flashcards escritos numa página voltam num cronograma. Um ciclo de estudos põe vários tópicos numa fila de blocos e diz à pessoa o que estudar hoje, e por quanto tempo.
 
 Este documento cobre o modelo, as regras e a classe onde cada regra mora, e depois as escolhas que moldaram os dois clientes. As rotas estão na API do Controller do Caderno de Estudos.
 
@@ -181,7 +181,7 @@ A junção casa os blocos pelo id. Os blocos que o servidor escreve ganham um UU
 | Regra | Mora em |
 |-------|---------|
 | A página pertence a quem chama. Todo caminho verifica isso primeiro, inclusive os ciclos de foco que nomeiam uma página | `NotebookOwnership` |
-| O status, a subida pelos quadros e o pagamento no primeiro DONE | `NotebookProgressService` |
+| O status, a subida pelos quadros, o pagamento no primeiro DONE e o aviso aos ciclos de estudo sobre as páginas que terminaram | `NotebookProgressService` |
 | Progresso, status derivado, alcance, a próxima folha a estudar, a subárvore de uma página | `ProgressGraph` |
 | Todo valor de XP e o teto diário de revisão | `NotebookRewards` |
 | O texto puro de um documento | `BlockText` |
@@ -203,6 +203,14 @@ A junção casa os blocos pelo id. Os blocos que o servidor escreve ganham um UU
 | A chamada ao modelo, a nova tentativa, o limite de 90 segundos e o `AI_UNAVAILABLE` | `NotebookLlm` |
 | Nenhuma transação aberta enquanto o modelo responde: uma leitura curta antes, uma gravação curta depois | `NotebookTransactions` |
 | Um rascunho de roteiro guardado: uma chamada por vez, resultado só numa linha DRAFTING, apagado quando o tópico existe | `RoadmapDraftService`, `RoadmapDraftWrites` |
+| Os blocos de um ciclo a partir da semana e dos tópicos: pesos, minutos por tópico, tamanho dos blocos, a intercalação | `StudyCyclePlanner` |
+| Como minutos e entendimento movem uma volta: o caminho do crédito, o transbordo, a sobra, a espera pelo quiz, o estorno, a volta completa | `StudyLap` |
+| A fatia de hoje: o orçamento, a virada para a próxima volta, os horários | `StudyDaySlice` |
+| Um ciclo ativo por tópico, os limites, o replanejamento e a junção, o lock da linha, fechar uma volta, as leituras que fixam um conceito, as sessões | `StudyCycleService` |
+| O que um bloco de OBJETIVO mira (a página escolhida ou a próxima folha do roadmap), e os fatos do caderno que um ciclo lê uma vez por requisição | `NotebookFacts` |
+| O histórico de um ciclo, dia a dia | `StudyCycleHistoryService` |
+| As ferramentas de ciclo do assistente: de nomes e valores soltos para ids e requisições | `StudyCycleAssistant` |
+| Como um bloco aparece nos dois apps (o título e o número ao lado), e a prévia, no web, de onde uma sessão lançada vai cair | `studyCycleView` em `@beyou/state` |
 
 ## O editor web e o quadro
 
@@ -221,6 +229,10 @@ As rotas:
 | `/notebook/:pageId` | Uma página: árvore, anotações, o quadro embutido, status |
 | `/notebook/:pageId/board` | O quadro em tela cheia, cobrindo o shell como `/focus` |
 | `/notebook/:pageId/study` | A sala de estudo em tela cheia: fontes, chat, saídas do estúdio, ou as anotações da página ao lado do chat |
+| `/notebook/cycles` | Os ciclos de estudo: os ciclos ativos em chips, a volta até aqui, os blocos em ordem, a semana e as voltas anteriores |
+| `/notebook/cycles/new` | O editor de ciclo com a calculadora, para um ciclo novo |
+| `/notebook/cycles/:cycleId/edit` | O mesmo editor num ciclo que já existe |
+| `/notebook/cycles/:cycleId/history` | O histórico de um ciclo, uma semana por vez |
 
 O Caderno fica no grupo principal da sidebar depois de Metas (ícone `NotebookPen`) e na folha do bottom nav. Cada tela do caderno é um chunk lazy. O editor vai dentro do chunk da tela de página e nunca carrega no boot.
 
@@ -230,7 +242,7 @@ Um seletor no cabeçalho da sala escolhe o que ela mostra: a sala, as anotaçõe
 
 ## Mobile
 
-O celular lê e escreve anotações. As telas são a home de tópicos (`app/(app)/notebook/index.tsx`), um tópico ou página com as abas Trilha e Notas (`app/(app)/notebook/[id].tsx`), o editor de notas (`app/notebook-editor.tsx`), a revisão (`app/notebook-review.tsx`), a sala de estudo (`app/notebook-study.tsx`) e o rascunho de roteiro (`app/notebook-draft.tsx`). O editor, a revisão, a sala de estudo e o rascunho são em tela cheia e ficam fora do grupo `(app)`, para que a barra de baixo nunca fique entre o texto e o teclado nem numa sessão que quer a tela inteira.
+O celular lê e escreve anotações. As telas são a home de tópicos (`app/(app)/notebook/index.tsx`), um tópico ou página com as abas Trilha e Notas (`app/(app)/notebook/[id].tsx`), o editor de notas (`app/notebook-editor.tsx`), a revisão (`app/notebook-review.tsx`), a sala de estudo (`app/notebook-study.tsx`), o rascunho de roteiro (`app/notebook-draft.tsx`) e as três telas do ciclo de estudos (`app/notebook-cycles.tsx`, `app/notebook-cycle-edit.tsx`, `app/notebook-cycle-history.tsx`, descritas em "Ciclos de estudo" mais abaixo). O editor, a revisão, a sala de estudo, o rascunho e as telas do ciclo são em tela cheia e ficam fora do grupo `(app)`, para que a barra de baixo nunca fique entre o texto e o teclado nem numa sessão que quer a tela inteira.
 
 Um canvas arrastado com um polegar não serve para ler um roadmap, então a aba Trilha lê o quadro em níveis (`pathLevels` em `@beyou/state`). Cada nó vem depois dos nós que apontam para ele, e um nível com mais de um nó ganha "Depois, em qualquer ordem". A aba Notas desenha o documento com views nativas (`src/notebook/BlockRenderer.tsx`), e "Editar notas" ou um toque nelas abre o editor. As páginas abaixo desta que não estão no quadro aparecem listadas embaixo, lidas da árvore do tópico, já que o celular não tem barra lateral.
 
@@ -254,9 +266,108 @@ A web view precisou de três coisas que o resto do app não precisa. `react` e `
 
 O Caderno está na folha do bottom nav do mobile. O reducer é registrado em `apps/mobile/src/store.ts`, e o redux do mobile fica em memória como sempre.
 
+## Ciclos de estudo
+
+O ciclo de estudos é o método que todo concurseiro conhece: uma fila ordenada de blocos de estudo, sem dia da semana fixo. Cada bloco pertence a um tópico do caderno. Fechou um bloco, entra o próximo; quando todos os blocos da fila fecham, a volta está completa e a fila recomeça. Quem estuda para um concurso enquanto termina a faculdade pode tocar dois ciclos ao mesmo tempo.
+
+Um tópico fica em no máximo um ciclo ativo. O `StudyCycleService` confere isso antes, para a recusa poder dizer qual ciclo já tem o tópico: `STUDY_CYCLE_TOPIC_TAKEN`, com `topicId`, `cycleId` e `cycleName` nos `details`. Dois salvamentos podem passar juntos por essa checagem, e aí quem segura é o banco: um índice único parcial, `uq_study_cycle_topics_active`, em `study_cycle_topics (topic_id) WHERE active`. Tirar um tópico de um ciclo libera o tópico. Arquivar um ciclo põe `active` em false em todos os tópicos dele, o que também os libera.
+
+Cada ciclo tem uma semana, com os minutos de cada dia (0 é dia de descanso) e um horário de início opcional por dia. Os minutos da semana são a soma dos sete dias, então ninguém digita o mesmo número duas vezes. Cada pessoa tem no máximo 10 ciclos ativos, e um ciclo comporta até 30 tópicos e 60 blocos; passar de qualquer um desses limites responde `STUDY_CYCLE_LIMIT`.
+
+A funcionalidade não paga XP em lugar nenhum. O caderno já paga por página concluída e por quiz aprovado, e o ciclo só decide o que vem a seguir. Também não tem cache, como o resto do caderno: as leituras escrevem (veja abaixo), e cada pomodoro e cada mudança de status em outro lugar mexem nos números, então um cache precisaria ser invalidado pelos caminhos do foco, da página, do quadro e do quiz.
+
+### Blocos de tempo e blocos de objetivo
+
+Todo bloco é TIME ou GOAL ("Tempo" e "Objetivo" nas telas), escolhido bloco a bloco. O ciclo guarda um modo padrão para os blocos que o planejador cria, GOAL a menos que a pessoa escolha TIME.
+
+Um bloco de tempo é uma quantidade de minutos num tópico, "70 minutos de Português". Ele fecha como DONE quando chega aos minutos previstos.
+
+Um bloco de objetivo é um conceito a entender, e um conceito é uma página do caderno. Com `goalSource = PAGE`, ele mira uma página que a pessoa escolheu, que precisa ser do tópico do bloco (a própria página do tópico vale). Com `goalSource = NEXT`, mira o que o roadmap do tópico diz que vem a seguir, `ProgressGraph.nextLeaf`: a primeira folha, na ordem de leitura, que está em estudo, ou então a primeira ainda não começada. Esse alvo é sempre uma folha, e ele anda pelo roadmap sozinho. O bloco fica UNDERSTOOD quando a página chega a DONE. Um bloco também pode exigir o quiz da página, e aí uma página DONE sem quiz aprovado deixa o bloco aberto; as telas avisam que a página está feita e falta o quiz.
+
+O bloco de objetivo também tem minutos previstos. Para ele, são uma estimativa, que serve para montar o dia e fazer as matérias girarem. Quando esses minutos acabam antes de o conceito ser entendido, o bloco fecha como TURN_USED ("vez usada") e o ciclo segue. O próximo bloco do mesmo tópico pega o mesmo conceito, já que aquela página continua sem estar feita. Entender antes fecha o bloco na hora, com quantos minutos ele tiver.
+
+Um bloco de objetivo sem nada para entender funciona como um de tempo e fecha como DONE pelos minutos. Isso acontece com um bloco NEXT cujo roadmap já terminou, que as telas mostram como revisão, e com um bloco PAGE cuja página já estava feita (com o quiz aprovado, quando o bloco pede). Desmarcar uma página depois nunca reabre um bloco fechado.
+
+### De onde vêm os minutos
+
+Só duas coisas creditam minutos. Uma é um pomodoro terminado em qualquer página do tópico, que o timer de foco já registra com o `notebookPageId`; o tópico é a raiz daquela página, e pausa nunca conta. O `FocusService.recordCycle` chama o `StudyCycleService.credit` depois de salvar o ciclo de foco. A outra é uma sessão lançada à mão, para estudo feito longe do timer, pelo `POST /notebook/sessions`.
+
+O `StudyLap.credit` é o caminho. Ele acha o ciclo ativo que tem o tópico e trabalha na volta atual desse ciclo. Os blocos abertos do tópico, na ordem da fila, recebem cada um o que ainda falta, até onde os minutos derem. O bloco que chega aos minutos previstos fecha: DONE, ou TURN_USED num bloco de objetivo cujo conceito continua aberto. O que sobrar depois do último bloco aberto do tópico vai para o último bloco do tópico, que passa a mostrar algo como "80 de 70 min", e nenhum minuto estudado some. Estudar fora de ordem não tem problema: os minutos vão para o primeiro bloco aberto daquele tópico, esteja ele onde estiver na fila. Um tópico sem bloco na volta não credita nada, e a sessão lançada fica guardada para o histórico mesmo assim.
+
+Quando todos os blocos da volta estão fechados, a volta fecha. Uma linha em `study_cycle_laps` congela os números dela (minutos estudados e previstos, conceitos entendidos, vezes usadas, blocos), o número da volta do ciclo sobe um e a próxima volta começa naquele instante. O excedente da sessão que fechou a volta fica na volta fechada. Esses números são guardados porque um bloco editado ou apagado depois mudaria o passado se eles fossem recalculados.
+
+O progresso fica por volta em `study_cycle_lap_blocks`, uma linha por bloco por volta, criada na primeira vez que a volta credita, resolve ou fecha aquele bloco. Bloco sem linha está aberto e sem minutos. A linha do bloco em si é configuração e não guarda progresso nenhum, e é isso que deixa um replanejamento reescrever os blocos sem mexer no que foi estudado.
+
+Toda escrita que mexe numa volta pega primeiro o lock da linha do ciclo: `StudyCycleRepository.lockById`, ou `lockActive` para todos os ciclos da pessoa, pegos em ordem de id para dois escritores não travarem um ao outro. Sem isso, dois pomodoros terminando no mesmo segundo leriam um bloco em 50 de 70 e cada um gravaria o próprio total. `StudyCycle` e `StudyCycleLapBlock` também são `@DynamicUpdate`, porque uma renomeação e um crédito podem chegar juntos.
+
+### Os ganchos no caderno
+
+O entendimento chega ao ciclo por dois funis. O `NotebookProgressService` é a única classe que grava o status de uma página, e no fim de cada mudança de status ele passa ao `StudyCycleService.onPagesDone` toda página que a mudança concluiu, incluindo as páginas pai que subiram junto. Todo jeito de concluir uma página passa por ali, as ferramentas do assistente inclusive, então um jeito novo que aparecer depois não tem como esquecer o ciclo. O `NotebookStudyService` chama o `onQuizPassed` na primeira aprovação de um quiz, onde o `passed_at` é gravado, e isso fecha os blocos que esperavam o quiz de uma página já DONE.
+
+O `NotebookFacts` lê o grafo de páginas para o ciclo direto dos repositórios. Passar pelo `NotebookProgressService` criaria um laço de construtores, já que esse service chama o ciclo.
+
+### Por que ler um ciclo pode gravar nele
+
+Um bloco NEXT ganha o conceito na primeira vez que alguma coisa trabalha nele. O conceito fica então guardado na linha da volta (`target_page_id`), para o bloco saber que página esperar. As leituras também fixam. O `GET /notebook/cycles/today`, o `GET /notebook/cycles/{cycleId}` e o ciclo que volta ao criar ou editar um ciclo gravam o conceito do primeiro bloco de objetivo aberto de cada tópico.
+
+O motivo é a pessoa que abre a página que o card de Hoje aponta, estuda sem timer e marca como feita. O bloco tem que fechar como UNDERSTOOD, e só consegue se o conceito foi gravado antes de a página mudar. Os blocos abertos seguintes do mesmo tópico mostram o que o roadmap diz agora, com `targetPreview: true`, e não gravam nada: o conceito que vão receber depende do que acontecer antes. Essas leituras pegam o mesmo lock das escritas, então duas telas abrindo juntas não criam a mesma linha de volta duas vezes.
+
+Mudar o alvo de um bloco (o modo, a origem ou a página) esquece o conceito que a linha aberta dele tinha fixado, e a próxima leitura ou crédito resolve de novo. O Resumo do Dia lê o dia pelo `todayPreview`, dentro da sua própria transação somente leitura, e não fixa nada.
+
+### O planejador, o mesmo para o editor e para o assistente
+
+O `StudyCyclePlanner` transforma uma semana e um conjunto de tópicos em blocos. É aritmética pura:
+
+1. Cada tópico pesa `importance × (6 − mastery)`, importância e domínio, os dois numa escala de 1 a 5. Uma matéria importante que a pessoa mal conhece pesa 25; uma secundária que ela domina pesa 1.
+2. Os minutos sugeridos de um tópico por volta são a fatia dele nos minutos da semana, arredondada para 5 e nunca abaixo de 5. A pessoa pode definir os minutos de um tópico por conta própria (`minutesOverride`, de 5 a 600), e o número dela vale.
+3. Esses minutos são cortados em blocos de no máximo `maxBlockMinutes` (15 a 240), tão iguais quanto os passos de 5 minutos deixam. Os primeiros blocos ficam com os cincos a mais, e o que sobrar abaixo de 5 vai para o primeiro bloco.
+4. Os tópicos são ordenados por peso, com empates mantendo a ordem recebida, e a rodada r pega o r-ésimo bloco de cada tópico que ainda tiver um. A intercalação é a graça do ciclo. Toda matéria volta a cada poucos blocos, e nenhuma engole a semana sozinha.
+
+O `lapDays` diz quantos dias uma volta leva no ritmo da semana, no mínimo 1, e vem null numa semana sem minutos.
+
+Tudo que cria blocos chama o planejador: criar um ciclo, replanejar um, o `createStudyCycle` do assistente e o `POST /notebook/cycles/plan`. Essa última rota é uma prévia sem estado. O editor dos dois apps pede de novo uns 300 ms depois da última mudança, descarta uma resposta que chegue atrasada e nunca faz a conta sozinho. Assim, o que o editor mostra é o que fica salvo, e um ciclo que o assistente monta com as mesmas entradas sai igual. Por ser POST, a prévia gasta o orçamento genérico de escrita, como as outras escritas do caderno.
+
+### Editar um ciclo no meio da volta
+
+O `PUT /notebook/cycles/{cycleId}` recebe a configuração inteira de novo, e só replaneja quando as entradas do plano mudaram: o total de minutos da semana, o tamanho do bloco, ou os tópicos com a ordem, os pesos e os minutos próprios. Qualquer outra coisa, uma renomeação ou horários novos por exemplo, deixa a fila como está, e uma ordem que a pessoa arrumou à mão sobrevive.
+
+O replanejamento é juntado à lista antiga tópico por tópico. O k-ésimo bloco de um tópico no plano novo herda o id do k-ésimo bloco desse tópico na lista antiga, e com o id fica com o progresso daquele bloco na volta e com as configurações dele: modo, origem do objetivo, página, quiz e nota. A posição e os minutos vêm do plano novo. Os blocos antigos que ficaram sem par são apagados junto com o progresso, e os novos recebem o modo padrão do ciclo.
+
+Os blocos têm rotas próprias. O `PUT /notebook/cycles/{cycleId}/blocks` troca a lista ordenada. Um bloco enviado com id mantém o progresso, um sem id é novo, e um bloco não pode mudar de tópico, porque os minutos dele foram estudados naquele. O `PATCH /notebook/cycles/{cycleId}/blocks/{blockId}` muda alguns campos de um bloco: campo ausente fica como está, e um null explícito limpa. Um bloco que já fechou mantém o estado, mude o que mudar. Baixar os minutos de um bloco até o que ele já tem fecha o bloco ao salvar (`StudyLap.closeFull`), e tirar o último bloco aberto pode fechar a volta.
+
+O `POST /notebook/cycles/{cycleId}/archive` libera os tópicos do ciclo e mantém o ciclo e o histórico dele legíveis. Editar um ciclo arquivado, nas configurações ou nos blocos, responde `STUDY_CYCLE_NOT_FOUND`, ele não recebe mais créditos, e não existe desarquivar. O `DELETE` remove o ciclo e tudo que está embaixo dele; as sessões lançadas ficam na conta, sem ciclo, como histórico do tópico. Um ciclo de outra pessoa responde `STUDY_CYCLE_NOT_OWNED` em todas as rotas, e os tópicos e páginas que uma requisição cita recebem as recusas do próprio caderno (`NOTEBOOK_PAGE_NOT_FOUND`, `NOTEBOOK_PAGE_NOT_OWNED`, e `NOTEBOOK_TOPIC_REQUIRED` para uma página que não é tópico).
+
+### Hoje
+
+O `GET /notebook/cycles/today` monta o dia local do dono para cada ciclo ativo que tem minutos naquele dia da semana, e o `StudyDaySlice` monta a parte de cada ciclo:
+
+- Os minutos já estudados hoje nos tópicos do ciclo saem primeiro: pomodoros com data de hoje nas páginas deles, mais sessões com data de hoje. O orçamento do dia é o que o dia prevê menos isso, nunca abaixo de zero.
+- Os blocos fechados hoje vêm primeiro na lista, como feitos.
+- A partir do primeiro bloco aberto da volta, na ordem da fila, cada bloco aberto recebe o que ainda falta até o orçamento acabar.
+- Quando a volta termina dentro do orçamento, a fatia continua na próxima volta a partir do primeiro bloco, marcada com `nextLap` e ainda sem progresso. Ela vira no máximo uma vez. Quem tem mais horas num dia do que duas voltas precisa de um ciclo maior, e uma lista mais comprida não ajudaria.
+- Com horário de início, cada entrada ganha um intervalo de relógio. O cursor começa no horário de início mais o que já foi estudado hoje, então quem fez uma hora a partir das 19:00 vê o próximo bloco às 20:00.
+
+Os ciclos com horário de início hoje vêm primeiro, por esse horário, e os outros mantêm a ordem deles. Um ciclo sem minutos hoje vai para `restingCycles` pelo nome, para a tela poder dizer que ele descansa. Cada entrada também traz os flashcards do tópico que vencem hoje.
+
+O card de Hoje na home do caderno nos dois apps, o widget `studyToday` do dashboard e o `getStudyToday` do assistente leem essa rota. O Resumo do Dia lê a mesma fatia pelo `todayPreview`.
+
+### Histórico e sessões lançadas
+
+O `GET /notebook/cycles/{cycleId}/history` cobre no máximo 31 dias (`StudyCycleHistoryService`). Cada dia traz os minutos que a semana previa para aquele dia, os minutos estudados nos tópicos do ciclo com a divisão por tópico, e as entradas do dia em ordem de horário: FOCUS para um pomodoro, MANUAL para uma sessão lançada, UNDERSTOOD para um bloco que a página fechou, e LAP_CLOSED. Os minutos contam no dia em que aconteceram, seja qual for a volta onde caíram, então uma sessão lançada hoje para a terça passada aparece na terça. Os tópicos são os que o ciclo tem agora, ativos ou não, e por isso um ciclo arquivado também tem histórico.
+
+O `POST /notebook/sessions` credita a sessão na hora, na volta atual, diga o `studiedOn` o que disser. A data só posiciona a sessão no histórico, e precisa ser o hoje do dono ou um dos 30 dias anteriores (`STUDY_SESSION_DATE`, conferido contra `UserDateResolver.today`). A linha guarda o `cycle_id` e o `lap_number` onde entrou, e o `DELETE /notebook/sessions/{sessionId}` usa os dois. Quando a sessão entrou na volta que ainda está correndo, os minutos dela voltam dos blocos do tópico, do último para trás, tirados só de blocos que têm minutos. Um bloco DONE ou TURN_USED que fica abaixo dos minutos previstos abre de novo. Um bloco UNDERSTOOD continua fechado, porque o conceito foi entendido, digam os minutos o que disserem. Uma sessão que entrou numa volta que já fechou só é apagada, e a volta fechada mantém os números. A sessão de outra pessoa responde `STUDY_SESSION_NOT_FOUND`.
+
+### As telas, e o resto do Beyou
+
+No web, o card de Hoje fica no topo de `/notebook`: para cada ciclo com minutos hoje, os blocos que cabem no dia com os horários, "Foco 25" e "Abrir" no bloco em que o dia está, e um jeito de lançar uma sessão. Quem não tem ciclo vê um convite para montar um, e um dia de descanso é uma linha só. `/notebook/cycles` reúne os ciclos ativos. Um bloco abre um diálogo com as configurações dele, salvas num PATCH, e os blocos sobem e descem com um PUT da ordem inteira. O editor em `/notebook/cycles/new` e `/notebook/cycles/:cycleId/edit` mostra a resposta do planejador enquanto a pessoa mexe na semana e nos tópicos. O histórico em `/notebook/cycles/:cycleId/history` desenha uma semana de minutos empilhados por tópico contra a meta de cada dia, e uma sessão lançada pode ser apagada nas entradas do dia. O celular tem as mesmas três telas em `app/notebook-cycles.tsx`, `app/notebook-cycle-edit.tsx` e `app/notebook-cycle-history.tsx`, e o card de Hoje na home do caderno. No web, o diálogo de lançar sessão mostra antes onde os minutos vão cair, percorrendo o ciclo carregado do mesmo jeito que o servidor credita (`previewCredit`), e o aviso depois lê a resposta do servidor. A folha do celular também diz o bloco, com a regra mais curta `creditTarget`: o primeiro bloco aberto do tópico, ou o último.
+
+Os dois apps guardam o que carregaram no slice `studyCycles` (a fatia de hoje, a lista, cada ciclo aberto por inteiro). O `refreshStudyCycles` lê tudo de novo depois das escritas do próprio app e quando uma ferramenta do assistente avisa o domínio `studyCycles`. O `studyCycleView` em `@beyou/state` escreve um bloco para as duas plataformas, "Entender Crase" para um conceito e o nome do tópico nos outros casos, com o número ao lado, para o card, a tela do ciclo, o widget e o resumo dizerem a mesma coisa.
+
+A página Hoje do Resumo do Dia lista cada ciclo com minutos no dia, o horário de início e os três primeiros blocos abertos (`TodayAhead.study`). O servidor monta o título de cada bloco no idioma da conta, porque os clientes mostram o texto do jeito que chega. O resumo de ontem ganha os minutos estudados nos tópicos dos ciclos ativos e os conceitos entendidos. Um ciclo com minutos hoje, ou estudo ontem, faz o resumo valer a pena de mostrar, e o narrador recebe uma linha com esses fatos junto do que já está na tela. O assistente tem quatro ferramentas para ciclos, listadas no [tópico do agente de IA](/architecture/ai-agent).
+
 ## O timer de foco
 
-O "Foco 25 min" numa página do caderno inicia o pomodoro único do app, o mesmo timer que a tela de foco usa. O estado `FocusTimer` carrega um `notebookPageId` opcional, mantido na passagem para a pausa, e o `PomodoroOwner` do web e do mobile reporta o ciclo com ele. O botão recusa enquanto um ciclo está rodando ou pausado em qualquer lugar do app, porque substituir esse ciclo jogaria fora minutos que alguém está no meio de usar, e o ciclo substituído nunca seria reportado. Essa regra é o `notebookFocusStart` em `@beyou/state`, e os dois apps só despacham o que ele devolve. O web saiu sem essa checagem no começo, e por isso ela foi parar lá. O servidor grava isso em `focus_cycles.notebook_page_id` depois de checar a posse, e o `focusMinutes` de uma página soma os minutos de POMODORO feitos nela e em toda página cuja casa fica abaixo dela. Pausas não contam. Apagar a página põe a coluna em null e mantém o ciclo.
+O "Foco 25 min" numa página do caderno inicia o pomodoro único do app, o mesmo timer que a tela de foco usa. O estado `FocusTimer` carrega um `notebookPageId` opcional, mantido na passagem para a pausa, e o `PomodoroOwner` do web e do mobile reporta o ciclo com ele. O botão recusa enquanto um ciclo está rodando ou pausado em qualquer lugar do app, porque substituir esse ciclo jogaria fora minutos que alguém está no meio de usar, e o ciclo substituído nunca seria reportado. Essa regra é o `notebookFocusStart` em `@beyou/state`, e os dois apps só despacham o que ele devolve. O web saiu sem essa checagem no começo, e por isso ela foi parar lá. O servidor grava isso em `focus_cycles.notebook_page_id` depois de checar a posse, e o `focusMinutes` de uma página soma os minutos de POMODORO feitos nela e em toda página cuja casa fica abaixo dela. Pausas não contam. Apagar a página põe a coluna em null e mantém o ciclo. O mesmo registro também credita o ciclo de estudos do tópico, quando algum ciclo tem o tópico (veja "Ciclos de estudo" acima).
 
 O servidor não faz check-in nenhum. Quando o tópico está vinculado a um hábito que está na rotina de hoje, o timer pré-seleciona aquele item da rotina, a tela de foco abre nele e o check continua a um toque, nas mãos da pessoa.
 
@@ -266,6 +377,10 @@ As anotações são tão pessoais quanto o diário de humor e recebem o mesmo tr
 
 O `GET /user/export` leva cada página como texto puro e os quadros que as organizam, com posições e ligações, porque um quadro é um layout que a pessoa montou. Os flashcards vão com as datas de vencimento e cada revisão feita neles, as fontes com seus detalhes, e os chats e as saídas da sala de estudo com as notas dos quizzes, além dos rascunhos de roteiro. O texto lido das fontes aparece em `notIncluded` como `notebookSourceText`: é uma cópia de documentos que a pessoa já tem, e um livro inteiro por fonte enterraria o resto do arquivo. Toda tabela do caderno tem cascade a partir de `users`, então a exclusão da conta leva o caderno inteiro.
 
+Os ciclos de estudo recebem o mesmo tratamento no aparelho. O slice `studyCycles` é dado do servidor lido sob demanda, então fica na blacklist de persistência do web ao lado de `notebook` e vive em memória no celular; o `PERSIST_VERSION` não mudou por causa dele. A exportação leva cada ciclo em `notebook.studyCycles`, os arquivados inclusive, com a semana, os tópicos e os pesos deles, os blocos, o progresso de cada bloco em cada volta e as voltas fechadas. As sessões lançadas vão em `notebook.studySessions`, com o ciclo e a volta onde entraram. É uma consulta por tabela, tenha a pessoa quantos ciclos tiver. `study_cycles` e `study_sessions` têm cascade direto de `users`, e as outras cinco tabelas vêm em cascade por `study_cycles`, então apagar a conta leva as sete. Apagar um tópico tira o tópico do ciclo, junto com os blocos e as sessões dele, e uma página apagada deixa sem página o bloco ou a linha de volta que apontava para ela.
+
 ## Testes
 
 No backend, as regras puras têm testes unitários em `unit/notebook/` (`ProgressGraphTest`, `SpacedRepetitionTest`, `LinkFetcherTest`, `BlockTextTest` e outros), e `integration/notebook/` roda os services contra o Postgres, incluindo escritas concorrentes, a ingestão de fontes e o `StudyBoardEditor` do assistente. Seis specs e2e dirigem a stack: `notebook.spec.ts` para o caminho de UI do tópico ao nó concluído, `notebook-rules.spec.ts` para posse, pagar uma vez, a recusa de ciclo, SSRF e escopo de fontes direto na API, `notebook-study.spec.ts` para o XP da revisão e as telas de IA, incluindo o Shift+Enter da caixa de pergunta e as anotações ao lado do chat recebendo uma resposta salva sem nenhum salvamento recusado, com só as rotas do modelo simuladas, `notebook-agent.spec.ts`, que reproduz uma resposta do assistente sobre uma página aberta e confere que o quadro, a árvore, o título e o editor mostram a mudança, e `notebook-sync.spec.ts`, duas abas na mesma página: anotações acrescentadas a uma página aberta sobrevivem à próxima edição nela, parágrafos diferentes se juntam sem pergunta, o mesmo parágrafo pergunta, e `notebook-trail.spec.ts`, um roteiro editado do jeito do celular direto na API: um nó sem coordenadas na próxima célula livre, depois do nó indicado, com o bloco do quadro na página, e uma ordem que transforma o quadro num caminho só. O `NotebookConcurrentWritesIT` reproduz as corridas da revisão numa thread só, e `mergeDocuments`, `DocumentSync` e `editorDocument` têm testes unitários em `@beyou/state`. No mobile, o `notebook-editor-screen.test.tsx` põe um stub no lugar da web view e cobre a metade da tela na ponte: a página de onde o editor começa, salvar a partir da revisão dele, a folha de conflito, os comandos da barra de ferramentas e sair só depois que a última edição foi salva. O `notebook-page-actions.test.tsx` cobre renomear, página nova, excluir e tópico novo, o `notebook-trail.test.tsx` a folha do nó, um nó adicionado depois de outro e a reordenação, e o `notebook-cards.test.tsx` a aba de cartões: a contagem do dia, a resposta com um toque, rascunhar com IA, escrever, editar e excluir. O `notebook-study.test.tsx` cobre a sala de estudo: a primeira configuração, uma pergunta cuja resposta citada é salva na página e vira cartões, fontes adicionadas e uma desligada, um PDF do celular com a checagem de tamanho e um quiz corrigido e pago. O `notebook-draft.test.tsx` cobre um rascunho do formulário ao tópico (lido de novo até ficar pronto, as marcações salvas, o tópico criado a partir dos nós mantidos), uma mudança aplicada a um rascunho reaberto, um rascunho que falhou e os rascunhos na home.
+
+O ciclo de estudos tem testes próprios. Em `unit/notebook/cycle`, o `StudyCyclePlannerTest` cobre a aritmética e a intercalação do planejador, o `StudyLapTest` o caminho do crédito com o transbordo e a sobra, o entendimento, a espera pelo quiz e o estorno, e o `StudyDaySliceTest` a fatia do dia com a virada e os horários. O `StudyCycleServiceIT` e o `StudyCycleApiIT`, em `integration/notebook`, rodam contra o Postgres: o índice único parcial, a posse, os ganchos de um pomodoro, de uma página concluída e de um quiz aprovado, a junção no replanejamento, os limites, o dia de hoje, o histórico e o formato das respostas. O `StudyCycleAssistantTest` cobre o lado do assistente, e o `DailyBriefingServiceIT` os campos de estudo do resumo. Dois specs e2e dirigem a stack. O `study-cycle-rules.spec.ts` trabalha direto na API: um ciclo ativo por tópico, a divisão do planejador, um pomodoro que enche um bloco, transborda para o próximo e fecha a volta, um conceito que passa para o próximo bloco do tópico e é entendido quando a página fica feita, uma sessão lançada creditada e depois estornada, a fatia de hoje com os horários, e o ciclo de outra pessoa recusado. O `study-cycle.spec.ts` passa pela UI: um ciclo montado no editor, o card de Hoje, uma sessão lançada a partir dele caindo no primeiro bloco aberto do tópico, e o widget do dashboard. Nos clientes, o `studyCycleView` tem testes unitários em `@beyou/state`, as telas, os diálogos e o card de Hoje do ciclo no web têm testes de componente, e o celular testa as três telas, o card de Hoje e o widget em `__tests__/`.

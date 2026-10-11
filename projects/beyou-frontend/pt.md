@@ -8,7 +8,7 @@ Uma base TypeScript, dois clientes. npm workspaces com Turborepo guardam o web a
 
 ## O que é compartilhado, e o que não é
 
-O estado (20 slices Redux e a lógica de gamificação), a camada de API atrás de uma interface HttpClient estreita, os tokens de tema, as traduções, os schemas de validação e o registro de ícones são uma implementação só. Cada plataforma mantém apenas o que precisa diferir: persistência, navegação, armazenamento de tokens e toda a camada de renderização. O site de marketing vive na raiz do repositório, deliberadamente fora do workspace, e vai sozinho para o Cloudflare Pages.
+O estado (21 slices Redux e a lógica de gamificação), a camada de API atrás de uma interface HttpClient estreita, os tokens de tema, as traduções, os schemas de validação e o registro de ícones são uma implementação só. Cada plataforma mantém apenas o que precisa diferir: persistência, navegação, armazenamento de tokens e toda a camada de renderização. O site de marketing vive na raiz do repositório, deliberadamente fora do workspace, e vai sozinho para o Cloudflare Pages.
 
 ## Como é entregue
 

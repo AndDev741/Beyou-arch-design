@@ -26,7 +26,9 @@ info:
     the panel already renders and asked it to phrase that, and every morning it wrote the panel
     back out as prose. It now gets two weeks of signals the screen does not show (completion this
     week against the week before, habits slipping and holding, mood levels and their trend, each
-    goal's pace) and is told to talk about those and not to restate what is on screen. Mood
+    goal's pace) and is told to talk about those and not to restate what is on screen. The
+    study cycles reach it as one line of facts among what is already on screen: today's minutes
+    and first blocks per cycle, and yesterday's minutes and concepts understood. Mood
     reaches it as levels only. The journal text never enters the briefing at all: the clients read
     yesterday's entry from `GET /mood` themselves, so the summary cannot quote what it never saw.
 
@@ -89,7 +91,8 @@ paths:
 
         A briefing with nothing in it (no routine yesterday, nothing scheduled today, no open goal
         and no expiring day) still answers 200, but creates no row and is not worth
-        showing. Both clients apply the same rule and stay silent. A dialog that greets somebody
+        showing. A study cycle with minutes today counts as something scheduled, and minutes
+        studied yesterday as something that happened. Both clients apply the same rule and stay silent. A dialog that greets somebody
         every morning with "nothing happened" is how you teach them to close it unread.
   /daily-briefing/narrative:
     get:
@@ -221,6 +224,17 @@ components:
           type: integer
           format: int32
           description: The 1-5 mood logged for the day, or absent if none was.
+        studyMinutes:
+          type: integer
+          format: int32
+          description: |
+            Minutes studied on the topics of the active study cycles: pomodoros run on their pages
+            plus sessions logged by hand, the same sum the notebook's Today card makes. 0 for an
+            account with no cycle. Any minute here makes the briefing worth showing.
+        conceptsUnderstood:
+          type: integer
+          format: int32
+          description: GOAL blocks of the active study cycles that closed as understood that day.
     BriefingGoalAheadDTO:
       type: object
       description: |
@@ -342,6 +356,55 @@ components:
             not push out one the user is working toward. Any entry here makes the day worth showing.
           items:
             $ref: '#/components/schemas/BriefingGoalAheadDTO'
+        study:
+          type: array
+          description: |
+            The study cycles with minutes on the day, each with the first open blocks of its slice.
+            Empty for an account with no cycle, and on a day every cycle rests. Read from the same
+            slice as `GET /notebook/cycles/today`, with one difference: nothing is fixed. That route
+            writes down the concept of each topic's first open GOAL block; this one reads inside the
+            briefing's read-only transaction and must not be the request that writes a cycle. Any
+            entry here makes the day worth showing.
+          items:
+            $ref: '#/components/schemas/BriefingStudyAheadDTO'
+    BriefingStudyAheadDTO:
+      type: object
+      description: One study cycle with minutes on the briefed day, as the "Today" page lists it.
+      properties:
+        cycleName:
+          type: string
+        startTime:
+          type: string
+          description: The day's start time as `HH:mm`, or null when the day has none.
+        minutes:
+          type: integer
+          format: int32
+          description: The minutes the cycle's week plans for this weekday.
+        entries:
+          type: array
+          description: |
+            The first blocks of the day's slice that are still open, three at most. Blocks already
+            closed today are left out. The notebook's Today card has the full list.
+          items:
+            $ref: '#/components/schemas/BriefingStudyEntryDTO'
+    BriefingStudyEntryDTO:
+      type: object
+      properties:
+        title:
+          type: string
+          description: |
+            Worded on the server, in the account's language: "Understand X" or "Entender X" for a
+            GOAL block with a concept, the topic's title otherwise. It is the one place the server
+            words something for this panel, because the clients print it as it arrives.
+        mode:
+          type: string
+          enum:
+          - TIME
+          - GOAL
+        minutesToday:
+          type: integer
+          format: int32
+          description: The block's share of the day's minutes.
     BriefingNarrativeDTO:
       type: object
       description: |

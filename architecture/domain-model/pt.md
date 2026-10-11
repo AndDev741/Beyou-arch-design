@@ -307,7 +307,7 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - `kind` é POMODORO, SHORT_BREAK ou LONG_BREAK, gravado como varchar espelhado por um CHECK (o padrão da V19/V25). `minutes` é limitado a 1..180 por um CHECK também, repetindo o clamp do cliente onde ele não pode ser contornado.
 - `item_group_id` é nulo permitido e `ON DELETE SET NULL`: um ciclo pode rodar sem nada selecionado, e apagar uma rotina não pode apagar o fato de que alguém focou 25 minutos naquela manhã.
 - `cycle_date` é o dia local do DONO, resolvido pelo fuso dele, como toda linha datada aqui.
-- `notebook_page_id` (adicionado na V34) diz em qual página do caderno de estudos o ciclo rodou, quando começou de uma. É um id simples e não uma associação: nada aqui lê a página, e o caderno só soma minutos de POMODORO por id de página. `ON DELETE SET NULL` pelo mesmo motivo do item group.
+- `notebook_page_id` (adicionado na V34) diz em qual página do caderno de estudos o ciclo rodou, quando começou de uma. É um id simples e não uma associação: nada aqui lê a página, e o caderno só soma minutos de POMODORO por id de página. Os ciclos de estudo leem a mesma coluna: um pomodoro registrado com uma página credita o ciclo que tem o tópico dessa página, e a fatia de hoje e o histórico de um ciclo somam esses minutos por tópico. `ON DELETE SET NULL` pelo mesmo motivo do item group.
 
 **FocusMicroTask** (tabela focus_micro_tasks): uma coisa pequena feita junto de um item da rotina, num dia.
 
@@ -395,6 +395,32 @@ Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PA
 - Um rascunho do "Novo tópico com IA", guardado até um tópico ser criado a partir dele ou a pessoa excluí-lo. `status` é DRAFTING enquanto o modelo escreve em segundo plano, depois READY ou FAILED com um `error_key`.
 - `request` é o que foi pedido, `result` os nós rascunhados e `choices` as marcações da pessoa, uma por nó, tudo JSON em `text`. `started_at` é quando a chamada atual ao modelo começou, para o cronômetro do diálogo.
 - Só uma linha DRAFTING recebe resultado, então excluir um rascunho no meio da chamada é definitivo. No máximo 20 por pessoa.
+
+**Ciclos de estudo**, sete tabelas adicionadas na V39. Um ciclo é uma fila ordenada de blocos de estudo sobre tópicos do caderno, estudada volta após volta; as regras estão no tópico do caderno de estudos. Os enums são colunas `varchar` com CHECK, como na V19, e os números pequenos são `integer` pelo motivo que a V31 explica.
+
+**StudyCycle** (study_cycles) e **StudyCycleDay** (study_cycle_days):
+
+- Um ciclo tem `name` (80 caracteres), o `default_mode` que os blocos novos recebem (TIME ou GOAL, GOAL por padrão), `max_block_minutes` (15 a 240, 90 por padrão) e `position` entre os ciclos da pessoa. `lap_number` e `lap_started_at` descrevem a volta em andamento; as voltas fechadas são linhas próprias. `archived_at` preenchido quer dizer arquivado: o ciclo mantém o histórico e libera os tópicos, e nada o desarquiva.
+- `@DynamicUpdate`, e toda escrita que mexe na volta pega antes o lock da linha, para uma renomeação e um crédito que fecha a volta não sobrescreverem um ao outro.
+- A semana são sete linhas, uma por `weekday` (MONDAY a SUNDAY), com chave `(cycle_id, weekday)`. As sete sempre existem, então um dia de descanso é uma linha com `minutes = 0` (0 a 720) e os minutos da semana são uma soma simples. `start_time` é opcional e dá horários à fatia do dia.
+
+**StudyCycleTopic** (study_cycle_topics): uma página TOPIC do caderno dentro de um ciclo, com `importance` e `mastery` (1 a 5 cada, os pesos do planejador), um `minutes_override` opcional por volta (5 a 600), `position` e `active`.
+
+- `UNIQUE (cycle_id, topic_id)` põe um tópico uma vez por ciclo.
+- Um índice único parcial em `(topic_id) WHERE active` mantém um tópico em um ciclo ativo por vez, façam o que fizerem dois salvamentos concorrentes. Arquivar põe `active` em false, e é isso que libera o tópico.
+- Apagar a página do tópico faz cascade aqui e tira o tópico do ciclo.
+
+**StudyCycleBlock** (study_cycle_blocks): um bloco da fila. Só configuração, para um replanejamento poder reescrevê-lo sem mexer no que foi estudado.
+
+- `position` é o lugar na fila, a partir de 1, `topic_id` o tópico que ele estuda (cascade), `mode` TIME ou GOAL, e `planned_minutes` de 5 a 600.
+- `goal_source` (NEXT ou PAGE) só existe em blocos GOAL. `page_id` é o conceito escolhido de um bloco GOAL + PAGE, ou uma dica opcional num bloco TIME, e o `ON DELETE SET NULL` deixa o bloco quando a página some. `require_quiz` exige também o quiz da página, e `note` guarda até 200 caracteres.
+
+**StudyCycleLapBlock** (study_cycle_lap_blocks) e **StudyCycleLap** (study_cycle_laps):
+
+- Um lap block é o progresso de um bloco numa volta: `minutes` (pode passar dos previstos, porque o último bloco de um tópico recebe a sobra), `target_page_id` (o conceito que um bloco GOAL resolveu, `SET NULL` se a página for apagada), `state` (OPEN, DONE, UNDERSTOOD ou TURN_USED) e `closed_at`. `UNIQUE (block_id, lap_number)`. A linha nasce na primeira vez que a volta credita, resolve ou fecha o bloco, então um bloco sem linha está OPEN e sem minutos. `@DynamicUpdate`, porque um crédito grava os minutos e uma página concluída em outro lugar grava o estado.
+- Uma linha de volta é uma volta fechada, congelada: `number`, `started_at`, `closed_at`, `minutes`, `planned_minutes`, `understood`, `turns_used` e `blocks`, com `UNIQUE (cycle_id, number)`. Os números ficam guardados porque um bloco editado ou apagado depois mudaria esses valores se eles fossem recalculados.
+
+**StudySession** (study_sessions): estudo lançado à mão. `topic_id` (cascade), um `page_id` opcional (SET NULL), `minutes` de 1 a 600, `studied_on` (a data local do dono, que só posiciona a sessão no histórico), uma `note` de até 200 caracteres e `created_at`. `cycle_id` e `lap_number` registram onde os minutos foram creditados, para uma exclusão devolver os minutos daquela volta e de nenhuma outra; os dois ficam null quando nada foi creditado, e `cycle_id` vira `SET NULL` quando o ciclo é apagado, o que mantém a sessão como histórico do tópico. Índice em `(user_id, studied_on)`.
 
 ## FederatedIdentity
 
@@ -525,10 +551,13 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | RoutineSnapshot | SnapshotChecks | ALL | Sim |
 | User (nível BD) | Linhas DailyBriefing | ON DELETE CASCADE | Tratado pela FK do banco. Um resumo é dado derivado, sem sentido depois da conta |
 | User (nível de banco) | Todas as tabelas do caderno | ON DELETE CASCADE | A exclusão da conta leva o caderno inteiro |
+| User (nível de banco) | StudyCycle, StudySession | ON DELETE CASCADE | As outras cinco tabelas do ciclo de estudos vêm em cascade por `study_cycles`, então a exclusão da conta leva as sete |
+| StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
 | User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
 | NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
 | NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
+| NotebookPage (nível de banco) | As linhas de tópico e os blocos de um ciclo, e as sessões, por `topic_id`; o `page_id` de um bloco e o `target_page_id` de um lap block | ON DELETE CASCADE pelo tópico, SET NULL pela página | Apagar um tópico tira ele do ciclo. Uma página apagada deixa o bloco na fila sem página |
 | Goal / Category / Habit (nível de banco) | Os vínculos de um tópico | ON DELETE SET NULL | Os vínculos decoram o tópico. Apagar a meta não pode apagar um caderno |
 
 Dois testes amarram esta tabela ao schema. O `AccountDeletionIntegrationTest` e o `ManualAccountDeleteRunbookTest` leem do banco cada chave estrangeira que aponta para `users`, colocam uma linha atrás de cada uma, apagam a conta e esperam que nada sobre. Uma tabela nova do usuário faz os dois falharem até ganhar uma linha ali, e é essa a ideia: um cascade que ninguém exercita é só um comentário. O `UserExportCompletenessIntegrationTest` lê a mesma lista e falha para qualquer tabela que não tenha uma seção no export nem uma entrada em `notIncluded`.
@@ -586,6 +615,16 @@ flowchart LR
     notebook_study_outputs
     notebook_chat_messages
     notebook_roadmap_drafts
+  end
+
+  subgraph cycles["Ciclos de estudo"]
+    study_cycles
+    study_cycle_days
+    study_cycle_topics
+    study_cycle_blocks
+    study_cycle_lap_blocks
+    study_cycle_laps
+    study_sessions
   end
 
   subgraph support["Feedback & IA"]

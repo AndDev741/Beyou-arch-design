@@ -23,7 +23,10 @@ paths:
         LIST, items carry `orderIndex`), `feedback`, `agentChats`, `checkHistory`
         (the last 366 days), `moodEntries` (notes in full), `notebook` (`pages`,
         `board`, `flashcards`, `flashcardReviews`, `sources`, `studyChats`,
-        `studyOutputs`, `roadmapDrafts`), `focus` (`cycles`, `microTasks`),
+        `studyOutputs`, `roadmapDrafts`, `studyCycles` with each cycle's week, topics,
+        blocks, lap progress and closed laps, archived cycles included, and
+        `studySessions` with the cycle and lap each one went into), `focus` (`cycles`,
+        `microTasks`),
         `dailyBriefings` (the generated lines for the days retention keeps),
         `engagementEmailsSent` and `notIncluded`.
 

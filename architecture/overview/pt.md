@@ -86,7 +86,7 @@ erDiagram
 - **Snapshots de rotina**: uma cópia diária imutável de cada rotina, tirada por timezone por um scheduler, para que o histórico sobreviva a edições futuras da rotina.
 - **Histórico de checks e XP**: registros por dia que sustentam os widgets de histórico e progresso do dashboard.
 - **Feedback**: relatos de feedback dentro do app, entregues com screenshots opcionais e navegáveis por um admin.
-- **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações.
+- **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações. Os ciclos de estudo põem os tópicos numa fila de blocos de tempo e de objetivo, estudada volta após volta, alimentada pelos pomodoros nas páginas do tópico e pelas sessões lançadas à mão.
 
 ## Fluxo de autenticação
 
@@ -144,7 +144,7 @@ sequenceDiagram
 | **Histórico** | CheckHistory, XpHistory | /check-history, /xp |
 | **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diário** | Mood | /mood |
-| **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi | /notebook/* |
+| **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
 | **IA** | AiAgent, Onboarding | /ai/agent, /onboarding |
@@ -189,7 +189,7 @@ flowchart TD
   AX -->|"401 → refresh automático"| AX
 ```
 
-Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 20 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist e exclui de propósito os slices de perfil, snapshot, celebration, mood e notebook, para que nenhum dado pessoal, texto de diário ou anotação de estudo caia no localStorage. O app mobile guarda a store em memória e rebusca ao abrir.
+Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 21 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist e exclui de propósito os slices de perfil, snapshot, celebration, mood, notebook e studyCycles, para que nenhum dado pessoal, texto de diário ou anotação de estudo caia no localStorage. O app mobile guarda a store em memória e rebusca ao abrir.
 
 ## Sistema de gamificação
 
