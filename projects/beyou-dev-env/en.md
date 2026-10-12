@@ -1,24 +1,25 @@
 ---
 title: "Beyou Dev Env"
-summary: "The Compose layer that assembles the other repositories into something you can run: dev with hot reload, production from published images, e2e isolation, and the monitoring overlay."
+summary: "The Compose layer that assembles the other repositories into something you can run locally: dev with hot reload, e2e isolation, and the monitoring overlay. Production moved to Kubernetes in October 2026."
 ---
 # Beyou Dev Env
 
-This repository contains no application code. It is the orchestration layer: a base Compose file with Postgres and the shared network, plus four overlays that stack on top of it.
+This repository contains no application code. It is the local orchestration layer: a base Compose file with Postgres and the shared network, plus three overlays that stack on top of it.
 
 ## The overlays
 
 - **dev** builds the backend and frontend from sibling checkouts with bind-mounted source and hot reload; build artifacts live in named volumes so host and container tooling never fight.
-- **prod** pulls the published GHCR images, serves the web build through nginx, and lets Watchtower redeploy on every new image. All ports bind to loopback; the Cloudflare Tunnel in front does the exposing.
 - **e2e** boots an isolated stack under its own project name and database, which the backend's safety check enforces.
-- **monitoring** carries Prometheus, Grafana, Loki with Alloy, and GlitchTip: the same file in development and production, so what you debug locally is what runs deployed.
+- **monitoring** carries Prometheus, Grafana, Loki with Alloy, and GlitchTip, answering locally the same three questions the production stack answers in the cluster.
 
 ## The scripts
 
-`up-dev.sh` and `up-prod.sh` (both accepting `--monitoring`), `down.sh`, the loud-failure `reset-db.sh`, and `bootstrap-glitchtip.sh`, which creates and reconciles the error tracker's organization, projects, twelve uptime monitors, three heartbeats, and the alert rules from code.
+`up-dev.sh` (accepting `--monitoring`), `down.sh`, the loud-failure `reset-db.sh`, and `bootstrap-glitchtip.sh`, which creates and reconciles the error tracker's organization, projects, uptime monitors, heartbeats, and the alert rules from code.
 
-`backup.sh` and `restore-check.sh` are the pair that matter when the disk does. The first dumps the database, the uploads volume, and `.env` to an encrypted restic repository offsite plus a plain local copy; the second restores the newest snapshot into a scratch database and compares row counts against the live one, because an untested backup is a directory that makes you feel better. Both run from systemd timers, nightly and weekly.
+## Production lives elsewhere now
+
+Until October 2026 this repository also ran production: a `prod` overlay pulling the published images behind Watchtower, an `up-prod.sh`, and a backup and restore-drill pair on host systemd timers. All of that moved to a single-node k3s cluster managed by Flux from the public [be-infra](https://github.com/AndDev741/be-infra) repository, where deploys are commits, the backups and the weekly restore drill are CronJobs, and monitoring is a shared platform stack. What stays here is everything you need to run Beyou on your own machine.
 
 ## Deep dives
 
-The infrastructure and monitoring architecture topics document this repository end to end, from the laptop it all runs on to the alert that fires when the snapshot scheduler goes quiet.
+The infrastructure and monitoring architecture topics document both sides, this local stack and the production cluster, from the laptop it all runs on to the alert that fires when the snapshot scheduler goes quiet.

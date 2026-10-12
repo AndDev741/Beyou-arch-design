@@ -6,13 +6,13 @@ flowchart LR
     SITE["🌐 Marketing site<br/>beyouweb.com"]
   end
 
-  subgraph server["Application stack · Docker Compose"]
-    BE["🍃 Backend<br/>Spring Boot 4.1 · Java 25"]
-    DB[("🐘 PostgreSQL 15")]
-    WT["🔄 Watchtower"]
+  subgraph server["k3s cluster · Flux GitOps"]
+    BE["🍃 Backend<br/>Spring Boot 4.1 · Java 25<br/>api.beyouweb.com"]
+    DB[("🐘 PostgreSQL 17<br/>CloudNativePG")]
+    FX["🔄 Flux<br/>image automation"]
   end
 
-  subgraph mon["Monitoring overlay"]
+  subgraph mon["Monitoring · in-cluster"]
     PR["📈 Prometheus"]
     LK["📜 Loki + Alloy"]
     GT["🛡️ GlitchTip<br/>mnt.beyouweb.com"]
@@ -20,7 +20,7 @@ flowchart LR
   end
 
   GO["🔐 Google OAuth"]
-  GH["📦 GitHub<br/>CI · GHCR · docs"]
+  GH["📦 GitHub<br/>CI · GHCR · be-infra · docs"]
   ML["✉️ SMTP"]
 
   SITE -.->|"links to"| WEB
@@ -30,10 +30,10 @@ flowchart LR
   BE -->|"Flyway · JPA"| DB
   BE <-->|"OAuth 2.0"| GO
   GH -->|"docs import"| BE
-  GH -->|"published images"| WT
+  GH -->|"new digests · manifests"| FX
   BE -->|"e-mail"| ML
-  PR -->|"scrape /actuator + exporters"| BE
-  server -->|"stdout via Alloy"| LK
+  PR -->|"scrape /actuator :9091"| BE
+  server -->|"pod logs via Alloy"| LK
   WEB -->|"errors · DSN"| GT
   MOB -->|"errors · DSN"| GT
   BE -->|"errors · DSN"| GT

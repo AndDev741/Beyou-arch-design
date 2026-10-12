@@ -8,7 +8,7 @@ The documentation site itself. A React and Vite SPA that reads the backend's pub
 
 ## The SEO half
 
-Client-rendered content is invisible to most crawlers, so a prerender script fetches every topic in both locales from the same public API and writes one real HTML file per route, with titles, canonicals, hreflang pairs, structured data, and the article text itself. The SPA boots on top and takes over. Content changes rebuild the whole image: the content repository's workflow dispatches this repository's CI after each import, and Watchtower deploys the result.
+Client-rendered content is invisible to most crawlers, so a prerender script fetches every topic in both locales from the same public API and writes one real HTML file per route, with titles, canonicals, hreflang pairs, structured data, and the article text itself. The SPA boots on top and takes over. Content changes rebuild the whole image: the content repository's workflow dispatches this repository's CI after each import, and Flux deploys the result.
 
 ## Details worth knowing
 

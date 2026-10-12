@@ -5,7 +5,7 @@ summary: "Authentication, tokens, rate limiting, ownership checks, upload harden
 
 This document explains how Beyou defends itself: how users prove who they are, how every request is validated and throttled, how destructive actions demand a second factor, and which guards refuse to even start the server when production is misconfigured. It ends with an honest assessment of what is still missing.
 
-One framing note first: the backend never terminates TLS. HTTPS, and therefore the safety of every cookie and header below, is the reverse proxy's job in front of the loopback-bound containers. The [infrastructure topic](/architecture/infrastructure) covers that layer.
+One framing note first: the backend never terminates TLS. HTTPS, and therefore the safety of every cookie and header below, is the job of the Cloudflare Tunnel and the cluster's ingress in front of the backend, which has no public port of its own. The [infrastructure topic](/architecture/infrastructure) covers that layer.
 
 ## Security at a glance
 
@@ -391,7 +391,7 @@ The agent chat can call real tools, so its authority model matters:
 | SchemaOwnershipGuard | Flyway is on but Hibernate ddl-auto is anything other than validate or none |
 | E2eSafetyCheck (e2e profile) | The datasource URL does not look like a test database |
 
-**Operational posture**: the actuator lives on its own loopback-bound port with a fixed endpoint list in production (the env override is deliberately dropped there); Swagger is off in production; AOP logging records argument counts, never values; the container runs as a non-root user; CI runs CodeQL and a weekly OWASP dependency check.
+**Operational posture**: the actuator lives on its own management port, separate from the API, which in production only Prometheus and the uptime probes are allowed to reach (a network policy, not the bind address, enforces it), with a fixed endpoint list (the env override is deliberately dropped there); Swagger is off in production; AOP logging records argument counts, never values; the container runs as a non-root user; CI runs CodeQL and a weekly OWASP dependency check.
 
 ## Security assessment
 

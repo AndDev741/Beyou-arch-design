@@ -1,24 +1,25 @@
 ---
 title: "Beyou Dev Env"
-summary: "A camada Compose que monta os outros repositórios em algo executável: dev com hot reload, produção com imagens publicadas, isolamento de e2e e o overlay de monitoramento."
+summary: "A camada Compose que monta os outros repositórios em algo executável localmente: dev com hot reload, isolamento de e2e e o overlay de monitoramento. A produção foi para o Kubernetes em outubro de 2026."
 ---
 # Beyou Dev Env
 
-Este repositório não contém código de aplicação. É a camada de orquestração: um arquivo Compose base com Postgres e a rede compartilhada, mais quatro overlays que se empilham por cima.
+Este repositório não contém código de aplicação. É a camada de orquestração local: um arquivo Compose base com Postgres e a rede compartilhada, mais três overlays que se empilham por cima.
 
 ## Os overlays
 
 - **dev** constrói o backend e o frontend dos checkouts irmãos com código montado e hot reload; artefatos de build vivem em volumes nomeados, então as ferramentas do host e do container nunca brigam.
-- **prod** puxa as imagens publicadas no GHCR, serve o build web pelo nginx e deixa o Watchtower reimplantar a cada imagem nova. Todas as portas escutam em loopback; o Cloudflare Tunnel na frente faz a exposição.
 - **e2e** sobe uma stack isolada com nome de projeto e banco próprios, o que a checagem de segurança do backend impõe.
-- **monitoring** carrega Prometheus, Grafana, Loki com Alloy e GlitchTip: o mesmo arquivo em desenvolvimento e produção, então o que você depura localmente é o que roda implantado.
+- **monitoring** carrega Prometheus, Grafana, Loki com Alloy e GlitchTip, respondendo localmente as mesmas três perguntas que a stack de produção responde no cluster.
 
 ## Os scripts
 
-`up-dev.sh` e `up-prod.sh` (ambos aceitando `--monitoring`), `down.sh`, o `reset-db.sh` que falha alto, e o `bootstrap-glitchtip.sh`, que cria e reconcilia por código a organização do rastreador de erros, os projetos, doze monitores de uptime, três heartbeats e as regras de alerta.
+`up-dev.sh` (aceitando `--monitoring`), `down.sh`, o `reset-db.sh` que falha alto, e o `bootstrap-glitchtip.sh`, que cria e reconcilia por código a organização do rastreador de erros, os projetos, os monitores de uptime, os heartbeats e as regras de alerta.
 
-`backup.sh` e `restore-check.sh` são a dupla que importa quando o disco resolve morrer. O primeiro manda o dump do banco, o volume de uploads e o `.env` para um repositório restic criptografado fora da máquina, mais uma cópia local em texto simples; o segundo restaura o snapshot mais recente num banco descartável e compara a contagem de linhas com o banco real, porque um backup que ninguém testou é só uma pasta que dá sensação de segurança. Os dois rodam por timers do systemd, um por noite e um por semana.
+## A produção agora mora em outro lugar
+
+Até outubro de 2026 este repositório também rodava a produção: um overlay `prod` puxando as imagens publicadas atrás do Watchtower, um `up-prod.sh`, e uma dupla de backup e teste de restauração em timers do systemd do host. Tudo isso foi para um cluster k3s de um nó gerido pelo Flux a partir do repositório público [be-infra](https://github.com/AndDev741/be-infra), onde deploys são commits, os backups e o teste semanal de restauração são CronJobs, e o monitoramento é uma stack de plataforma compartilhada. O que fica aqui é tudo que você precisa para rodar o Beyou na sua própria máquina.
 
 ## Mergulhos profundos
 
-Os tópicos de arquitetura de infraestrutura e monitoramento documentam este repositório de ponta a ponta, do laptop onde tudo roda ao alerta que dispara quando o scheduler de snapshots fica quieto.
+Os tópicos de arquitetura de infraestrutura e monitoramento documentam os dois lados, esta stack local e o cluster de produção, do laptop onde tudo roda ao alerta que dispara quando o scheduler de snapshots fica quieto.

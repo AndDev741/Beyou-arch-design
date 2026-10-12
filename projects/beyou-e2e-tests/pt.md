@@ -14,4 +14,4 @@ A suíte também é portão de merge: o CI do repositório do frontend sobe esta
 
 ## Mergulhos profundos
 
-O tópico de segurança documenta os comportamentos de auth que estes specs fixam, e o de infraestrutura cobre o overlay e2e isolado em que rodam.
+O tópico de segurança documenta os comportamentos de auth que estes specs fixam, e o projeto [Beyou Dev Env](/projects/beyou-dev-env) cobre o overlay e2e isolado em que rodam.

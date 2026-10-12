@@ -1,7 +1,6 @@
 flowchart TD
   BASE["docker-compose.yml<br/>Postgres + network"]
   BASE --> DEV["dev overlay<br/>hot reload from sibling clones"]
-  BASE --> PROD["prod overlay<br/>GHCR images + Watchtower"]
   BASE --> E2E["e2e overlay<br/>isolated beyou_e2e stack"]
   BASE --> MON["monitoring overlay<br/>Prometheus · Grafana · Loki · GlitchTip"]
-  SCRIPTS["scripts/<br/>up-dev · up-prod · down · reset-db · bootstrap-glitchtip"] --> BASE
+  SCRIPTS["scripts/<br/>up-dev · down · reset-db · bootstrap-glitchtip"] --> BASE

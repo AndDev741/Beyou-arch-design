@@ -7,6 +7,7 @@ tags:
   - react
   - mobile
   - postgres
+  - kubernetes
   - docker
   - monitoring
 projectKey: null

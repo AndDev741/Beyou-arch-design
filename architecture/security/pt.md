@@ -5,7 +5,7 @@ summary: "Autenticação, tokens, rate limiting, checagens de posse, endurecimen
 
 Este documento explica como o Beyou se defende: como usuários provam quem são, como cada requisição é validada e limitada, como ações destrutivas exigem um segundo fator e quais guardas se recusam a sequer subir o servidor quando a produção está mal configurada. Termina com uma avaliação honesta do que ainda falta.
 
-Uma nota de enquadramento antes: o backend nunca termina TLS. O HTTPS, e portanto a segurança de cada cookie e header abaixo, é trabalho do proxy reverso na frente dos containers presos em loopback. O [tópico de infraestrutura](/architecture/infrastructure) cobre essa camada.
+Uma nota de enquadramento antes: o backend nunca termina TLS. O HTTPS, e portanto a segurança de cada cookie e header abaixo, é trabalho do Cloudflare Tunnel e do ingress do cluster na frente do backend, que não tem porta pública própria. O [tópico de infraestrutura](/architecture/infrastructure) cobre essa camada.
 
 ## Segurança em uma olhada
 
@@ -392,7 +392,7 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 | SchemaOwnershipGuard | Flyway ligado mas o ddl-auto do Hibernate diferente de validate ou none |
 | E2eSafetyCheck (perfil e2e) | A URL do datasource não parece um banco de teste |
 
-**Postura operacional**: o actuator vive em porta própria presa em loopback, com lista fixa de endpoints em produção (o override por ambiente é descartado lá de propósito); o Swagger fica desligado em produção; o log de AOP registra contagem de argumentos, nunca valores; o container roda como usuário não-root; o CI roda CodeQL e uma checagem semanal de dependências OWASP.
+**Postura operacional**: o actuator vive em porta de management própria, separada da API, que em produção só o Prometheus e as sondas de uptime podem alcançar (quem garante é uma network policy, não o endereço de bind), com lista fixa de endpoints (o override por ambiente é descartado lá de propósito); o Swagger fica desligado em produção; o log de AOP registra contagem de argumentos, nunca valores; o container roda como usuário não-root; o CI roda CodeQL e uma checagem semanal de dependências OWASP.
 
 ## Avaliação de segurança
 

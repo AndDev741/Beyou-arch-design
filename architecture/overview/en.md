@@ -12,32 +12,31 @@ This is the map of the system as it runs in production: every client surface, th
 | **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
-| **Database** | PostgreSQL 15, Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
-| **Delivery** | GitHub Actions builds images to GHCR, Watchtower redeploys them; Docker Compose; nginx serves the web and docs builds |
-| **Monitoring** | Prometheus, Grafana, Loki + Alloy, GlitchTip (Sentry-compatible) |
+| **Database** | PostgreSQL 17 in production (a CloudNativePG cluster; tests and the local stacks run 15), Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
+| **Delivery** | GitHub Actions builds images to GHCR; Flux (GitOps) rolls them out on a single-node k3s cluster; nginx serves the web and docs builds; Docker Compose for local development and e2e |
+| **Monitoring** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (Sentry-compatible) |
 
 ## Production topology
 
-The application side is four containers, all built by CI and published to GitHub Container Registry:
+Production is a single-node k3s cluster whose whole state lives in Git and is applied by Flux. The application side is three workloads in the `beyou` namespace, all built by CI and published to GitHub Container Registry:
 
-- **beyou-backend**: the Spring Boot API on port 8099, everything under `/api/v1`.
+- **beyou-backend**: the Spring Boot API on port 8099, everything under `/api/v1`. Public at **api.beyouweb.com**, and also proxied by both nginx sites. One replica, with uploads on a persistent volume.
 - **beyou-web**: the web app's static build, served by nginx. Public at **app.beyouweb.com**.
 - **beyou-docs**: this documentation site, prerendered to static HTML and served by nginx. Public at **docs.beyouweb.com**.
-- **watchtower**: polls GHCR every five minutes and restarts any container whose image changed. Merging to main is the deployment; CI does the rest.
 
-Every published port binds to 127.0.0.1. The public hostnames reach the containers through a TLS reverse proxy, so nothing is exposed directly. Two pieces live outside the Compose stack: the marketing site at **beyouweb.com** (static HTML on Cloudflare Pages) and the mobile app, which installs on the phone and talks to the same API as the web app.
+The database is `beyou` in a shared PostgreSQL 17 cluster run by the CloudNativePG operator in the `data` namespace. Merging to main is the deployment: CI pushes a new `:latest` image, Flux's image automation records its digest in Git and rolls it out, and rolling back is a `git revert`. Nothing listens on a public port. A Cloudflare Tunnel dials out from the server and hands every public hostname to Traefik, the only ingress, which routes by host to each Ingress; every namespace sits behind a default-deny network policy. The [infrastructure topic](/architecture/infrastructure) covers the machine, the cluster and the backups. Two pieces live outside the cluster: the marketing site at **beyouweb.com** (static HTML on Cloudflare Pages) and the mobile app, which installs on the phone and talks to the same API as the web app.
 
 The content of this docs site has its own pipeline: markdown and OpenAPI specs live in the beyou-arch-design repository, the backend imports them into PostgreSQL, and a content change triggers a rebuild of the prerendered docs image.
 
 ## Monitoring
 
-One Compose overlay carries the whole observability stack, and it is the same file in development and in production. Each component answers a different question:
+In production the observability stack runs inside the cluster as kube-prometheus-stack plus Loki, Alloy and GlitchTip; locally a Compose overlay answers the same questions. Each component answers a different question:
 
-- **Prometheus** answers "how is it performing?". It scrapes the backend's actuator plus cAdvisor, node-exporter, and postgres-exporter, so JVM internals, per-container resources, the host, and the database are all on the same board.
-- **Loki + Alloy** answer "what happened?". Alloy tails the stdout of every beyou* container through the Docker API and pushes to Loki. The apps need no log configuration at all, and logs are kept for 30 days.
+- **Prometheus** answers "how is it performing?". It scrapes the backend's actuator on its management port plus the host (node-exporter), every pod and container (the kubelet's cAdvisor), the cluster's own state and the database, so JVM internals, per-pod resources, the host, and the database are all on the same board.
+- **Loki + Alloy** answer "what happened?". Alloy runs on the node, tails the logs of every pod, and pushes them to Loki. The apps need no log configuration at all, and logs are kept for 30 days.
 - **GlitchTip** answers "what broke?". The backend, the web app, and the mobile app all deliver errors to it through Sentry SDKs. It is public at **mnt.beyouweb.com** because real browsers and real phones must be able to reach it. It also runs the uptime and heartbeat monitors, since it is the piece that can notify a human.
 
-Grafana sits on top of all three, with four dashboards provisioned automatically: fleet health, backend JVM internals, the AI agent, and logs. It lives at **obs.beyouweb.com**, behind its own login. Those two are the only public monitoring surfaces; the rest of the overlay (Prometheus, Loki, the exporters) stays on loopback and is only reachable through Grafana.
+Grafana sits on top of all three, with dashboards loaded from Git: backend service health, the AI agent, product usage, logs, the host and the ingress. It also e-mails the alerts about the machine and the cluster (memory, disk, restarting or stuck pods, targets down), while GlitchTip keeps the application's. It lives at **obs.beyouweb.com**, behind its own login. Those two are the only public monitoring surfaces; Prometheus, Loki and the exporters have no hostname and are only reachable through Grafana.
 
 ## Domain model
 
