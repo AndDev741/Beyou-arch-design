@@ -1643,11 +1643,13 @@ paths:
       description: |
         Seven days (minutes 0 to 720 in steps of 5, optional `HH:mm` start), 1 to 30 topics with importance
         and mastery 1 to 5, a maximum block of 15 to 240 minutes and a default mode for new blocks. The
-        server plans the blocks with the same arithmetic as `POST /notebook/cycles/plan`. A topic must be a
-        TOPIC page of the caller (`NOTEBOOK_PAGE_NOT_OWNED`, `NOTEBOOK_TOPIC_REQUIRED`) and not in another
-        active cycle (`STUDY_CYCLE_TOPIC_TAKEN`, with `details.topicId`, `details.cycleId` and
-        `details.cycleName`). Ten active cycles, thirty topics and sixty blocks at most
-        (`STUDY_CYCLE_LIMIT`).
+        server plans the blocks with the same arithmetic as `POST /notebook/cycles/plan`. A subject
+        (`topicId`) is any page of the caller (`NOTEBOOK_PAGE_NOT_OWNED`): a root topic or a page under one.
+        Subjects never overlap along the home chain. One that overlaps a subject of another active cycle
+        answers `STUDY_CYCLE_TOPIC_TAKEN`, with `details.topicId`, `details.cycleId`, `details.cycleName`,
+        `details.takenTopicId` and `details.takenTopicTitle`; two overlapping subjects in the request answer
+        `STUDY_CYCLE_TOPIC_OVERLAP`, with `details.ancestorId` and `details.descendantId`. Ten active cycles,
+        thirty subjects and sixty blocks at most (`STUDY_CYCLE_LIMIT`).
   /notebook/cycles/plan:
     post:
       tags:
@@ -3911,7 +3913,7 @@ components:
           type: integer
           format: int32
         topic:
-          $ref: '#/components/schemas/PageRefDTO'
+          $ref: '#/components/schemas/SubjectRefDTO'
     Day:
       type: object
       properties:
@@ -3947,7 +3949,7 @@ components:
             type: string
             format: date-time
           topic:
-            $ref: '#/components/schemas/PageRefDTO'
+            $ref: '#/components/schemas/SubjectRefDTO'
           page:
             $ref: '#/components/schemas/PageRefDTO'
           minutes:
@@ -4011,7 +4013,7 @@ components:
             type: string
             format: uuid
           topic:
-            $ref: '#/components/schemas/PageRefDTO'
+            $ref: '#/components/schemas/SubjectRefDTO'
           page:
             $ref: '#/components/schemas/PageRefDTO'
           minutes:
@@ -4114,7 +4116,7 @@ components:
           type: integer
           format: int32
         topic:
-          $ref: '#/components/schemas/PageRefDTO'
+          $ref: '#/components/schemas/SubjectRefDTO'
         mode:
           type: string
           enum:
@@ -4203,7 +4205,7 @@ components:
         topics:
           type: array
           items:
-            $ref: '#/components/schemas/PageRefDTO'
+            $ref: '#/components/schemas/SubjectRefDTO'
         days:
           type: array
           items:
@@ -4273,6 +4275,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Resting'
+    SubjectRefDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        icon:
+          type: string
+        rootTitle:
+          type: string
+      description: 'A cycle subject: any notebook page, a root topic or a page under one. rootTitle is the root topic''s
+        title, null when the subject is itself a root.'
     TargetDTO:
       type: object
       properties:
@@ -4309,7 +4325,7 @@ components:
           type: integer
           format: int32
         topic:
-          $ref: '#/components/schemas/PageRefDTO'
+          $ref: '#/components/schemas/SubjectRefDTO'
         mode:
           type: string
           enum:
@@ -4400,7 +4416,7 @@ components:
             type: string
             format: date-time
           topic:
-            $ref: '#/components/schemas/PageRefDTO'
+            $ref: '#/components/schemas/SubjectRefDTO'
           page:
             $ref: '#/components/schemas/PageRefDTO'
           minutes:
