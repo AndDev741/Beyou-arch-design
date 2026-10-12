@@ -432,10 +432,10 @@ Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PA
 - `@DynamicUpdate`, e toda escrita que mexe na volta pega antes o lock da linha, para uma renomeação e um crédito que fecha a volta não sobrescreverem um ao outro.
 - A semana são sete linhas, uma por `weekday` (MONDAY a SUNDAY), com chave `(cycle_id, weekday)`. As sete sempre existem, então um dia de descanso é uma linha com `minutes = 0` (0 a 720) e os minutos da semana são uma soma simples. `start_time` é opcional e dá horários à fatia do dia.
 
-**StudyCycleTopic** (study_cycle_topics): uma página TOPIC do caderno dentro de um ciclo, com `importance` e `mastery` (1 a 5 cada, os pesos do planejador), um `minutes_override` opcional por volta (5 a 600), `position` e `active`.
+**StudyCycleTopic** (study_cycle_topics): um assunto do ciclo, qualquer página do caderno (um tópico raiz ou uma página abaixo dele), guardado em `topic_id` por histórico, com `importance` e `mastery` (1 a 5 cada, os pesos do planejador), um `minutes_override` opcional por volta (5 a 600), `position` e `active`.
 
 - `UNIQUE (cycle_id, topic_id)` põe um tópico uma vez por ciclo.
-- Um índice único parcial em `(topic_id) WHERE active` mantém um tópico em um ciclo ativo por vez, façam o que fizerem dois salvamentos concorrentes. Arquivar põe `active` em false, e é isso que libera o tópico.
+- Um índice único parcial em `(topic_id) WHERE active` impede a mesma página de ser assunto ativo duas vezes. A sobreposição na cadeia de casa (um assunto acima ou abaixo de outro) é recusada pelo `StudyCycleService` sob um lock consultivo por usuário, porque um índice não enxerga ancestrais. Arquivar põe `active` em false, e é isso que libera o tópico.
 - Apagar a página do tópico faz cascade aqui e tira o tópico do ciclo.
 
 **StudyCycleBlock** (study_cycle_blocks): um bloco da fila. Só configuração, para um replanejamento poder reescrevê-lo sem mexer no que foi estudado.

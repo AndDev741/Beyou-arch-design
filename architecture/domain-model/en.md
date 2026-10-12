@@ -434,10 +434,10 @@ A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE h
 - `@DynamicUpdate`, and every write that moves the lap takes the row's lock first, so a rename and a credit that closes the lap cannot overwrite each other.
 - The week is seven rows, one per `weekday` (MONDAY to SUNDAY), keyed by `(cycle_id, weekday)`. All seven always exist, so a rest day is a row with `minutes = 0` (0 to 720) and the week's minutes are a plain sum. `start_time` is optional and gives the day's slice its clock times.
 
-**StudyCycleTopic** (study_cycle_topics): a notebook TOPIC page inside a cycle, with `importance` and `mastery` (1 to 5 each, the planner's weights), an optional `minutes_override` per lap (5 to 600), `position`, and `active`.
+**StudyCycleTopic** (study_cycle_topics): a cycle's subject, any notebook page (a root topic or a page under one), kept in `topic_id` for history, with `importance` and `mastery` (1 to 5 each, the planner's weights), an optional `minutes_override` per lap (5 to 600), `position`, and `active`.
 
 - `UNIQUE (cycle_id, topic_id)` lists a topic once per cycle.
-- A partial unique index on `(topic_id) WHERE active` keeps a topic in one active cycle at a time, whatever two concurrent saves do. Archiving sets `active` to false, which is what frees the topic.
+- A partial unique index on `(topic_id) WHERE active` keeps the same page from being an active subject twice. Overlap along the home chain (a subject above or below another) is refused by `StudyCycleService` under a per-user advisory lock, since an index cannot see ancestry. Archiving sets `active` to false, which is what frees the topic.
 - Deleting the topic page cascades here and takes the topic out of the cycle.
 
 **StudyCycleBlock** (study_cycle_blocks): one block of the queue. Configuration only, so a re-plan can rewrite it without touching what was studied.
