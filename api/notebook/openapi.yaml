@@ -48,11 +48,13 @@ info:
     when the page it aims at reaches DONE. A cycle that belongs to somebody else answers
     `STUDY_CYCLE_NOT_OWNED`, and the topics and pages a cycle names are checked like every other page.
 
-    The study AI is grounded. Chat answers, summaries, study guides, quizzes and AI flashcards are
-    written from numbered passages, the page's own notes and its ancestors' first, then the passages
-    retrieved from its sources. Answers cite them as `[n]`. The server drops any number the model
-    made up, so every citation a client shows opens a real passage. A page with no notes and no
-    readable sources answers `NOTEBOOK_NOTHING_TO_STUDY` and the model is never called. When the
+    The study AI cites the person's material. Summaries, study guides, quizzes and AI flashcards are
+    written only from numbered passages, the page's own notes and its ancestors' first, then the
+    passages retrieved from its sources. The chat starts from the same passages and goes on from the
+    model's own knowledge where they stop, saying so. Answers cite passages as `[n]`. The server drops
+    any number the model made up, so every citation a client shows opens a real passage. A page with
+    no notes and no readable sources answers `NOTEBOOK_NOTHING_TO_STUDY` on every route but the chat,
+    and the model is never called. When the
     fallback chain cannot produce a usable answer (every provider failed, or the reply would not
     parse after one retry) the call answers `AI_UNAVAILABLE`. So does a call that runs out of its
     90-second budget, retry included, so the answer always arrives before the 100 seconds after
@@ -1279,9 +1281,12 @@ paths:
                 $ref: '#/components/schemas/ChatTurnDTO'
       summary: Ask the study room a question
       description: |
-        Grounded on the page's notes and the sources it can read, with the last 6 messages sent along so
-        "and what about..." works. When the passages do not cover the question the answer says so in one
-        sentence and stops. Citation markers that point at nothing are removed before anything is saved.
+        The tutor answers from the page's notes and the sources it can read first, citing them, with the
+        last 6 messages sent along so "and what about..." works. Where the passages do not cover the
+        question it answers from the model's own knowledge and says so in one sentence; an answer that
+        cites nothing came entirely from there. A page with no notes and no sources still gets an answer:
+        this route never answers `NOTEBOOK_NOTHING_TO_STUDY`. Citation markers that point at nothing are
+        removed before anything is saved.
         The question and the answer are both stored in the page's chat.
   /notebook/ai/pages/{pageId}/explain:
     post:
