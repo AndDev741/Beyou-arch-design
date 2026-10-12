@@ -4,7 +4,7 @@ summary: "A API Spring Boot por trás de tudo: services de domínio com checagem
 ---
 # Beyou Backend
 
-A única API servindo o web app, o app mobile nativo e este site de documentação. Spring Boot 4.1 sobre Java 25 com virtual threads, PostgreSQL 15 atrás de um schema controlado pelo Flyway e 36 controllers REST sob `/api/v1`.
+A única API servindo o web app, o app mobile nativo e este site de documentação. Spring Boot 4.1 sobre Java 25 com virtual threads, PostgreSQL 17 atrás de um schema controlado pelo Flyway e 36 controllers REST sob `/api/v1`.
 
 ## O que vive aqui
 
@@ -16,7 +16,7 @@ A única API servindo o web app, o app mobile nativo e este site de documentaç�
 
 ## Como é entregue
 
-Fazer merge na main é o deploy: o CI roda os testes, constrói a imagem, publica no GHCR e o Watchtower no host de produção puxa e reinicia. Caches Caffeine ficam na frente das leituras quentes, e métricas Micrometer alimentam os dashboards do Grafana, com erros reportando ao GlitchTip auto-hospedado.
+Fazer merge na main é o deploy: o CI roda os testes, constrói a imagem e publica no GHCR, e a automação de imagens do Flux no cluster de produção registra o digest novo no Git e faz o rollout. Caches Caffeine ficam na frente das leituras quentes, e métricas Micrometer alimentam os dashboards do Grafana, com erros reportando ao GlitchTip auto-hospedado.
 
 ## Mergulhos profundos
 

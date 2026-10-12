@@ -4,7 +4,7 @@ summary: "The Spring Boot API behind everything: domain services with per-user o
 ---
 # Beyou Backend
 
-The single API serving the web app, the native mobile app, and this documentation site. Spring Boot 4.1 on Java 25 with virtual threads, PostgreSQL 15 behind a Flyway-owned schema, and 36 REST controllers under `/api/v1`.
+The single API serving the web app, the native mobile app, and this documentation site. Spring Boot 4.1 on Java 25 with virtual threads, PostgreSQL 17 behind a Flyway-owned schema, and 36 REST controllers under `/api/v1`.
 
 ## What lives here
 
@@ -16,7 +16,7 @@ The single API serving the web app, the native mobile app, and this documentatio
 
 ## How it ships
 
-Merging to main is the deployment: CI runs the tests, builds the image, publishes it to GHCR, and Watchtower on the production host pulls and restarts. Caffeine caches sit in front of the hot reads, and Micrometer metrics feed the Grafana dashboards, with errors reporting to the self-hosted GlitchTip.
+Merging to main is the deployment: CI runs the tests, builds the image and publishes it to GHCR, and Flux's image automation on the production cluster records the new digest in Git and rolls it out. Caffeine caches sit in front of the hot reads, and Micrometer metrics feed the Grafana dashboards, with errors reporting to the self-hosted GlitchTip.
 
 ## Deep dives
 

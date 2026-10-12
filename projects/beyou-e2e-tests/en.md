@@ -14,4 +14,4 @@ The suite is also a merge gate: the frontend repository's CI boots this stack an
 
 ## Deep dives
 
-The security topic documents the auth behaviors these specs pin, and the infrastructure topic covers the isolated e2e overlay they run on.
+The security topic documents the auth behaviors these specs pin, and the [Beyou Dev Env](/projects/beyou-dev-env) project covers the isolated e2e overlay they run on.

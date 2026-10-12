@@ -35,10 +35,10 @@ flowchart TD
   DB --> API
   API --> UI
   WF -->|"repository_dispatch"| PRE
-  PRE -->|"GHCR → Watchtower"| LIVE["docs.beyouweb.com"]
+  PRE -->|"GHCR → Flux"| LIVE["docs.beyouweb.com"]
 ```
 
-Um merge de conteúdo na main é o deploy inteiro: o workflow importa cada área e, quando as quatro passam, dispara o build do docs-ui, que pré-renderiza cada rota contra a API fresca e publica uma imagem nova que o Watchtower pega. Mudança de conteúdo chega como container novo, nunca como restart.
+Um merge de conteúdo na main é o deploy inteiro: o workflow importa cada área e, quando as quatro passam, dispara o build do docs-ui, que pré-renderiza cada rota contra a API fresca e publica uma imagem nova cujo digest o Flux registra no Git e coloca no ar. Mudança de conteúdo chega como imagem nova, nunca como restart.
 
 ## As quatro áreas
 

@@ -8,5 +8,7 @@ tags:
   - cloudflare
   - tailscale
   - debian
-  - docker
+  - kubernetes
+  - k3s
+  - gitops
 projectKey: beyou-dev-env
