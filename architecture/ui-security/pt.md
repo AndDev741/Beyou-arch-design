@@ -1,6 +1,6 @@
 ---
 title: "Segurança na UI"
-summary: "O lado do cliente na fronteira de confiança: tokens em memória, o boot de refresh silencioso, um portão de admin que se recusa a confiar no cliente, persistência ciente de PII e os headers que o nginx serve na frente de tudo."
+summary: "O lado do cliente na fronteira de confiança: tokens em memória, o boot de refresh silencioso, um portão de admin que se recusa a confiar no cliente, persistência ciente de PII e os headers que a Cloudflare serve na frente de tudo."
 ---
 
 Este documento explica o que o frontend web faz sobre segurança e, igualmente importante, o que ele se recusa a fazer: o navegador é território não confiável, então toda decisão real pertence ao backend, e o trabalho do frontend é não miná-lo.
@@ -57,15 +57,15 @@ Todos os schemas de formulário vivem no pacote compartilhado de validação. A 
 
 O bundle lê seis valores de ambiente, todos públicos por natureza: a base da API, a URL do app, o client id do Google, um endereço de suporte e o DSN de telemetria. Segredos de build (as credenciais de upload de source map) são lidos só na configuração do Vite pelo ambiente do processo e nunca alcançam o bundle. O Redux DevTools fica desligado em produção pelo padrão do Redux Toolkit, embora nada o afirme explicitamente.
 
-Os source maps ganham três guardas independentes: o build emite mapas ocultos (sem comentário sourceMappingURL para um navegador seguir), o plugin de upload os apaga da imagem depois de enviá-los ao rastreador de erros, e o nginx devolve 404 para arquivos de mapa de qualquer forma, com essa regra antes da regra de estáticos que casaria com eles.
+Os source maps ganham três guardas independentes: o build emite mapas ocultos (sem comentário sourceMappingURL para um navegador seguir), o plugin de upload os apaga do build depois de enviá-los ao rastreador de erros sempre que as credenciais estão definidas, e um arquivo `.assetsignore` com `*.map` os deixa de fora do upload para a Cloudflare. Essa última guarda ocupou o lugar de uma regra do nginx que devolvia 404 para arquivos de mapa.
 
 A telemetria fica dormente sem DSN e configurada para nunca enviar PII padrão. Um limpador específico merece a menção: a URL da requisição perde a query string antes do envio, porque duas telas carregam credenciais vivas de uso único nas suas (os tokens de reset e verificação), que de outro modo ficariam no rastreador por toda a janela de retenção.
 
-## Os headers que o nginx serve
+## Os headers que a Cloudflare serve
 
-O nginx do container web define, em toda resposta incluindo erros: negação de frames, nosniff, política de referrer strict-origin, uma política de permissões negando câmera, microfone e geolocalização, e HSTS por um ano sem preload (preload é uma porta sem volta que pertence a quem é dono do domínio, não a uma configuração de container).
+A Cloudflare lê um arquivo `_headers` do build (`apps/web/public/_headers`) e envia, em todo caminho: negação de frames, nosniff, política de referrer strict-origin-when-cross-origin, uma política de permissões negando câmera, microfone e geolocalização, e HSTS por um ano com includeSubDomains e sem preload (preload é uma porta sem volta, e essa decisão cabe a quem é dono do domínio). Os arquivos com hash em /assets ficam em cache por um ano como imutáveis.
 
-O CSP sai como Report-Only por enquanto, com a promoção travada em um problema conhecido: o host do coletor de telemetria entra no build, e um CSP que o esquece falha em silêncio, já que o reporte de erros simplesmente para. O plano é chato de propósito: coletar violações, adicionar os hosts reais, renomear o header. Uma armadilha do nginx está tratada e vale lembrar: add_header dentro de um location substitui o conjunto herdado, então o bloco de estáticos redeclara o que precisa.
+O CSP sai como Report-Only por enquanto, com a promoção travada em um problema conhecido: o host do coletor de telemetria entra no build, e um CSP que o esquece falha em silêncio, já que o reporte de erros simplesmente para. O plano é chato de propósito: coletar violações, adicionar os hosts reais, renomear o header. A configuração do nginx, que agora só existe para a imagem que o job de e2e constrói e roda, trata uma armadilha que vale lembrar: add_header dentro de um location substitui o conjunto herdado, então o bloco de estáticos redeclara o que precisa.
 
 ## O que o frontend nunca faz
 

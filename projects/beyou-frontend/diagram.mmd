@@ -5,5 +5,5 @@ flowchart TD
   pkgs --> WEB["⚛️ apps/web<br/>React 18 · Vite"]
   pkgs --> MOB["📱 apps/mobile<br/>React 19 · Expo"]
   SITE["🌐 site/<br/>marketing · Cloudflare Pages"]
-  WEB -->|"CI → GHCR"| PROD["app.beyouweb.com"]
+  WEB -->|"CI → wrangler deploy"| PROD["app.beyouweb.com"]
   MOB -->|"CI → signed AAB"| REL["Google Play · open testing"]

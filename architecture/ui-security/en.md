@@ -1,6 +1,6 @@
 ---
 title: "Security in the UI"
-summary: "The client side of the trust boundary: in-memory tokens, the silent-refresh boot, an admin gate that refuses to trust the client, PII-aware persistence, and the headers nginx serves in front of it all."
+summary: "The client side of the trust boundary: in-memory tokens, the silent-refresh boot, an admin gate that refuses to trust the client, PII-aware persistence, and the headers Cloudflare serves in front of it all."
 ---
 
 This document explains what the web frontend does about security, and just as importantly what it refuses to do: the browser is untrusted territory, so every real decision belongs to the backend, and the frontend's job is to not undermine it.
@@ -57,15 +57,15 @@ All form schemas live in the shared validation package. The password policy is e
 
 The bundle reads six environment values, all public by nature: the API base, the app URL, the Google client id, a support address, and the telemetry DSN. Build-time secrets (the source-map upload credentials) are read only in the Vite config from the process environment and can never reach the bundle. Redux DevTools are off in production via Redux Toolkit's default, though nothing asserts it explicitly.
 
-Source maps get three independent guards: the build emits hidden maps (no sourceMappingURL comment for a browser to follow), the upload plugin deletes them from the image after pushing them to the error tracker, and nginx returns 404 for map files anyway, with that rule placed before the static-asset rule that would otherwise match.
+Source maps get three independent guards: the build emits hidden maps (no sourceMappingURL comment for a browser to follow), the upload plugin deletes them from the build after pushing them to the error tracker whenever its credentials are set, and an `.assetsignore` file listing `*.map` keeps them out of the Cloudflare upload entirely. That last guard took over from an nginx rule that returned 404 for map files.
 
 Telemetry is dormant without a DSN and configured to never send default PII. One specific scrubber earns its mention: the request URL is stripped of query strings before sending, because two screens carry live single-use credentials in theirs (the reset and verification tokens), which would otherwise sit in the error tracker for its whole retention window.
 
-## The headers nginx serves
+## The headers Cloudflare serves
 
-The web container's nginx sets, on every response including errors: frame denial, nosniff, strict-origin referrer policy, a permissions policy denying camera, microphone, and geolocation, and HSTS for a year without preload (preload is a one-way door that belongs to whoever owns the domain, not to a container config).
+Cloudflare reads a `_headers` file from the build (`apps/web/public/_headers`) and sends, on every path: frame denial, nosniff, a strict-origin-when-cross-origin referrer policy, a permissions policy denying camera, microphone, and geolocation, and HSTS for a year with includeSubDomains and without preload (preload is a one-way door, and that call belongs to whoever owns the domain). Hashed files under /assets are cached for a year as immutable.
 
-The CSP ships as Report-Only for now, with the enforcing move blocked on one known problem: the telemetry collector's host is baked in at build time, and a CSP that forgets it fails silently, since error reporting just stops. The plan is boring on purpose: collect violations, add the real hosts, rename the header. One nginx trap is handled and worth remembering: add_header inside a location block replaces the inherited set, so the static-asset block re-declares what it needs.
+The CSP ships as Report-Only for now, with the enforcing move blocked on one known problem: the telemetry collector's host is baked in at build time, and a CSP that forgets it fails silently, since error reporting just stops. The plan is boring on purpose: collect violations, add the real hosts, rename the header. The nginx config, kept now only for the image the e2e job builds and runs, handles one trap worth remembering: add_header inside a location block replaces the inherited set, so the static-asset block re-declares what it needs.
 
 ## What the frontend never does
 

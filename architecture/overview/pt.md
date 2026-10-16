@@ -3,7 +3,7 @@ title: "Visão Geral da Arquitetura"
 summary: "Como o Beyou roda em produção: quatro superfícies de cliente, uma API Spring Boot, PostgreSQL, um pipeline de imagens saindo do GitHub e o monitoramento que vigia tudo isso."
 ---
 
-Este é o mapa do sistema como ele roda em produção: cada superfície de cliente, a API por trás delas, o banco de dados, como código novo chega ao servidor e como descobrimos quando algo quebra. O diagrama acima mostra o quadro completo; as seções abaixo percorrem cada peça.
+Este é o mapa do sistema como ele roda em produção: cada superfície de cliente, a API por trás delas, o banco de dados, como código novo chega à produção e como descobrimos quando algo quebra. O diagrama acima mostra o quadro completo; as seções abaixo percorrem cada peça.
 
 ## Stack tecnológica
 
@@ -13,20 +13,20 @@ Este é o mapa do sistema como ele roda em produção: cada superfície de clien
 | **App mobile** | React Native + Expo (Android primeiro), NativeWind, TypeScript. Divide os pacotes de estado, cliente de API e i18n com o web app pelo monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding e a IA do caderno de estudos (cadeia de fallback de LLMs), PDFBox e jsoup para as fontes do caderno |
 | **Banco de dados** | PostgreSQL 17 em produção (um cluster CloudNativePG; os testes e as stacks locais rodam o 15), schema controlado pelo Flyway (o Hibernate valida, nunca escreve), chaves primárias UUID, cache Caffeine na frente das leituras quentes |
-| **Entrega** | GitHub Actions constrói as imagens para o GHCR; o Flux (GitOps) faz o rollout delas num cluster k3s de um nó; nginx serve os builds do web e da documentação; Docker Compose para desenvolvimento local e e2e |
+| **Entrega** | GitHub Actions constrói a imagem do backend para o GHCR; o Flux (GitOps) faz o rollout dela num cluster k3s de um nó; o CI faz o deploy dos builds do web e da documentação no Cloudflare Workers Static Assets com o wrangler; Docker Compose para desenvolvimento local e e2e |
 | **Monitoramento** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (compatível com Sentry) |
 
 ## Topologia de produção
 
-A produção é um cluster k3s de um nó cujo estado inteiro vive no Git e é aplicado pelo Flux. O lado da aplicação são três workloads no namespace `beyou`, todos construídos pelo CI e publicados no GitHub Container Registry:
+A produção roda num cluster k3s de um nó cujo estado inteiro vive no Git e é aplicado pelo Flux, com a Cloudflare servindo os dois sites estáticos. O lado da aplicação são três peças, todas construídas pelo CI:
 
-- **beyou-backend**: a API Spring Boot na porta 8099, tudo sob `/api/v1`. Pública em **api.beyouweb.com**, e também atrás do proxy dos dois sites nginx. Uma réplica, com os uploads num volume persistente.
-- **beyou-web**: o build estático do web app, servido pelo nginx. Público em **app.beyouweb.com**.
-- **beyou-docs**: este site de documentação, pré-renderizado em HTML estático e servido pelo nginx. Público em **docs.beyouweb.com**.
+- **beyou-backend**: a API Spring Boot na porta 8099, tudo sob `/api/v1`, rodando no namespace `beyou` a partir de uma imagem no GitHub Container Registry. Pública em **api.beyouweb.com**, que o web app e as páginas da documentação chamam direto do navegador. Uma réplica, com os uploads num volume persistente.
+- **beyou-web**: o build estático do web app, servido pelo Cloudflare Workers Static Assets por um Worker que não roda script nenhum. Público em **app.beyouweb.com**.
+- **beyou-docs**: este site de documentação, pré-renderizado em HTML estático e servido pela Cloudflare do mesmo jeito. Público em **docs.beyouweb.com**.
 
-O banco é o `beyou`, num cluster PostgreSQL 17 compartilhado, operado pelo CloudNativePG no namespace `data`. Fazer merge na main é o deploy: o CI publica uma imagem `:latest` nova, a automação de imagens do Flux registra o digest dela no Git e faz o rollout, e voltar atrás é um `git revert`. Nada escuta numa porta pública. Um Cloudflare Tunnel disca para fora a partir do servidor e entrega todos os hostnames públicos ao Traefik, o único ingress, que roteia por host para cada Ingress; todo namespace fica atrás de uma network policy default-deny. O [tópico de infraestrutura](/architecture/infrastructure) cobre a máquina, o cluster e os backups. Duas peças vivem fora do cluster: o site de marketing em **beyouweb.com** (HTML estático no Cloudflare Pages) e o app mobile, que é instalado no celular e fala com a mesma API do web app.
+O banco é o `beyou`, num cluster PostgreSQL 17 compartilhado, operado pelo CloudNativePG no namespace `data`. Fazer merge na main é o deploy. No backend, o CI publica uma imagem `:latest` nova, a automação de imagens do Flux registra o digest dela no Git e faz o rollout, e voltar atrás é um `git revert`. Os dois sites estáticos vão do próprio CI para a Cloudflare com `wrangler deploy`, e é lá também que voltam atrás. Nada no servidor escuta numa porta pública. Um Cloudflare Tunnel disca para fora a partir do servidor e entrega os hostnames públicos do cluster ao Traefik, o único ingress, que roteia por host para cada Ingress; todo namespace fica atrás de uma network policy default-deny. O [tópico de infraestrutura](/architecture/infrastructure) cobre a máquina, o cluster e os backups. Mais duas peças vivem fora do cluster: o site de marketing em **beyouweb.com** (HTML estático no Cloudflare Pages) e o app mobile, que é instalado no celular e fala com a mesma API do web app.
 
-O conteúdo deste site de documentação tem seu próprio pipeline: o markdown e as specs OpenAPI vivem no repositório beyou-arch-design, o backend os importa para o PostgreSQL, e uma mudança de conteúdo dispara a reconstrução da imagem pré-renderizada.
+O conteúdo deste site de documentação tem seu próprio pipeline: o markdown e as specs OpenAPI vivem no repositório beyou-arch-design, o backend os importa para o PostgreSQL, e uma mudança de conteúdo reconstrói o site de documentação pré-renderizado e faz o deploy dele na Cloudflare.
 
 ## Monitoramento
 

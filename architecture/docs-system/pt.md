@@ -25,7 +25,7 @@ flowchart TD
   subgraph serve["4 · Servir e renderizar"]
     API["API pública /docs"]
     UI["⚛️ SPA docs-ui"]
-    PRE["🖼️ Site estático pré-renderizado<br/>reconstruído como imagem nova"]
+    PRE["🖼️ Site estático pré-renderizado<br/>reconstruído pelo CI do docs-ui"]
   end
 
   GH --> WF
@@ -35,10 +35,10 @@ flowchart TD
   DB --> API
   API --> UI
   WF -->|"repository_dispatch"| PRE
-  PRE -->|"GHCR → Flux"| LIVE["docs.beyouweb.com"]
+  PRE -->|"wrangler deploy → Cloudflare"| LIVE["docs.beyouweb.com"]
 ```
 
-Um merge de conteúdo na main é o deploy inteiro: o workflow importa cada área e, quando as quatro passam, dispara o build do docs-ui, que pré-renderiza cada rota contra a API fresca e publica uma imagem nova cujo digest o Flux registra no Git e coloca no ar. Mudança de conteúdo chega como imagem nova, nunca como restart.
+Um merge de conteúdo na main é o deploy inteiro: o workflow importa cada área e, quando as quatro passam, dispara o build do docs-ui, que pré-renderiza cada rota contra a API fresca e faz o deploy do resultado na Cloudflare como assets estáticos. Mudança de conteúdo chega como um build novo do site inteiro.
 
 ## As quatro áreas
 
@@ -75,7 +75,7 @@ O workflow `publish-docs` dispara em qualquer push na main que toque os quatro d
 
 1. **Login** com uma conta dedicada de importação, lendo o JWT do header de resposta `X-Access-Token`, mascarado nos logs.
 2. **Importação** de cada área em sequência com os dois headers de autenticação; um não-200 aborta.
-3. **Dispatch** de um evento `docs-content-updated` para o repositório do docs-ui (com um PAT, já que o token padrão do workflow não levanta eventos entre repositórios). O CI do docs-ui então pré-renderiza cada rota por idioma contra a API pública e publica a imagem nova.
+3. **Dispatch** de um evento `docs-content-updated` para o repositório do docs-ui (com um PAT, já que o token padrão do workflow não levanta eventos entre repositórios). O CI do docs-ui então pré-renderiza cada rota por idioma contra a API pública e faz o deploy do resultado na Cloudflare com `wrangler deploy`.
 
 Execuções entram em fila em vez de serem canceladas sob concorrência, por uma razão sutil: o passo de arquivamento de uma execução velha terminando depois de uma nova poderia arquivar tópicos que a nova acabou de importar.
 
@@ -100,7 +100,9 @@ Leituras são cacheadas (dois caches Caffeine por área, TTL de 120 minutos, der
 
 ## Renderização no site de docs
 
-O docs UI busca esses endpoints e renderiza markdown com suporte a GFM, blocos mermaid inline como diagramas vivos, o diagrama principal do tópico em um painel expansível e um trilho de sumário na borda direita. As cores do mermaid são reconstruídas do tema ativo a cada troca. Páginas de detalhe são endereçadas por caminho (`/architecture/{chave}` sob um prefixo de idioma), e a listagem de arquitetura abre seu primeiro tópico automaticamente. Para os crawlers, cada rota também existe como HTML estático pré-renderizado dentro da imagem do site, construído no build, que é o que mantém o conteúdo legível para buscadores e crawlers de IA que nunca rodam JavaScript.
+O docs UI busca esses endpoints e renderiza markdown com suporte a GFM, blocos mermaid inline como diagramas vivos, o diagrama principal do tópico em um painel expansível e um trilho de sumário na borda direita. As cores do mermaid são reconstruídas do tema ativo a cada troca. Páginas de detalhe são endereçadas por caminho (`/architecture/{chave}` sob um prefixo de idioma), e a listagem de arquitetura abre seu primeiro tópico automaticamente. Para os crawlers, cada rota também existe como HTML estático pré-renderizado dentro do site, gerado no build, que é o que mantém o conteúdo legível para buscadores e crawlers de IA que nunca rodam JavaScript.
+
+A Cloudflare serve esses arquivos com `html_handling: drop-trailing-slash`, que responde cada URL canônica sem barra final a partir do seu `<path>/index.html`. Caminhos desconhecidos voltam com um status 404 de verdade e a página 404 da SPA (`not_found_handling: 404-page`). Para uma URL sem idioma (`/blog/x`), um arquivo `_redirects` que a pré-renderização escreve manda um 302 para `/en/blog/x`; ele tem uma linha por página porque o `_redirects` da Cloudflare não tem como dizer "tudo que não está sob /en ou /pt". Depois de carregar, as páginas buscam direto no api.beyouweb.com (o `VITE_BACKEND_URL` é definido no build). São GETs simples que dispensam preflight, e a lista de CORS do backend inclui a origem da documentação.
 
 ## Lacunas conhecidas e bordas afiadas
 

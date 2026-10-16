@@ -2,6 +2,6 @@ flowchart LR
   API["🍃 Public docs API"] --> SPA["⚛️ React SPA<br/>architecture · blog · apis · projects · search"]
   SPA --> MMD["📊 Mermaid rendering<br/>theme-aware"]
   SPA --> OAS["🔎 OpenAPI endpoint browser"]
-  PRE["🖼️ Prerender script<br/>real HTML per route"] --> IMG["🐳 Static image<br/>nginx · GHCR"]
+  PRE["🖼️ Prerender script<br/>real HTML per route"] --> IMG["☁️ Static assets<br/>Cloudflare Workers"]
   API --> PRE
   IMG --> LIVE["docs.beyouweb.com"]

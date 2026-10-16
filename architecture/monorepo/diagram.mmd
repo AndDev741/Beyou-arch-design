@@ -28,5 +28,5 @@ flowchart TD
   I18 --> mob
 
   CI["⚙️ One CI graph<br/>typecheck · build · tests · e2e"]
-  CI -->|"push to main"| GHCR["🐳 beyou-web → GHCR"]
+  CI -->|"push to main"| CFW["☁️ beyou-web → Cloudflare Workers"]
   CI -->|"apps/mobile or packages change"| AAB["🤖 signed AAB → Play open testing"]

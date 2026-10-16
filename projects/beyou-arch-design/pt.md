@@ -8,7 +8,7 @@ O repositório de conteúdo. Tudo que este site de documentação renderiza vive
 
 ## Como a publicação funciona
 
-Um merge na main é um deploy. O workflow de publicação faz login no backend, aciona os quatro endpoints de importação atrás do portão duplo de JWT mais segredo, e então dispara o CI do site de docs, que pré-renderiza cada rota contra o conteúdo fresco e entrega uma imagem nova. Tópicos removidos do repositório são arquivados no banco em vez de apagados, então despublicar é reversível.
+Um merge na main é um deploy. O workflow de publicação faz login no backend, aciona os quatro endpoints de importação atrás do portão duplo de JWT mais segredo, e então dispara o CI do site de docs, que pré-renderiza cada rota contra o conteúdo fresco e faz o deploy do resultado na Cloudflare. Tópicos removidos do repositório são arquivados no banco em vez de apagados, então despublicar é reversível.
 
 ## Convenções
 

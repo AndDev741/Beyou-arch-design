@@ -381,7 +381,7 @@ The agent chat can call real tools, so its authority model matters:
 - Referrer-Policy: strict-origin-when-cross-origin. Permissions-Policy: camera, microphone, and geolocation all denied.
 - Spring Security defaults stay active on top: nosniff, X-Frame-Options DENY, no-cache. HSTS only appears on connections the framework sees as secure, so in practice it belongs to the TLS-terminating proxy.
 
-**CORS**: one allowed origin pattern from the environment, credentials enabled, and three exposed headers: `X-Access-Token`, `Retry-After`, and `X-Rate-Limit-Remaining`. Preflights carry `Access-Control-Max-Age: 3600`; without it browsers kept a preflight for about five seconds, and roughly one request in three in production was an extra OPTIONS round-trip. Dev runs a wildcard; production refuses one (next paragraph).
+**CORS**: allowed origin patterns from one environment variable, comma-separated (production lists the web app and the docs site), credentials enabled, and three exposed headers: `X-Access-Token`, `Retry-After`, and `X-Rate-Limit-Remaining`. Preflights carry `Access-Control-Max-Age: 3600`; without it browsers kept a preflight for about five seconds, and roughly one request in three in production was an extra OPTIONS round-trip. Dev runs a wildcard; production refuses one (next paragraph).
 
 **Boot-time validators**, the "refuse to start" layer:
 
