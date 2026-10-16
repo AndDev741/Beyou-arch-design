@@ -7,7 +7,7 @@ A [Visão Geral da Arquitetura](/architecture/overview) mostra o que roda. Este 
 
 ## A máquina
 
-A produção é um laptop LG S460. Minha mãe o comprou para mim em 2020, usado, para eu estudar durante o ensino médio, e foi nele que aprendi a programar. Hoje ele atende cada requisição que o Beyou recebe, de um quarto da minha casa.
+A produção é um laptop LG S460. Minha mãe o comprou para mim em 2020, usado, para eu estudar durante o ensino médio, e foi nele que aprendi a programar. Hoje ele atende cada chamada de API que o Beyou recebe, de um quarto da minha casa.
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ A produção é um laptop LG S460. Minha mãe o comprou para mim em 2020, usado,
 | **Armazenamento** | SSD SATA de 120 GB |
 | **Rede** | Um cabo de rede comum até o roteador de casa |
 
-Dois núcleos e 8 GB não é muito, e acabou sendo o bastante. A stack inteira cabe: a API, o banco, os dois sites nginx, a stack de monitoramento e o próprio Kubernetes por cima.
+Dois núcleos e 8 GB não é muito, e acabou sendo o bastante. A stack inteira cabe: a API, o banco, a stack de monitoramento e o próprio Kubernetes por cima.
 
 ## O sistema operacional
 
@@ -27,13 +27,11 @@ Foi esse mesmo ciclo que tirou a produção do Docker Compose. Até outubro de 2
 
 ## O caminho para dentro: Cloudflare Tunnel
 
-O roteador não encaminha nada. Nenhuma porta. Em vez disso, o `cloudflared` roda no laptop e disca para fora, até a borda da Cloudflare, mantendo uma conexão persistente. A Cloudflare termina o TLS e empurra as requisições de todos os hostnames públicos por esse túnel até um único lugar: o Traefik, o único ingress controller do cluster, numa node port. O Traefik roteia pelo header Host para um Ingress por hostname:
+O roteador não encaminha nada. Nenhuma porta. Em vez disso, o `cloudflared` roda no laptop e disca para fora, até a borda da Cloudflare, mantendo uma conexão persistente. A Cloudflare termina o TLS e empurra as requisições de todos os hostnames que o laptop atende por esse túnel até um único lugar: o Traefik, o único ingress controller do cluster, numa node port. O Traefik roteia pelo header Host para um Ingress por hostname:
 
 | Hostname | Para onde o Traefik envia |
 |----------|---------------------------|
-| **app.beyouweb.com** | o nginx do web app (faz proxy de /api/v1 para o backend) |
 | **api.beyouweb.com** | o backend, direto (/api/v1) |
-| **docs.beyouweb.com** | o nginx do site de documentação (mesmo proxy de /api/v1) |
 | **obs.beyouweb.com** | Grafana |
 | **mnt.beyouweb.com** | GlitchTip |
 
@@ -41,15 +39,15 @@ Nenhum app tem NodePort ou porta de host própria, então adicionar um hostname 
 
 Esse desenho resolve em silêncio o problema clássico do servidor caseiro: o IP dinâmico. Como o túnel é uma conexão de saída, o IP público da casa é irrelevante. O DNS aponta para a Cloudflare, nunca para o meu roteador, e quando a operadora troca o endereço o cloudflared simplesmente reconecta. Eu nunca precisei pensar nisso, o que só percebi de verdade ao sentar para escrever este documento.
 
-O site de marketing em **beyouweb.com** é a única superfície pública que nem passa pelo laptop: HTML estático no Cloudflare Pages.
+A Cloudflare serve três superfícies públicas sem passar pelo laptop. O site de marketing em **beyouweb.com** é HTML estático no Cloudflare Pages. O web app (**app.beyouweb.com**) e este site de documentação (**docs.beyouweb.com**) são builds estáticos no Cloudflare Workers Static Assets: dois Workers, `beyou-web` e `beyou-docs`, que guardam arquivos e não rodam script nenhum. Cada hostname é um custom domain do Workers, então a Cloudflare responde na borda e essas requisições nunca chegam à casa. Os dois sites chamam o api.beyouweb.com direto do navegador, e é por isso que a lista de CORS do backend tem as duas origens. Tudo cabe no plano Free: requisições de assets estáticos são grátis e ilimitadas, e um Worker sem script não gasta nada da cota diária de requisições do Workers.
 
 ## O cluster
 
-Cada app ganha o seu próprio namespace, e cada namespace ganha as mesmas três cercas: uma **ResourceQuota** (um orçamento de memória, para que um app nunca deixe o nó sem recursos), um **LimitRange** com os padrões, e uma **NetworkPolicy default-deny** que depois é aberta um salto de cada vez. Para o Beyou essa cadeia é Traefik para os dois pods nginx, nginx e Traefik para o backend, backend para o banco, e o Prometheus e as sondas de uptime do GlitchTip para as portas que eles verificam. Todo o resto do cluster é recusado.
+Cada app ganha o seu próprio namespace, e cada namespace ganha as mesmas três cercas: uma **ResourceQuota** (um orçamento de memória, para que um app nunca deixe o nó sem recursos), um **LimitRange** com os padrões, e uma **NetworkPolicy default-deny** que depois é aberta um salto de cada vez. Para o Beyou essa cadeia é Traefik para o backend, backend para o banco, e o Prometheus e as sondas de uptime do GlitchTip para as portas que eles verificam. Todo o resto do cluster é recusado.
 
 | Namespace | O que roda lá |
 |-----------|---------------|
-| **beyou** | web (nginx), docs (nginx), o backend Spring Boot e os CronJobs de backup |
+| **beyou** | o backend Spring Boot e os CronJobs de backup |
 | **data** | o cluster PostgreSQL 17 compartilhado, operado pelo CloudNativePG |
 | **monitoring** | Prometheus, Grafana, Loki e Alloy (o [tópico de monitoramento](/architecture/monitoring)) |
 | **glitchtip** | o rastreador de erros, com o seu Valkey |
@@ -65,13 +63,15 @@ Os segredos também estão no Git, criptografados com SOPS e age, e descriptogra
 
 O SSH não é alcançável pela internet. O laptop participa de uma rede Tailscale, e a administração acontece apenas de dispositivos dentro dela. O fail2ban roda como uma camada extra por baixo.
 
-A consequência mais bonita: fazer deploy não precisa de sessão SSH. O CI constrói cada imagem e a publica no GHCR como `:latest`. A automação de imagens do Flux percebe o digest novo, faz commit dele no be-infra e faz o rollout do workload a partir desse commit. Fazer merge na main continua sendo o deploy; o laptop puxa, nada entra empurrado. O que mudou desde os tempos do Watchtower é o registro: o Git sempre diz exatamente qual build está rodando, e voltar atrás é um `git revert`, não um chute numa tag antiga. Qualquer coisa alterada na mão com `kubectl` em algo que o Flux gerencia volta ao que está no Git no próximo reconcile.
+A consequência mais bonita: fazer deploy não precisa de sessão SSH. O CI constrói a imagem do backend e a publica no GHCR como `:latest`. A automação de imagens do Flux percebe o digest novo, faz commit dele no be-infra e faz o rollout do workload a partir desse commit. Fazer merge na main continua sendo o deploy; o laptop puxa, nada entra empurrado. O que mudou desde os tempos do Watchtower é o registro: o Git sempre diz exatamente qual build está rodando, e voltar atrás é um `git revert`, não um chute numa tag antiga. Qualquer coisa alterada na mão com `kubectl` em algo que o Flux gerencia volta ao que está no Git no próximo reconcile.
+
+O web app e o site de documentação vão para a Cloudflare a partir dos próprios repositórios. Quando um push na main passa nas checagens (as do web app incluem a suíte e2e), o CI daquele repositório faz o build do site e roda `wrangler deploy`. Voltar um deles atrás acontece na Cloudflare, com `wrangler rollback` ou pelo dashboard.
 
 ## O modelo de falha, com honestidade
 
 Esta é uma máquina de casa, e o documento seria desonesto se fingisse o contrário.
 
-- **Queda de energia ou de internet**: o app cai e fica fora até alguém ligar o laptop. Não há auto-recuperação para a máquina em si.
+- **Queda de energia ou de internet**: a API cai e fica fora até alguém ligar o laptop, e tudo que depende dela cai junto, o login e todos os dados do app incluídos. O shell do web app e o site de documentação continuam carregando da Cloudflare, e uma página pré-renderizada da documentação continua legível enquanto as buscas que ela faz no cliente falham. Não há auto-recuperação para a máquina em si.
 - **Depois do boot**: o k3s sobe sozinho, e o cluster traz cada workload de volta ao estado que o Git descreve. A recuperação é um botão de ligar.
 - **Backups**: noturnos, fora da máquina, criptografados e rodados pelo próprio cluster. Um CronJob faz o dump do banco `beyou` com `pg_dump`, empacota o volume de uploads num tarball e entrega os dois ao restic, que os criptografa dentro do pod e os envia ao Cloudflare R2 com retenção de 7 diários / 4 semanais / 6 mensais. Uma trava de tamanho falha a execução se o repositório passar do orçamento, e um heartbeat vai para o GlitchTip só em caso de sucesso. Uma vez por semana um segundo CronJob restaura o snapshot mais recente num Postgres descartável dentro do próprio pod (nunca na instância compartilhada) e compara a contagem de linhas com o banco real; ele manda o seu próprio heartbeat só quando dá PASS, porque backup que ninguém restaurou é chute. A configuração não precisa mais de backup à parte: está no Git, criptografada. Essa foi a maior lacuna do setup por muito tempo. Está fechada para perda de dados e não faz nada por disponibilidade: continua um disco, uma máquina, nenhum failover.
 - **Incidentes até agora**: exatamente uma categoria, que não está em nenhum template de postmortem: familiares desconectando o cabo de internet.

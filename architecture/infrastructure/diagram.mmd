@@ -2,6 +2,7 @@ flowchart TB
   U["🌍 Visitors"]
   CF["☁️ Cloudflare edge<br/>DNS · TLS · Tunnel"]
   CP["📄 Cloudflare Pages<br/>beyouweb.com"]
+  CW["⚡ Cloudflare Workers · static assets<br/>app.beyouweb.com · docs.beyouweb.com"]
   TS["🔗 Tailscale<br/>private network"]
   GH["📦 GitHub<br/>be-infra · GHCR images"]
 
@@ -15,8 +16,6 @@ flowchart TB
         FX["Flux<br/>GitOps + image automation"]
         TR["Traefik<br/>only entry"]
         subgraph nsbeyou["ns beyou"]
-          WEBN["web nginx<br/>app.beyouweb.com"]
-          DOCSN["docs nginx<br/>docs.beyouweb.com"]
           BE["backend<br/>api.beyouweb.com"]
           BK["backup CronJobs"]
         end
@@ -34,17 +33,14 @@ flowchart TB
 
   U --> CF
   U --> CP
+  U --> CW
   laptop ---|"LAN cable"| RT
   F2B -.-|"guards sshd"| TSD
   CD ---|"dials out, stays connected"| CF
   CD --> TR
-  TR --> WEBN
-  TR --> DOCSN
   TR --> BE
   TR --> GF
   TR --> GT
-  WEBN -->|"/api/v1 proxy"| BE
-  DOCSN -->|"/api/v1 proxy"| BE
   BE --> DB
   BK -->|"pg_dump + uploads"| R2
   TSD ---|"admin SSH"| TS

@@ -15,8 +15,8 @@ flowchart TD
     TD["Account teardown<br/>purge → prefix sweep → hard nav"]
   end
 
-  subgraph edge["nginx in front"]
-    HDR["HSTS · nosniff · frame deny<br/>CSP (report-only) · .map → 404"]
+  subgraph edge["Cloudflare in front · _headers"]
+    HDR["HSTS · nosniff · frame deny<br/>CSP (report-only) · .map never uploaded"]
   end
 
   SR --> MEM

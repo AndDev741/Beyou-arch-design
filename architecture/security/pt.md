@@ -382,7 +382,7 @@ O chat do agente chama ferramentas reais, então seu modelo de autoridade import
 - Referrer-Policy: strict-origin-when-cross-origin. Permissions-Policy: câmera, microfone e geolocalização negados.
 - Os padrões do Spring Security seguem ativos por cima: nosniff, X-Frame-Options DENY, no-cache. O HSTS só aparece em conexões que o framework enxerga como seguras, então na prática pertence ao proxy que termina o TLS.
 
-**CORS**: um único padrão de origem vindo do ambiente, credenciais habilitadas e três headers expostos: `X-Access-Token`, `Retry-After` e `X-Rate-Limit-Remaining`. Os preflights levam `Access-Control-Max-Age: 3600`; sem isso o navegador guardava um preflight por uns cinco segundos, e mais ou menos uma requisição em cada três em produção era uma ida e volta extra de OPTIONS. Dev roda curinga; produção o recusa (próximo parágrafo).
+**CORS**: padrões de origem vindos de uma única variável de ambiente, separados por vírgula (a produção lista o web app e o site de documentação), credenciais habilitadas e três headers expostos: `X-Access-Token`, `Retry-After` e `X-Rate-Limit-Remaining`. Os preflights levam `Access-Control-Max-Age: 3600`; sem isso o navegador guardava um preflight por uns cinco segundos, e mais ou menos uma requisição em cada três em produção era uma ida e volta extra de OPTIONS. Dev roda curinga; produção o recusa (próximo parágrafo).
 
 **Validadores de boot**, a camada do "recusa a subir":
 

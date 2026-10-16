@@ -25,7 +25,7 @@ flowchart TD
   subgraph serve["4 · Serve & render"]
     API["Public /docs API"]
     UI["⚛️ docs-ui SPA"]
-    PRE["🖼️ Prerendered static site<br/>rebuilt as a new image"]
+    PRE["🖼️ Prerendered static site<br/>rebuilt by the docs-ui CI"]
   end
 
   GH --> WF
@@ -35,10 +35,10 @@ flowchart TD
   DB --> API
   API --> UI
   WF -->|"repository_dispatch"| PRE
-  PRE -->|"GHCR → Flux"| LIVE["docs.beyouweb.com"]
+  PRE -->|"wrangler deploy → Cloudflare"| LIVE["docs.beyouweb.com"]
 ```
 
-A content merge on main is the whole deployment: the workflow imports each area, and when all four succeed it dispatches the docs-ui build, which prerenders every route against the fresh API and ships a new image whose digest Flux records in Git and rolls out. Content changes arrive as a new image, never as a restart.
+A content merge on main is the whole deployment: the workflow imports each area, and when all four succeed it dispatches the docs-ui build, which prerenders every route against the fresh API and deploys the result to Cloudflare as static assets. Content changes arrive as a fresh build of the whole site.
 
 ## The four areas
 
@@ -75,7 +75,7 @@ The `publish-docs` workflow triggers on any push to main touching the four conte
 
 1. **Sign in** with a dedicated import account and read the JWT from the `X-Access-Token` response header, masked in the logs.
 2. **Import** each area in sequence with both auth headers; a non-200 aborts.
-3. **Dispatch** a `docs-content-updated` event to the docs-ui repository (with a PAT, since the default workflow token cannot raise cross-repo events). The docs-ui CI then prerenders every route per locale against the public API and publishes the new image.
+3. **Dispatch** a `docs-content-updated` event to the docs-ui repository (with a PAT, since the default workflow token cannot raise cross-repo events). The docs-ui CI then prerenders every route per locale against the public API and deploys the result to Cloudflare with `wrangler deploy`.
 
 Runs are queued rather than cancelled under concurrency, for a subtle reason: the archive step of an older run finishing after a newer one could archive topics the newer run just imported.
 
@@ -100,7 +100,9 @@ Reads are cached (two Caffeine caches per area, 120-minute TTL, dropped wholesal
 
 ## Rendering on the docs site
 
-The docs UI fetches these endpoints and renders markdown with GFM support, inline mermaid blocks as live diagrams, the topic's main diagram in an expandable panel, and a right-edge table-of-contents rail. Mermaid colors are rebuilt from the active UI theme on every switch. Detail pages are addressed by path (`/architecture/{key}` under a locale prefix), and the architecture listing auto-opens its first topic. For crawlers, every route also exists as prerendered static HTML baked into the site image at build time, which is what keeps the content readable to search engines and AI crawlers that never run JavaScript.
+The docs UI fetches these endpoints and renders markdown with GFM support, inline mermaid blocks as live diagrams, the topic's main diagram in an expandable panel, and a right-edge table-of-contents rail. Mermaid colors are rebuilt from the active UI theme on every switch. Detail pages are addressed by path (`/architecture/{key}` under a locale prefix), and the architecture listing auto-opens its first topic. For crawlers, every route also exists as prerendered static HTML baked into the site at build time, which is what keeps the content readable to search engines and AI crawlers that never run JavaScript.
+
+Cloudflare serves those files with `html_handling: drop-trailing-slash`, which answers each slash-less canonical URL from its `<path>/index.html`. Unknown paths come back with a real 404 status and the SPA's 404 page (`not_found_handling: 404-page`). For a URL without a locale (`/blog/x`), a `_redirects` file the prerender writes sends a 302 to `/en/blog/x`; it holds one line per page because Cloudflare's `_redirects` has no way to say "anything not under /en or /pt". Once loaded, the pages fetch from api.beyouweb.com directly (`VITE_BACKEND_URL` is set at build time). Those are plain GETs that need no preflight, and the backend's CORS list carries the docs origin.
 
 ## Known gaps and sharp edges
 

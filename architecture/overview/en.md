@@ -3,7 +3,7 @@ title: "Architecture Overview"
 summary: "How Beyou runs in production: four client surfaces, one Spring Boot API, PostgreSQL, an image pipeline out of GitHub, and the monitoring that watches all of it."
 ---
 
-This is the map of the system as it runs in production: every client surface, the API behind them, the database, how new code reaches the server, and how we find out when something breaks. The diagram above shows the whole picture; the sections below walk through each piece.
+This is the map of the system as it runs in production: every client surface, the API behind them, the database, how new code reaches production, and how we find out when something breaks. The diagram above shows the whole picture; the sections below walk through each piece.
 
 ## Tech stack
 
@@ -13,20 +13,20 @@ This is the map of the system as it runs in production: every client surface, th
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 17 in production (a CloudNativePG cluster; tests and the local stacks run 15), Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
-| **Delivery** | GitHub Actions builds images to GHCR; Flux (GitOps) rolls them out on a single-node k3s cluster; nginx serves the web and docs builds; Docker Compose for local development and e2e |
+| **Delivery** | GitHub Actions builds the backend image to GHCR; Flux (GitOps) rolls it out on a single-node k3s cluster; CI deploys the web and docs builds to Cloudflare Workers Static Assets with wrangler; Docker Compose for local development and e2e |
 | **Monitoring** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (Sentry-compatible) |
 
 ## Production topology
 
-Production is a single-node k3s cluster whose whole state lives in Git and is applied by Flux. The application side is three workloads in the `beyou` namespace, all built by CI and published to GitHub Container Registry:
+Production runs on a single-node k3s cluster whose whole state lives in Git and is applied by Flux, with Cloudflare serving the two static sites. The application side is three pieces, all built by CI:
 
-- **beyou-backend**: the Spring Boot API on port 8099, everything under `/api/v1`. Public at **api.beyouweb.com**, and also proxied by both nginx sites. One replica, with uploads on a persistent volume.
-- **beyou-web**: the web app's static build, served by nginx. Public at **app.beyouweb.com**.
-- **beyou-docs**: this documentation site, prerendered to static HTML and served by nginx. Public at **docs.beyouweb.com**.
+- **beyou-backend**: the Spring Boot API on port 8099, everything under `/api/v1`, running in the `beyou` namespace from an image on GitHub Container Registry. Public at **api.beyouweb.com**, which the web app and the docs pages call straight from the browser. One replica, with uploads on a persistent volume.
+- **beyou-web**: the web app's static build, served from Cloudflare Workers Static Assets by a Worker that runs no script. Public at **app.beyouweb.com**.
+- **beyou-docs**: this documentation site, prerendered to static HTML and served by Cloudflare the same way. Public at **docs.beyouweb.com**.
 
-The database is `beyou` in a shared PostgreSQL 17 cluster run by the CloudNativePG operator in the `data` namespace. Merging to main is the deployment: CI pushes a new `:latest` image, Flux's image automation records its digest in Git and rolls it out, and rolling back is a `git revert`. Nothing listens on a public port. A Cloudflare Tunnel dials out from the server and hands every public hostname to Traefik, the only ingress, which routes by host to each Ingress; every namespace sits behind a default-deny network policy. The [infrastructure topic](/architecture/infrastructure) covers the machine, the cluster and the backups. Two pieces live outside the cluster: the marketing site at **beyouweb.com** (static HTML on Cloudflare Pages) and the mobile app, which installs on the phone and talks to the same API as the web app.
+The database is `beyou` in a shared PostgreSQL 17 cluster run by the CloudNativePG operator in the `data` namespace. Merging to main is the deployment. For the backend, CI pushes a new `:latest` image, Flux's image automation records its digest in Git and rolls it out, and rolling back is a `git revert`. The two static sites go from their own CI to Cloudflare with `wrangler deploy`, and they roll back there too. Nothing on the server listens on a public port. A Cloudflare Tunnel dials out from the server and hands the cluster's public hostnames to Traefik, the only ingress, which routes by host to each Ingress; every namespace sits behind a default-deny network policy. The [infrastructure topic](/architecture/infrastructure) covers the machine, the cluster and the backups. Two more pieces live outside the cluster: the marketing site at **beyouweb.com** (static HTML on Cloudflare Pages) and the mobile app, which installs on the phone and talks to the same API as the web app.
 
-The content of this docs site has its own pipeline: markdown and OpenAPI specs live in the beyou-arch-design repository, the backend imports them into PostgreSQL, and a content change triggers a rebuild of the prerendered docs image.
+The content of this docs site has its own pipeline: markdown and OpenAPI specs live in the beyou-arch-design repository, the backend imports them into PostgreSQL, and a content change rebuilds the prerendered docs site and deploys it to Cloudflare.
 
 ## Monitoring
 

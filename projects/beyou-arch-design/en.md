@@ -8,7 +8,7 @@ The content repository. Everything rendered on this documentation site lives her
 
 ## How publishing works
 
-A merge to main is a deployment. The publish workflow signs in to the backend, triggers the four import endpoints behind the JWT-plus-secret double gate, and then dispatches the docs site's CI, which prerenders every route against the fresh content and ships a new image. Topics removed from the repository are archived in the database rather than deleted, so unpublishing is reversible.
+A merge to main is a deployment. The publish workflow signs in to the backend, triggers the four import endpoints behind the JWT-plus-secret double gate, and then dispatches the docs site's CI, which prerenders every route against the fresh content and deploys the result to Cloudflare. Topics removed from the repository are archived in the database rather than deleted, so unpublishing is reversible.
 
 ## Conventions
 

@@ -6,7 +6,7 @@ flowchart TD
   API["🌐 Public /docs API<br/>+ search · Caffeine cached"]
   UI["⚛️ docs-ui SPA"]
   CI["🏗️ docs-ui CI<br/>prerenders every route"]
-  LIVE["📄 docs.beyouweb.com<br/>static · nginx"]
+  LIVE["📄 docs.beyouweb.com<br/>static · Cloudflare Workers"]
 
   GH --> WF
   WF -->|"JWT + X-Docs-Import-Secret"| BE
@@ -16,4 +16,4 @@ flowchart TD
   API --> UI
   WF -->|"repository_dispatch"| CI
   CI -->|"reads"| API
-  CI -->|"new image · GHCR → Flux"| LIVE
+  CI -->|"wrangler deploy"| LIVE

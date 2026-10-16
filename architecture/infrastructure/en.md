@@ -7,7 +7,7 @@ The [Architecture Overview](/architecture/overview) shows what runs. This topic 
 
 ## The machine
 
-Production is an LG S460 laptop. My mom bought it for me in 2020, used, so I could study during high school, and it is the machine I learned to program on. Today it serves every request Beyou gets, from a bedroom in my house.
+Production is an LG S460 laptop. My mom bought it for me in 2020, used, so I could study during high school, and it is the machine I learned to program on. Today it answers every API call Beyou gets, from a bedroom in my house.
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ Production is an LG S460 laptop. My mom bought it for me in 2020, used, so I cou
 | **Storage** | 120 GB SATA SSD |
 | **Network** | A regular LAN cable into the home router |
 
-Two cores and 8 GB is not much, and it turns out to be plenty. The whole stack fits: the API, the database, both nginx sites, the monitoring stack, and Kubernetes itself on top.
+Two cores and 8 GB is not much, and it turns out to be plenty. The whole stack fits: the API, the database, the monitoring stack, and Kubernetes itself on top.
 
 ## The operating system
 
@@ -27,13 +27,11 @@ That loop is also what moved production off Docker Compose. Until October 2026 t
 
 ## The way in: Cloudflare Tunnel
 
-The router forwards nothing. Not one port. Instead, `cloudflared` runs on the laptop and dials out to Cloudflare's edge, holding a persistent connection. Cloudflare terminates TLS and pushes requests for every public hostname down that tunnel to a single place: Traefik, the cluster's only ingress controller, on a node port. Traefik routes on the Host header to one Ingress per hostname:
+The router forwards nothing. Not one port. Instead, `cloudflared` runs on the laptop and dials out to Cloudflare's edge, holding a persistent connection. Cloudflare terminates TLS and pushes requests for every hostname the laptop serves down that tunnel to a single place: Traefik, the cluster's only ingress controller, on a node port. Traefik routes on the Host header to one Ingress per hostname:
 
 | Hostname | Where Traefik sends it |
 |----------|------------------------|
-| **app.beyouweb.com** | the web app's nginx (proxies /api/v1 to the backend) |
 | **api.beyouweb.com** | the backend, directly (/api/v1) |
-| **docs.beyouweb.com** | the docs site's nginx (same /api/v1 proxy) |
 | **obs.beyouweb.com** | Grafana |
 | **mnt.beyouweb.com** | GlitchTip |
 
@@ -41,15 +39,15 @@ No app has a NodePort or a host port of its own, so adding a hostname is an Ingr
 
 This design quietly solves the classic home-server problem: the dynamic IP. Since the tunnel is an outbound connection, the house's public IP is irrelevant. DNS points at Cloudflare, never at my router, and when the ISP hands out a new address cloudflared just reconnects. I never had to think about it, which I only fully appreciated when I sat down to write this doc.
 
-The marketing site at **beyouweb.com** is the one public surface that skips the laptop entirely: static HTML on Cloudflare Pages.
+Cloudflare serves three public surfaces without touching the laptop. The marketing site at **beyouweb.com** is static HTML on Cloudflare Pages. The web app (**app.beyouweb.com**) and this docs site (**docs.beyouweb.com**) are static builds on Cloudflare Workers Static Assets: two Workers, `beyou-web` and `beyou-docs`, that hold files and run no script. Each hostname is a Workers custom domain, so Cloudflare answers it at the edge and those requests never reach the house. Both sites call api.beyouweb.com straight from the browser, which is why the backend's CORS list names both origins. All of it fits the Free plan: static asset requests are free and unlimited, and a Worker with no script uses none of the daily Workers request quota.
 
 ## The cluster
 
-Each app gets its own namespace, and each namespace gets the same three fences: a **ResourceQuota** (a memory budget, so one app can never starve the node), a **LimitRange** for defaults, and a **default-deny NetworkPolicy** that is then opened one hop at a time. For Beyou that chain is Traefik to the two nginx pods, nginx and Traefik to the backend, the backend to the database, and Prometheus and GlitchTip's uptime probes to the ports they check. Everything else in the cluster is refused.
+Each app gets its own namespace, and each namespace gets the same three fences: a **ResourceQuota** (a memory budget, so one app can never starve the node), a **LimitRange** for defaults, and a **default-deny NetworkPolicy** that is then opened one hop at a time. For Beyou that chain is Traefik to the backend, the backend to the database, and Prometheus and GlitchTip's uptime probes to the ports they check. Everything else in the cluster is refused.
 
 | Namespace | What runs there |
 |-----------|-----------------|
-| **beyou** | web (nginx), docs (nginx), the Spring Boot backend, and the backup CronJobs |
+| **beyou** | the Spring Boot backend and the backup CronJobs |
 | **data** | the shared PostgreSQL 17 cluster, run by the CloudNativePG operator |
 | **monitoring** | Prometheus, Grafana, Loki and Alloy (the [monitoring topic](/architecture/monitoring)) |
 | **glitchtip** | the error tracker, with its Valkey |
@@ -65,13 +63,15 @@ Secrets are in Git too, encrypted with SOPS and age, and decrypted by Flux insid
 
 SSH is not reachable from the internet at all. The laptop joins a Tailscale network, and administration happens only from devices inside it. fail2ban runs as an extra layer underneath.
 
-The nicest consequence: deploying needs no SSH session. CI builds each image and pushes it to GHCR as `:latest`. Flux's image automation notices the new digest, commits it to be-infra, and rolls the workload out from that commit. Merging to main is still the deployment; the laptop pulls, nothing pushes in. What changed from the Watchtower days is the record: Git always says exactly which build is running, and rolling back is a `git revert`, not a guess at an old tag. Anything changed by hand with `kubectl` on something Flux manages is put back on the next reconcile.
+The nicest consequence: deploying needs no SSH session. CI builds the backend's image and pushes it to GHCR as `:latest`. Flux's image automation notices the new digest, commits it to be-infra, and rolls the workload out from that commit. Merging to main is still the deployment; the laptop pulls, nothing pushes in. What changed from the Watchtower days is the record: Git always says exactly which build is running, and rolling back is a `git revert`, not a guess at an old tag. Anything changed by hand with `kubectl` on something Flux manages is put back on the next reconcile.
+
+The web app and the docs site go to Cloudflare from their own repos. Once a push to main passes its checks (the web app's include the e2e suite), that repo's CI builds the site and runs `wrangler deploy`. Rolling one of them back happens in Cloudflare, with `wrangler rollback` or from the dashboard.
 
 ## The failure model, honestly
 
 This is a home machine, and the doc would be dishonest if it pretended otherwise.
 
-- **Power or internet outage**: the app goes down and stays down until someone boots the laptop. There is no auto-recovery for the machine itself.
+- **Power or internet outage**: the API goes down and stays down until someone boots the laptop, and everything that calls it goes with it, logging in and all of the app's data included. The web app's shell and the docs site still load from Cloudflare, and a prerendered docs page stays readable while its client-side fetches fail. There is no auto-recovery for the machine itself.
 - **After boot**: k3s starts on its own, and the cluster brings every workload back to the state Git describes. Recovery is one power button.
 - **Backups**: nightly, offsite, encrypted, and run by the cluster itself. A CronJob dumps the `beyou` database with `pg_dump`, tars the uploads volume, and hands both to restic, which encrypts them in the pod and sends them to Cloudflare R2 with a 7 daily / 4 weekly / 6 monthly retention. A size guard fails the run if the repository outgrows its budget, and a heartbeat goes to GlitchTip only on success. Once a week a second CronJob restores the newest snapshot into a throwaway Postgres inside its own pod (never the shared instance) and compares row counts against the live database; it sends its own heartbeat only on PASS, because a backup nobody has restored is a guess. The configuration no longer needs backing up separately: it is in Git, encrypted. This was the biggest gap in the setup for a long time. It is closed for data loss and it does nothing for uptime: still one disk, one machine, no failover.
 - **Incidents so far**: exactly one category, and it is not in any postmortem template: family members unplugging the internet cable.

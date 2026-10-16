@@ -8,7 +8,7 @@ O próprio site de documentação. Uma SPA React e Vite que lê a API pública d
 
 ## A metade de SEO
 
-Conteúdo renderizado no cliente é invisível para a maioria dos crawlers, então um script de pré-renderização busca cada tópico nos dois idiomas na mesma API pública e escreve um arquivo HTML real por rota, com títulos, canonicals, pares de hreflang, dados estruturados e o próprio texto do artigo. A SPA sobe por cima e assume. Mudanças de conteúdo reconstroem a imagem inteira: o workflow do repositório de conteúdo dispara o CI deste repositório após cada importação, e o Flux implanta o resultado.
+Conteúdo renderizado no cliente é invisível para a maioria dos crawlers, então um script de pré-renderização busca cada tópico nos dois idiomas na mesma API pública e escreve um arquivo HTML real por rota, com títulos, canonicals, pares de hreflang, dados estruturados e o próprio texto do artigo. A SPA sobe por cima e assume. Mudanças de conteúdo reconstroem o site inteiro: o workflow do repositório de conteúdo dispara o CI deste repositório após cada importação, e esse CI faz o deploy do resultado no Cloudflare Workers Static Assets com `wrangler deploy`.
 
 ## Detalhes que valem saber
 
