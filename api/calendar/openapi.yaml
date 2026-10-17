@@ -33,9 +33,10 @@ info:
 
     **Someone else's task does not exist.** Every lookup is by id AND owner, so a task the
     caller does not own answers 404 `CALENDAR_TASK_NOT_FOUND` on every route, exactly like an id
-    that was never used, and no route can confirm which ids are taken. This is the one error key
-    in the API that answers 404; every other business error, the older domains' not-found keys
-    included, still answers 400.
+    that was never used, and no route can confirm which ids are taken. The calendar was the first
+    domain built this way. The Ideas board's `QUICK_NOTE_NOT_FOUND` is the only other error key
+    that answers 404, and apart from the board's two 409 keys every other business error, the
+    older domains' not-found keys included, still answers 400.
 
     Nothing here is cached. Every read is a range of days, so a cache keyed on the user would
     answer one range with another's days, and the overview feeds on routine checks, goals and

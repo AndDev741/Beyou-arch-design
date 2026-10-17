@@ -9,7 +9,7 @@ This is the map of the system as it runs in production: every client surface, th
 
 | Layer | Technologies |
 |-------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board. The Ideas board is React Flow too |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 17 in production (a CloudNativePG cluster; tests and the local stacks run 15), Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
@@ -49,6 +49,7 @@ erDiagram
   USER ||--o{ ROUTINE : owns
   USER ||--o{ NOTEBOOK_PAGE : owns
   USER ||--o{ CALENDAR_TASK : owns
+  USER ||--o{ QUICK_NOTE : owns
 
   CATEGORY }o--o{ HABIT : tagged
   CATEGORY }o--o{ TASK : tagged
@@ -71,6 +72,8 @@ erDiagram
   BOARD_NODE }o--|| NOTEBOOK_PAGE : opens
   NOTEBOOK_PAGE ||--o{ FLASHCARD : holds
   NOTEBOOK_PAGE ||--o{ SOURCE : reads
+
+  QUICK_NOTE |o--o| TASK : "became"
 ```
 
 ### Entity highlights
@@ -86,6 +89,7 @@ erDiagram
 - **Routine snapshots**: an immutable daily copy of each routine, taken per timezone by a scheduler, so history survives later edits to the routine.
 - **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
 - **Calendar task**: a one-off task on a date, with an optional time and a reminder. It lives outside routines, pays a flat 10 XP when completed, and stays on its own day whether done or not.
+- **Quick note**: a post-it on the Ideas board, an inbox for raw ideas. Up to 500 characters, one of six colours, a spot on a free board and a stacking order. The server places a note that comes without a spot, at most 200 sit on the board at once, and a note can be archived, and turned into a task once. No XP.
 - **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
 - **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations. Study cycles put topics in a queue of time and goal blocks studied lap after lap, fed by pomodoros on the topic's pages and by sessions logged by hand.
 
@@ -135,7 +139,7 @@ sequenceDiagram
 
 ## API layer
 
-36 REST controllers organized by domain, all under `/api/v1`:
+37 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
@@ -146,6 +150,7 @@ sequenceDiagram
 | **Focus Mode** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diary** | Mood | /mood |
 | **Calendar** | Calendar | /calendar, /calendar/tasks |
+| **Ideas board** | QuickNote | /quick-notes |
 | **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Daily Briefing** | DailyBriefing | /daily-briefing |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
@@ -191,7 +196,7 @@ flowchart TD
   AX -->|"auto 401 → refresh"| AX
 ```
 
-The Redux slices live in a shared workspace package (`packages/state`, 21 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist and deliberately excludes the profile, snapshot, celebration, mood, notebook and studyCycles slices, so no PII, journal text or study notes land in localStorage. The mobile app keeps its store in memory and refetches on launch.
+The Redux slices live in a shared workspace package (`packages/state`, 22 slices), so the web and mobile apps run the same state logic. The web app wraps it with redux-persist and deliberately excludes the profile, snapshot, celebration, mood, notebook, studyCycles and quickNotes slices, so no PII, journal text, study notes or ideas land in localStorage. The mobile app keeps its store in memory and refetches on launch.
 
 ## Gamification system
 

@@ -131,3 +131,5 @@ The frontends detect moments by comparison, not by backend flags: a check respon
 No daily completion bonus, no routine-completion payout, no weekly recap XP. The five XP paths with reversals (habit check, task check, snapshot check, goal completion, calendar task completion) and the notebook's three pay-once rewards are the whole economy. Skips cannot be placed in the future, since an unbounded forward skip would make a streak unbreakable.
 
 Recording a mood earns nothing either, and that one is a product decision rather than an omission. Paying for a feeling turns a five-point scale into something to farm, and a farmed scale stops describing anything, which would cost the diary the only thing it is for. The days-in-a-row count the diary shows is derived in the client from the entries themselves. It is not a streak in this system, it feeds no multiplier, and nothing pays it out.
+
+A note on the Ideas board pays nothing as well. It is an inbox entry, and the board returns no `RefreshUiDTO`. Turning a note into a task pays nothing at that moment either; the task earns XP the usual way, when somebody checks it in a routine.

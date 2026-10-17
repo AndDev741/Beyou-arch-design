@@ -1,6 +1,6 @@
 ---
 title: "Domain Model"
-summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, calendar, study notebook, feedback, and AI chat families built around it."
+summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, calendar, Ideas board, study notebook, feedback, and AI chat families built around it."
 ---
 
 This document covers every entity in the Beyou domain, explaining what each one does for the user and how it is structured in the database. The goal is a clear mental model of the data layer before reading or writing code.
@@ -9,7 +9,7 @@ One ground rule shapes everything here: the schema belongs to Flyway. Migrations
 
 ## The big picture
 
-Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, dated calendar tasks, the study notebook, feedback threads, and the AI agent's chats.
+Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, dated calendar tasks, the notes on the Ideas board, the study notebook, feedback threads, and the AI agent's chats.
 
 ```mermaid
 flowchart TD
@@ -368,6 +368,31 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - `ON DELETE CASCADE`, like `mood_entries`. A to-do list means nothing past the account that wrote it.
 - Deliberately not cached, like mood and the notebook. Every read is a date range.
 
+## Quick notes (the Ideas board)
+
+**Product role**: an inbox for raw ideas. Somebody gets a thought out of their head in a few seconds, as a post-it on a free board, and decides later whether it becomes a task or goes in the bin. No XP and no streak.
+
+**QuickNote** (table quick_notes): one row per note, added in V42.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| text | String (500) | Required, stored with the ends trimmed. Post-it length. The cap sits in the column too, so a client that skips the DTO cannot store more than the board can draw |
+| color | QuickNoteColor (varchar 16) | YELLOW, PINK, BLUE, GREEN, PURPLE or ORANGE, default YELLOW, with a CHECK mirroring the enum. The declaration order is the tidy order |
+| x / y | int | The note's top-left corner in board units, the same on every client. Each between -100000 and 100000, with a CHECK mirroring `QuickNote.COORD_LIMIT` |
+| z | int | Stacking order among the owner's notes, higher in front |
+| archivedAt | Instant, nullable | Null while the note is on the board |
+| convertedTaskId | UUID, nullable | The task the note became. A bare id rather than a mapped relation |
+| createdAt / updatedAt | Instant | |
+
+- **A spot of its own.** The board is free on purpose, chosen over an ordered grid, so a note stays where it was dropped and reads the same on the web and the phone. The server moves notes that are already on the board only when somebody presses "Tidy up".
+- **The grid lives on the server.** `QuickNotePlacement` holds it: a note is 200 by 160, a cell is that plus a 24 unit gap in each direction (224 by 184), five columns, as many rows as needed. A note created without a spot takes the first cell, row by row from (0, 0), whose note-sized rectangle overlaps no active note. "Tidy up" lays every active note out on the same grid, grouped by colour in enum order and then by creation, and gives each a `z` equal to its place. The class is pure and unit-tested on its own, and the clients mirror its sizes in `@beyou/types` so they draw notes the size the server places them at.
+- **Archiving is a timestamp on the row.** An archived note keeps its text, colour and spot, so a restore puts it back where it was. The 200-notes limit counts `archived_at IS NULL` rows only, and the `(user_id, archived_at)` index serves both the board read and that count.
+- **`converted_task_id` is ON DELETE SET NULL from `tasks`.** The task has a life of its own once it exists. Deleting it, by hand or through the one-time task cleanup, must not be blocked by an archived post-it, and the note simply stops pointing at it. A partial index on the column (only rows that have one) keeps that SET NULL from scanning every account's notes on each task delete. The id is not mapped as a `@ManyToOne` so that a board read never drags in a task, its categories and the task cache.
+- **The writes that decide from the whole board take turns.** Create, restore and tidy each take a transaction-scoped advisory lock keyed on the account (`pg_advisory_xact_lock(hashtext('quick-notes:' + userId))`) before reading the active notes. An empty board has no row to lock, and without the lock a double Enter lands two notes on one cell and two creates at 199 make 201. The conversion to a task locks the note's own row instead, so a double submit makes one task and a 409.
+- Every lookup is by id and owner together (`findByIdAndUserId` and its locking twin), so someone else's note reads exactly like one that does not exist: 404 `QUICK_NOTE_NOT_FOUND`, the second domain after the calendar to answer that way.
+- `ON DELETE CASCADE` from `users`, like `calendar_tasks`. An idea board means nothing past the account that wrote it.
+- Deliberately not cached, like mood and the notebook. A read is one indexed query over at most two hundred short rows, and nothing else in the product is computed from them.
+
 ## Study notebook
 
 **Product role**: where somebody organises a subject they are learning. A topic is laid out as a roadmap board, every node opens a page of notes, sources attach to pages for a grounded study AI, and flashcards come back on a spaced schedule. Nine tables arrived together in V34, every one cascading from `users`. The rules and the class that owns each are in the [study notebook topic](/architecture/study-notebook).
@@ -597,7 +622,8 @@ Understanding the cascades matters most at account deletion, which relies on the
 | User (DB level) | Every notebook table | ON DELETE CASCADE | Account deletion takes the whole notebook |
 | User (DB level) | StudyCycle, StudySession | ON DELETE CASCADE | The other five study cycle tables cascade through `study_cycles`, so account deletion takes all seven |
 | StudyCycle (DB level) | Its days, topics, blocks, lap blocks and closed laps; StudySession.cycle_id | ON DELETE CASCADE, and SET NULL for the session | Deleting a cycle takes everything under it. A logged session stays as the topic's history |
-| User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
+| User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
+| Task (DB level) | QuickNote.converted_task_id | ON DELETE SET NULL | The archived note stays and stops pointing at the task. Deleting a task is never blocked by the post-it it came from |
 | ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
 | NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
 | NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
@@ -650,6 +676,10 @@ flowchart LR
 
   subgraph calendar["Calendar"]
     calendar_tasks
+  end
+
+  subgraph ideas["Ideas board"]
+    quick_notes
   end
 
   subgraph notebook["Study notebook"]

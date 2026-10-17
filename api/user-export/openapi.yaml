@@ -22,7 +22,7 @@ paths:
         `goals` (with `parentId` and `archivedAt`), `tasks`, `routines` (`type` is
         DAILY or LIST, items carry `orderIndex`), `feedback`, `agentChats`,
         `checkHistory` (the last 366 days), `moodEntries` (notes in full),
-        `calendarTasks`, `notebook` (`pages`, `board`, `flashcards`,
+        `calendarTasks`, `quickNotes`, `notebook` (`pages`, `board`, `flashcards`,
         `flashcardReviews`, `sources`, `studyChats`, `studyOutputs`, `roadmapDrafts`,
         `studyCycles` with each cycle's week, topics, blocks, lap progress and closed
         laps, archived cycles included, and `studySessions` with the cycle and lap
@@ -41,6 +41,12 @@ paths:
         reminder: `reminderClickedAt` (the browser notification was clicked) and
         `reminderEmailSentAt`. The reminder instant is not exported. It is computed
         on every read from the fields above and the account's timezone.
+
+        `quickNotes` is the Ideas board, archived notes included, oldest first. An idea
+        the person put away is still theirs. Each note carries every column: `id`,
+        `text`, `color`, the spot and stacking order (`x`, `y`, `z`), `archivedAt`,
+        `convertedTaskId` (the task it became, or null), `createdAt` and `updatedAt`,
+        so the file holds enough to draw the board again.
 
         `notIncluded` names routine snapshots, the text read out of notebook
         sources, the day-by-day XP ledger, the briefing's numbers (recomputed on

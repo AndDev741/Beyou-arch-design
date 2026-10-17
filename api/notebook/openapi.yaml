@@ -7,7 +7,7 @@ info:
     writes notes on every node and attaches what they are reading. Flashcards then bring it back on a
     schedule. Every route is authenticated by the default rule and scoped to the caller. A page that
     belongs to somebody else answers `NOTEBOOK_PAGE_NOT_OWNED`, and like every `BusinessException` in
-    this API it comes back as 400.
+    this API outside the calendar and the Ideas board it comes back as 400.
 
     Everything is a page. A topic is a page with no parent (`kind: TOPIC`). Every other page has
     exactly one home in the tree, `parentId`, and carries `topicId` so a topic's pages come back in
