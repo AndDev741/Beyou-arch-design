@@ -416,7 +416,7 @@ Uma constraint CHECK segura o formato: um TOPIC não tem pai nem tópico, uma PA
 **NotebookStudyOutput** (notebook_study_outputs) e **NotebookChatMessage** (notebook_chat_messages):
 
 - Uma saída é OVERVIEW, SUMMARY, STUDY_GUIDE ou QUIZ. `content` é markdown dentro de JSON nas três primeiras e, num quiz, as perguntas com as respostas, que só saem do servidor na correção. `score` e `total` guardam a última correção, e `passed_at` a primeira aprovação, o momento em que os 20 de XP foram pagos. Uma página guarda uma OVERVIEW.
-- Uma mensagem de chat tem `role` USER ou ASSISTANT, o `content` e as `citations` da resposta em JSON.
+- Uma mensagem de chat tem `role` USER ou ASSISTANT, o `content` e as `citations` da resposta em JSON. Desde a V41 uma resposta também pode ter `diagram`, o diagrama que o tutor desenhou com ela, já limpo e guardado como JSON em `text`; fica nulo nas perguntas e nas respostas sem diagrama.
 
 **NotebookRoadmapDraft** (notebook_roadmap_drafts), adicionada na V35:
 
