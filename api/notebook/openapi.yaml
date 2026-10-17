@@ -268,13 +268,19 @@ paths:
             '*/*':
               schema:
                 $ref: '#/components/schemas/PageResponseDTO'
-      summary: Append markdown to the end of the page
+      summary: Append markdown, a diagram, or both, to the end of the page
       description: |
         The study room's "Save to page", where no editor is mounted. The server turns the markdown into
         BlockNote blocks: headings, bullet and numbered lists, fenced code and paragraphs, with bold,
         italic and inline code inside text. Anything else arrives as a paragraph with its characters
         intact. `[n]` citation markers are removed, since the page has no list of passages for them to
         point at.
+
+        A `diagram` is cleaned by the same sanitizer the AI's diagrams go through and added after the
+        markdown as one `diagram` block (`props.spec` holds the spec as JSON). A request with neither,
+        or with a diagram that keeps fewer than two boxes after cleaning, answers `INVALID_REQUEST`.
+        A page open in an editor should insert the block there instead: the editor's next autosave
+        would otherwise write over an append it never saw, which the revision check then refuses.
   /notebook/pages/{pageId}/content:
     put:
       tags:
@@ -1319,6 +1325,40 @@ paths:
         The editor's "Explain the block above". The model explains from its own knowledge, in 200 words
         at most, and cites the page's notes and sources wherever they back it up. Nothing is stored, and
         a page with nothing to read still gets an answer.
+  /notebook/ai/pages/{pageId}/diagram:
+    post:
+      tags:
+      - notebook-ai-controller
+      operationId: diagram
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The page. Pages that belong to somebody else answer NOTEBOOK_PAGE_NOT_OWNED.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagramRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/DiagramResultDTO'
+      summary: Draw a diagram with the AI
+      description: |
+        The editor's "/diagram" and the diagram's "Adjust with AI". The model fills a diagram spec,
+        never SVG or HTML, and the server cleans it before answering. Grounded, it reads the page's
+        notes and sources the way the studio does; otherwise it explains from its own knowledge. With
+        `base` it adjusts that diagram and keeps what the prompt does not touch. Nothing is stored:
+        the client inserts the block. A model answer that does not leave two boxes after cleaning is
+        `AI_UNAVAILABLE`, like any other failed model call, and the call spends the notebook-ai bucket.
   /notebook/ai/pages/{pageId}/outputs:
     post:
       tags:
@@ -2020,9 +2060,10 @@ components:
           type: string
           maxLength: 20000
           minLength: 0
-          description: Markdown to add at the end of the page, usually an AI answer.
-      required:
-      - markdown
+          description: Markdown to add at the end of the page, usually an AI answer. Optional when a diagram is sent.
+        diagram:
+          $ref: '#/components/schemas/DiagramSpec'
+          description: A diagram to add after the markdown, as one diagram block. Optional when markdown is sent.
     BaseCheck:
       type: object
       properties:
@@ -2196,6 +2237,12 @@ components:
         createdAt:
           type: string
           format: date-time
+        diagram:
+          $ref: '#/components/schemas/DiagramSpec'
+          description: |
+            A diagram the tutor drew with this answer, already cleaned. Null when it drew none, and on
+            questions. The tutor draws when asked to, or when a process, sequence or hierarchy is
+            clearly easier to see than to read.
     ChatRequestDTO:
       type: object
       properties:
@@ -2448,6 +2495,114 @@ components:
           description: Optional. Lets a focus session started here preselect this habit's routine item.
       required:
       - title
+    DiagramLink:
+      type: object
+      properties:
+        from:
+          type: string
+          description: The id of the box the link leaves.
+        to:
+          type: string
+          description: The id of the box it reaches. A link to an unknown id is dropped.
+        label:
+          type: string
+          description: Up to 40 characters, or null.
+        dashed:
+          type: boolean
+          description: Drawn dashed; in a sequence, a reply.
+    DiagramNode:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Up to 40 characters. A missing or repeated id becomes n<position>.
+        label:
+          type: string
+          description: Up to 60 characters. A blank label drops the box and its links.
+        detail:
+          type: string
+          description: A second, smaller line, up to 140 characters, or null.
+        tone:
+          type: string
+          enum:
+          - NEUTRAL
+          - ACCENT
+          - SUCCESS
+          - WARNING
+          - DANGER
+          description: Drawn in the theme's colors. Unknown values become NEUTRAL.
+    DiagramRequestDTO:
+      type: object
+      properties:
+        prompt:
+          type: string
+          maxLength: 1000
+          minLength: 0
+          description: What to draw, or, with base, what to change.
+        kind:
+          type: string
+          enum:
+          - FLOW
+          - MAP
+          - CYCLE
+          - SEQUENCE
+          - LAYERS
+          - TIMELINE
+          description: The kind to draw. Null lets the model pick the one that fits.
+        grounded:
+          type: boolean
+          description: Read the page's notes and sources. Defaults to true.
+        base:
+          $ref: '#/components/schemas/DiagramSpec'
+          description: The diagram to adjust, or null for a new one.
+      required:
+      - prompt
+    DiagramResultDTO:
+      type: object
+      properties:
+        diagram:
+          $ref: '#/components/schemas/DiagramSpec'
+        fromNotes:
+          type: boolean
+          description: Grounded and the page had notes or sources to read, which the client shows as "From your notes".
+    DiagramSpec:
+      type: object
+      description: |
+        A diagram as data, drawn by the clients with automatic layout. The server cleans every spec it
+        stores or answers: texts are clipped, blank boxes and links to unknown boxes are dropped, a
+        CYCLE or LAYERS keeps at most 10 boxes, a TIMELINE 12, a SEQUENCE 6 participants, any kind 24,
+        and fewer than two boxes is not a diagram.
+      properties:
+        v:
+          type: integer
+          format: int32
+          description: Always 1.
+        kind:
+          type: string
+          enum:
+          - FLOW
+          - MAP
+          - CYCLE
+          - SEQUENCE
+          - LAYERS
+          - TIMELINE
+          description: |
+            FLOW is a directed graph over the links. MAP is a tree from the first box nothing points
+            at. CYCLE, LAYERS and TIMELINE use the boxes in order and ignore links (CYCLE takes a label
+            from a link between neighbours). SEQUENCE has the boxes as participants and the links as
+            messages, in order. Unknown values become FLOW.
+        title:
+          type: string
+          description: Up to 80 characters, may be empty.
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagramNode'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagramLink'
+          description: Up to 40. Self links and exact repeats are dropped, except in a SEQUENCE.
     DiscoverSourcesRequestDTO:
       type: object
       properties:

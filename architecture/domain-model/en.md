@@ -418,7 +418,7 @@ A CHECK constraint holds the shape: a TOPIC has no parent and no topic, a PAGE h
 **NotebookStudyOutput** (notebook_study_outputs) and **NotebookChatMessage** (notebook_chat_messages):
 
 - An output is OVERVIEW, SUMMARY, STUDY_GUIDE or QUIZ. `content` is markdown inside JSON for the first three and the questions with their answers for a quiz, which never leave the server until grading. `score` and `total` hold the last grading, and `passed_at` the first pass, the moment the 20 XP was paid. A page keeps one OVERVIEW.
-- A chat message has `role` USER or ASSISTANT, its `content`, and the answer's `citations` as JSON.
+- A chat message has `role` USER or ASSISTANT, its `content`, and the answer's `citations` as JSON. Since V41 an answer can also carry `diagram`, the diagram the tutor drew with it, cleaned and stored as JSON in `text`; it is null on questions and on answers without one.
 
 **NotebookRoadmapDraft** (notebook_roadmap_drafts), added in V35:
 
