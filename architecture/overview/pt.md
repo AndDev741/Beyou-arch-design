@@ -9,7 +9,7 @@ Este é o mapa do sistema como ele roda em produção: cada superfície de clien
 
 | Camada | Tecnologias |
 |--------|-------------|
-| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow para o quadro de roadmap |
+| **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow para o quadro de roadmap. O quadro de Ideias também é React Flow |
 | **App mobile** | React Native + Expo (Android primeiro), NativeWind, TypeScript. Divide os pacotes de estado, cliente de API e i18n com o web app pelo monorepo |
 | **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding e a IA do caderno de estudos (cadeia de fallback de LLMs), PDFBox e jsoup para as fontes do caderno |
 | **Banco de dados** | PostgreSQL 17 em produção (um cluster CloudNativePG; os testes e as stacks locais rodam o 15), schema controlado pelo Flyway (o Hibernate valida, nunca escreve), chaves primárias UUID, cache Caffeine na frente das leituras quentes |
@@ -49,6 +49,7 @@ erDiagram
   USER ||--o{ ROUTINE : possui
   USER ||--o{ NOTEBOOK_PAGE : possui
   USER ||--o{ CALENDAR_TASK : possui
+  USER ||--o{ QUICK_NOTE : possui
 
   CATEGORY }o--o{ HABIT : marcado
   CATEGORY }o--o{ TASK : marcado
@@ -71,6 +72,8 @@ erDiagram
   BOARD_NODE }o--|| NOTEBOOK_PAGE : abre
   NOTEBOOK_PAGE ||--o{ FLASHCARD : guarda
   NOTEBOOK_PAGE ||--o{ SOURCE : lê
+
+  QUICK_NOTE |o--o| TASK : "virou"
 ```
 
 ### Destaques das entidades
@@ -86,6 +89,7 @@ erDiagram
 - **Snapshots de rotina**: uma cópia diária imutável de cada rotina, tirada por timezone por um scheduler, para que o histórico sobreviva a edições futuras da rotina.
 - **Histórico de checks e XP**: registros por dia que sustentam os widgets de histórico e progresso do dashboard.
 - **Tarefa do calendário**: uma tarefa avulsa numa data, com horário opcional e um lembrete. Fica fora das rotinas, paga 10 XP fixos quando concluída e continua no próprio dia, feita ou não.
+- **Nota rápida**: um post-it no quadro de Ideias, uma caixa de entrada para ideias cruas. Até 500 caracteres, uma de seis cores, um lugar num quadro livre e uma ordem de empilhamento. O servidor posiciona a nota que chega sem lugar, cabem no máximo 200 no quadro ao mesmo tempo, e uma nota pode ser arquivada, e virar tarefa uma vez. Sem XP.
 - **Feedback**: relatos de feedback dentro do app, entregues com screenshots opcionais e navegáveis por um admin.
 - **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações. Os ciclos de estudo põem os tópicos numa fila de blocos de tempo e de objetivo, estudada volta após volta, alimentada pelos pomodoros nas páginas do tópico e pelas sessões lançadas à mão.
 
@@ -135,7 +139,7 @@ sequenceDiagram
 
 ## Camada de API
 
-36 controllers REST organizados por domínio, todos sob `/api/v1`:
+37 controllers REST organizados por domínio, todos sob `/api/v1`:
 
 | Grupo | Controllers | Caminhos base |
 |-------|-------------|---------------|
@@ -146,6 +150,7 @@ sequenceDiagram
 | **Modo Foco** | Focus | /focus/cycles, /focus/micro-tasks, /focus/day |
 | **Diário** | Mood | /mood |
 | **Calendário** | Calendar | /calendar, /calendar/tasks |
+| **Quadro de Ideias** | QuickNote | /quick-notes |
 | **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |
@@ -191,7 +196,7 @@ flowchart TD
   AX -->|"401 → refresh automático"| AX
 ```
 
-Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 21 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist e exclui de propósito os slices de perfil, snapshot, celebration, mood, notebook e studyCycles, para que nenhum dado pessoal, texto de diário ou anotação de estudo caia no localStorage. O app mobile guarda a store em memória e rebusca ao abrir.
+Os slices do Redux vivem em um pacote compartilhado do workspace (`packages/state`, 22 slices), então o web e o mobile rodam a mesma lógica de estado. O web app o envolve com redux-persist e exclui de propósito os slices de perfil, snapshot, celebration, mood, notebook, studyCycles e quickNotes, para que nenhum dado pessoal, texto de diário, anotação de estudo ou ideia caia no localStorage. O app mobile guarda a store em memória e rebusca ao abrir.
 
 ## Sistema de gamificação
 

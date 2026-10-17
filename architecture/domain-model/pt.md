@@ -1,6 +1,6 @@
 ---
 title: "Modelo de Domínio"
-summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, calendário, caderno de estudos, feedback e chats de IA construídas ao redor."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, calendário, quadro de Ideias, caderno de estudos, feedback e chats de IA construídas ao redor."
 ---
 
 Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
@@ -9,7 +9,7 @@ Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações e
 
 ## O quadro geral
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, as tarefas com data do calendário, o caderno de estudos, as threads de feedback e os chats do agente de IA.
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, as tarefas com data do calendário, as notas do quadro de Ideias, o caderno de estudos, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -366,6 +366,31 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - `ON DELETE CASCADE`, como `mood_entries`. Uma lista de afazeres não significa nada depois da conta que a escreveu.
 - Deliberadamente sem cache, como o humor e o caderno. Toda leitura é um intervalo de datas.
 
+## Notas rápidas (o quadro de Ideias)
+
+**Papel no produto**: uma caixa de entrada para ideias cruas. A pessoa tira um pensamento da cabeça em poucos segundos, como um post-it num quadro livre, e decide depois se ele vira tarefa ou vai para o lixo. Sem XP e sem sequência.
+
+**QuickNote** (tabela quick_notes): uma linha por nota, adicionada na V42.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| text | String (500) | Obrigatório, guardado sem os espaços das pontas. Tamanho de post-it. O limite também está na coluna, então um cliente que pule o DTO não consegue guardar mais do que o quadro consegue desenhar |
+| color | QuickNoteColor (varchar 16) | YELLOW, PINK, BLUE, GREEN, PURPLE ou ORANGE, padrão YELLOW, com um CHECK espelhando o enum. A ordem de declaração é a ordem do "Organizar" |
+| x / y | int | O canto superior esquerdo da nota em unidades do quadro, as mesmas em todo cliente. Cada um entre -100000 e 100000, com um CHECK espelhando `QuickNote.COORD_LIMIT` |
+| z | int | Ordem de empilhamento entre as notas do dono; a maior fica na frente |
+| archivedAt | Instant, anulável | Null enquanto a nota está no quadro |
+| convertedTaskId | UUID, anulável | A tarefa em que a nota se transformou. Um id solto em vez de uma relação mapeada |
+| createdAt / updatedAt | Instant | |
+
+- **Um lugar próprio.** O quadro é livre de propósito, escolhido no lugar de uma grade ordenada, então a nota fica onde foi solta e aparece igual na web e no celular. O servidor só mexe em notas que já estão no quadro quando alguém aperta "Organizar".
+- **A grade mora no servidor.** Quem cuida dela é a `QuickNotePlacement`: uma nota tem 200 por 160, uma célula é isso mais um espaço de 24 em cada direção (224 por 184), cinco colunas e quantas linhas forem precisas. Uma nota criada sem lugar fica na primeira célula, linha por linha a partir de (0, 0), cujo retângulo do tamanho de uma nota não se sobrepõe a nenhuma nota ativa. O "Organizar" coloca todas as notas ativas na mesma grade, agrupadas por cor na ordem do enum e depois pela criação, e dá a cada uma um `z` igual à sua posição. A classe é pura e tem testes unitários próprios, e os clientes espelham os tamanhos em `@beyou/types` para desenhar a nota do tamanho com que o servidor a posiciona.
+- **Arquivar é um timestamp na linha.** Uma nota arquivada guarda o texto, a cor e o lugar, então restaurar a põe de volta onde estava. O limite de 200 notas conta só as linhas com `archived_at IS NULL`, e o índice `(user_id, archived_at)` atende tanto a leitura do quadro quanto essa contagem.
+- **`converted_task_id` é ON DELETE SET NULL a partir de `tasks`.** A tarefa tem vida própria depois que existe. Apagá-la, à mão ou pela limpeza de tarefas únicas, não pode ser barrado por um post-it arquivado, e a nota simplesmente deixa de apontar para ela. Um índice parcial na coluna (só as linhas que têm valor) evita que esse SET NULL varra as notas de todas as contas a cada tarefa apagada. O id não é mapeado como `@ManyToOne` para que ler o quadro nunca arraste junto uma tarefa, as categorias dela e o cache de tarefas.
+- **As escritas que decidem a partir do quadro inteiro esperam a vez.** Criar, restaurar e organizar pegam um advisory lock de transação com chave na conta (`pg_advisory_xact_lock(hashtext('quick-notes:' + userId))`) antes de ler as notas ativas. Um quadro vazio não tem linha para travar, e sem a trava um Enter duplo põe duas notas na mesma célula e dois creates com 199 notas chegam a 201. A conversão em tarefa trava a linha da própria nota, então um envio duplo faz uma tarefa e um 409.
+- Toda busca é por id e dono juntos (`findByIdAndUserId` e o gêmeo com trava), então a nota de outra pessoa se comporta igual a uma que não existe: 404 `QUICK_NOTE_NOT_FOUND`. É o segundo domínio, depois do calendário, a responder assim.
+- `ON DELETE CASCADE` a partir de `users`, como `calendar_tasks`. Um quadro de ideias não significa nada depois da conta que o escreveu.
+- Deliberadamente sem cache, como o humor e o caderno. Uma leitura é uma consulta indexada sobre no máximo duzentas linhas curtas, e nada mais no produto é calculado a partir delas.
+
 ## Caderno de estudos
 
 **Papel no produto**: onde alguém organiza um assunto que está aprendendo. Um tópico vira um quadro de roadmap, cada nó abre uma página de anotações, fontes entram nas páginas para uma IA de estudo ancorada nelas, e flashcards voltam num cronograma espaçado. Nove tabelas chegaram juntas na V34, todas com cascade a partir de `users`. As regras e a classe dona de cada uma estão no [tópico do caderno de estudos](/architecture/study-notebook).
@@ -595,7 +620,8 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | User (nível de banco) | Todas as tabelas do caderno | ON DELETE CASCADE | A exclusão da conta leva o caderno inteiro |
 | User (nível de banco) | StudyCycle, StudySession | ON DELETE CASCADE | As outras cinco tabelas do ciclo de estudos vêm em cascade por `study_cycles`, então a exclusão da conta leva as sete |
 | StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
-| User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
+| User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
+| Task (nível de banco) | QuickNote.converted_task_id | ON DELETE SET NULL | A nota arquivada fica e deixa de apontar para a tarefa. Apagar uma tarefa nunca é barrado pelo post-it de onde ela veio |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
 | NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
 | NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
@@ -648,6 +674,10 @@ flowchart LR
 
   subgraph calendar["Calendário"]
     calendar_tasks
+  end
+
+  subgraph ideas["Quadro de Ideias"]
+    quick_notes
   end
 
   subgraph notebook["Caderno de estudos"]

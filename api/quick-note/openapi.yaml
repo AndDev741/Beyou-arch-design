@@ -1,0 +1,559 @@
+openapi: 3.1.0
+info:
+  title: Ideas board (quick notes)
+  version: v0
+  description: |
+    The Ideas board: short notes stuck on a free board, like post-its on a corkboard. It is an
+    inbox for raw ideas, so getting one down has to take seconds and sorting it out can wait.
+    Every route is authenticated by the default rule; writes fall under the `write` rate-limit
+    tier and the reads under `read`.
+
+    A note is up to 500 characters of text, one of six colours, a spot on the board and a
+    stacking order. The spot (`x`, `y`) is the note's top-left corner in board units, and those
+    units are the same on every client, so a note dropped on the web shows up in the same place
+    on the phone. `z` decides which note is drawn in front: higher wins. Notes pay no XP and
+    return no `RefreshUiDTO`. The task a note turns into earns XP the usual way, when somebody
+    checks it in a routine.
+
+    **The server places new notes.** A note created without a spot goes to the first free cell
+    of a fixed grid: 5 columns of 224 by 184 board units (a 200 by 160 note plus a 24 unit gap),
+    counted row by row from (0, 0), with as many rows as it takes. A cell is free when a
+    note-sized rectangle there overlaps no active note. A note dragged half a cell to the side
+    therefore blocks both cells it covers, while edges that only touch do not count. Both apps
+    and the assistant create through this one rule. If each client worked out a spot itself, the
+    two would drift apart the first time one of them changed its grid. "Tidy up" lays the board
+    out on the same grid.
+
+    **At most 200 notes on the board.** Archived notes do not count. The cap keeps the board
+    drawable on a phone and the assistant's read of it bounded. Create and restore refuse the
+    next one with 409 `QUICK_NOTE_LIMIT_REACHED`, and archiving a note makes room.
+
+    **Someone else's note does not exist.** Every lookup carries the owner's id, so a note the
+    caller does not own answers 404 `QUICK_NOTE_NOT_FOUND` on every route, exactly like an id
+    nobody ever used, and no route can confirm which ids are taken. The calendar works the same
+    way. The status comes from `GlobalExceptionHandler.NOT_FOUND_KEYS`, and the two 409 keys
+    (`QUICK_NOTE_LIMIT_REACHED`, `QUICK_NOTE_ALREADY_CONVERTED`) from its `CONFLICT_KEYS`, a
+    second opt-in list added with this board. The older domains' limit and conflict errors still
+    answer 400, because their clients were written against that.
+
+    **Writes that decide from the whole board take turns.** Create, restore and tidy read the
+    active notes and then write what that read decided: the limit, the next `z`, the first free
+    cell, every position. Two running at once would both read before either committed, so a
+    double Enter would land two notes on one cell and two creates at 199 would make 201. Each of
+    them takes a transaction-scoped Postgres advisory lock keyed on the account before it reads.
+    An advisory lock, because an empty board has no row to lock.
+
+    Nothing here is cached. Every read is one indexed query over at most two hundred short rows,
+    and nothing else in the product is computed from these rows, so a cache would buy nothing
+    and add a way to go stale: a drag saved on the phone has to show on the web at its next read.
+    The one write that evicts is the conversion to a task, because tasks are cached.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /quick-notes:
+    get:
+      tags:
+      - quick-note-controller
+      operationId: listActive
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuickNoteResponseDTO'
+      summary: The board, back to front
+      description: |
+        Every active note, ordered by `z` ascending and then oldest first, which is the order a
+        board draws them in: the last note in the list sits on top. At most 200 rows, the board's
+        limit, so there is no paging.
+    post:
+      tags:
+      - quick-note-controller
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickNoteCreateRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuickNoteResponseDTO'
+        '400':
+          description: '`INVALID_REQUEST` with a per-field map: blank text, text over 500
+            characters, or a coordinate outside -100000..100000.'
+        '409':
+          description: '`QUICK_NOTE_LIMIT_REACHED`: the board already holds 200 notes. Archiving
+            one makes room.'
+      summary: Stick a new note on the board
+      description: |
+        Only `text` is required. It is stored with leading and trailing spaces stripped, and a
+        missing `color` is YELLOW.
+
+        Send `x` and `y` together to put the note on a chosen spot, which is what the web board
+        does on a double-click on empty board. With either one missing, the server places the
+        note in the first free grid cell, the same as with neither, so a client that lost half a
+        coordinate does not pin a note to an edge. The capture field on both apps and the
+        assistant's `createQuickNote` send no spot at all.
+
+        The new note goes in front of every other: its `z` is one above the highest on the board,
+        or 0 on an empty board.
+  /quick-notes/archived:
+    get:
+      tags:
+      - quick-note-controller
+      operationId: listArchived
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuickNoteResponseDTO'
+      summary: The archive, most recently archived first
+      description: |
+        Notes taken off the board, newest archive first with the id breaking a tie, at most 100.
+        A note that became a task is here as well, with `convertedTaskId` set. The clients read
+        this when somebody opens the archive rather than up front, since most visits never do.
+  /quick-notes/layout:
+    put:
+      tags:
+      - quick-note-controller
+      operationId: saveLayout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickNoteLayoutRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuickNoteResponseDTO'
+        '400':
+          description: '`INVALID_REQUEST`: an empty list, more than 200 entries, a missing field,
+            a coordinate out of range, a negative `z`, or the same id twice.'
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: at least one id is not one of the caller''s active
+            notes. Nothing was saved.'
+      summary: Save where notes were dropped, all of them or none
+      description: |
+        One entry per moved note. A single drag sends one, a group drag sends several, and the
+        web board batches a run of arrow-key nudges into one save. Each entry is saved exactly as
+        sent, `z` included, so a client brings a dropped note to the front by sending a `z` above
+        the others. Both apps work that `z` out with the same shared helper.
+
+        **All or nothing.** Any id that is not one of the caller's active notes refuses the whole
+        save with 404 and nothing moves, so a board never ends up half moved. The notebook's
+        board layout skips ids it does not know instead. Skipping here would hide the one case
+        that matters: a note archived or deleted on another device while this one was dragging
+        it. The clients re-read the board when this route refuses them.
+
+        The answer is the whole board in its new stacking order, so the client redraws from one
+        response.
+  /quick-notes/tidy:
+    post:
+      tags:
+      - quick-note-controller
+      operationId: tidy
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuickNoteResponseDTO'
+      summary: Lay every note out on the grid, grouped by colour
+      description: |
+        "Tidy up". Every active note goes into the grid from (0, 0), grouped by colour in the
+        order of `QuickNoteColor` (YELLOW, PINK, BLUE, GREEN, PURPLE, ORANGE) and oldest first
+        inside a colour. The id breaks a tie between two notes made in the same microsecond, so
+        the same board always tidies the same way. Each note's `z` becomes its place in that
+        order. The answer is the whole board in its new order.
+
+        This is the only route where the server moves notes that were already on the board, and
+        it does so because somebody pressed the button.
+  /quick-notes/{id}:
+    put:
+      tags:
+      - quick-note-controller
+      operationId: edit
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickNoteEditRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuickNoteResponseDTO'
+        '400':
+          description: '`INVALID_REQUEST`: blank text, text over 500 characters, or no colour.'
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+      summary: New words and colour
+      description: |
+        Both fields are required. The spot is not in this body on purpose. Moving is the layout
+        route's job, and an edit sheet that sent back the position it opened with would undo a
+        drag made meanwhile on another device. An archived note can be edited too, and it stays
+        archived.
+    delete:
+      tags:
+      - quick-note-controller
+      operationId: delete
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+      summary: Delete a note for good
+      description: |
+        On the board or in the archive. A task the note became stays, since it has a life of its
+        own by then.
+  /quick-notes/{id}/archive:
+    post:
+      tags:
+      - quick-note-controller
+      operationId: archive
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuickNoteResponseDTO'
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+      summary: Take a note off the board
+      description: |
+        Sets `archivedAt` and leaves everything else alone, the spot included, so a restore puts
+        the note back where it was, which is why archiving is a timestamp on the row. Idempotent: archiving an archived note keeps the first timestamp
+        and answers 200.
+  /quick-notes/{id}/restore:
+    post:
+      tags:
+      - quick-note-controller
+      operationId: restore
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuickNoteResponseDTO'
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+        '409':
+          description: '`QUICK_NOTE_LIMIT_REACHED`: the board already holds 200 notes.'
+      summary: Put an archived note back on the board
+      description: |
+        Back on its old spot, in front of every other note (`z` one above the highest). The spot
+        is not checked again, so a restored note can land over one placed there since; being in
+        front, it is the one on top.
+
+        Idempotent. Restoring a note already on the board changes nothing, and the limit does not
+        refuse it, since it is already counted. The board lock is taken before the note is read,
+        so the second click of a double click reads the note after the first restore committed
+        and sees it active, instead of counting it against the limit twice.
+  /quick-notes/{id}/task:
+    post:
+      tags:
+      - quick-note-controller
+      operationId: convertToTask
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/QuickNoteTaskConversionDTO'
+        '400':
+          description: The task was refused on the same rules as `POST /task`, for example
+            `INVALID_REQUEST` for a name shorter than 2 characters, or `CATEGORY_NOT_OWNED`.
+            Nothing was written and the note is as it was.
+        '404':
+          description: '`QUICK_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+        '409':
+          description: '`QUICK_NOTE_ALREADY_CONVERTED`: the note already became a task. No second
+            task was made.'
+      summary: Turn a note into a task
+      description: |
+        The body is the task create body, field for field. The clients open their usual task
+        form prefilled from the note (the first line as the name, the rest as the description,
+        each cut to 255 characters) and let the person change anything before saving. The task is
+        built from the form, so what the person saw there is what becomes the task.
+
+        **One call, one transaction.** The task is created, and the note is archived and pointed
+        at it (`convertedTaskId`), together. A task that fails validation or names a category
+        that is not the caller's rolls the whole thing back, note untouched. Done as two calls
+        from the client, a failure between them could leave the idea in two places, or archive a
+        note that never became anything.
+
+        **A note converts once.** It is read under a row lock (`SELECT ... FOR UPDATE`), so of two
+        submits a few milliseconds apart, the second waits for the first to commit and then gets
+        409 `QUICK_NOTE_ALREADY_CONVERTED` instead of making a second task. If the task is deleted
+        later, the database nulls `convertedTaskId` (ON DELETE SET NULL) and the archived note can
+        be converted again.
+
+        Works on an archived note too, and does not check the 200 limit, because it never puts a
+        note on the board. Tasks are cached per user, so this route evicts the caller's caches and
+        the task list shows the new task on its next read. The answer carries the note as it now
+        stands and the new task's id. The task itself is read through the task routes, where both
+        clients already keep their task lists.
+components:
+  schemas:
+    QuickNoteColor:
+      type: string
+      enum:
+      - YELLOW
+      - PINK
+      - BLUE
+      - GREEN
+      - PURPLE
+      - ORANGE
+      description: |
+        Names only. What each colour looks like is the clients' business, with a light and a dark
+        version of each, so no colour value lives on the server. The order is the tidy order and
+        the order of the swatches; reordering the enum would reorder every tidied board. A CHECK
+        constraint in the table mirrors the list.
+    QuickNoteCreateRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 500
+          minLength: 1
+          description: Required and not blank. Leading and trailing spaces are stripped. 500 fits
+            a post-it, and the notebook is where long writing goes. The column carries the same
+            cap.
+        color:
+          $ref: '#/components/schemas/QuickNoteColor'
+          description: Optional. Missing or null means YELLOW.
+        x:
+          type: integer
+          format: int32
+          minimum: -100000
+          maximum: 100000
+          description: The spot's left edge in board units. Counts only together with `y`.
+        y:
+          type: integer
+          format: int32
+          minimum: -100000
+          maximum: 100000
+          description: The spot's top edge in board units. Counts only together with `x`.
+      required:
+      - text
+      description: A new note. Send both coordinates to place it yourself, or neither and the
+        server finds it a free cell.
+    QuickNoteEditRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 500
+          minLength: 1
+          description: Required and not blank. Leading and trailing spaces are stripped.
+        color:
+          $ref: '#/components/schemas/QuickNoteColor'
+          description: Required.
+      required:
+      - color
+      - text
+      description: The words and the colour. No position, see `PUT /quick-notes/{id}`.
+    QuickNotePositionDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        x:
+          type: integer
+          format: int32
+          minimum: -100000
+          maximum: 100000
+        y:
+          type: integer
+          format: int32
+          minimum: -100000
+          maximum: 100000
+        z:
+          type: integer
+          format: int32
+          minimum: 0
+          description: The stacking order to save, as is. Higher is drawn in front.
+      required:
+      - id
+      - x
+      - y
+      - z
+      description: Where one note now sits. Every field is required, and the entry is saved
+        exactly as sent.
+    QuickNoteLayoutRequestDTO:
+      type: object
+      properties:
+        positions:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/QuickNotePositionDTO'
+          description: One entry per moved note, each id once. Capped at the board's limit.
+      required:
+      - positions
+    QuickNoteResponseDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        color:
+          $ref: '#/components/schemas/QuickNoteColor'
+        x:
+          type: integer
+          format: int32
+          description: Top-left corner, board units. A note is drawn 200 wide and 160 tall, the
+            size the server places and tidies with.
+        y:
+          type: integer
+          format: int32
+        z:
+          type: integer
+          format: int32
+          description: Stacking order among the owner's notes. Higher is drawn in front.
+        archivedAt:
+          type: string
+          format: date-time
+          description: Null while the note is on the board. Set when it was archived, by hand or by
+            turning into a task.
+        convertedTaskId:
+          type: string
+          format: uuid
+          description: The task this note became, or null. Null again if that task was deleted
+            since.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          description: Moves on an edit, an archive, a restore, a conversion, and a layout save or
+            tidy that really moved the note. Saving the same spot again leaves it alone.
+      description: One note, as both clients and the account export see it. No user id.
+    QuickNoteTaskConversionDTO:
+      type: object
+      properties:
+        note:
+          $ref: '#/components/schemas/QuickNoteResponseDTO'
+          description: The note as it now stands, archived and pointing at the task.
+        taskId:
+          type: string
+          format: uuid
+          description: The new task's id.
+      description: What "make it a task" answers.
+    CreateTaskRequestDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          minLength: 2
+        description:
+          type: string
+          maxLength: 255
+          minLength: 0
+        iconId:
+          type: string
+          minLength: 1
+        importance:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+          description: Optional. 1 to 5 when sent; omit or send null to leave the task without an
+            importance.
+        difficulty:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+          description: Optional, same contract as importance. `dificulty` is accepted as well.
+        categoriesId:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: The caller's own categories. Duplicates are dropped.
+        oneTimeTask:
+          type: boolean
+          description: Send it every time. It is a primitive `boolean` on the record, and both
+            clients always send it, false unless the person marked the task as one-time in the
+            form.
+      required:
+      - iconId
+      - name
+      - oneTimeTask
+      description: The same body as `POST /task`, so the conversion form is the ordinary task form.

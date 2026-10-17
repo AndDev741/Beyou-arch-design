@@ -1,6 +1,6 @@
 ---
 title: "Redux and Data Architecture"
-summary: "One state package shared by web and mobile: 21 slices, a PII-aware persistence blacklist, versioned persisted state, the shared gamification apply function, and the two-tier HTTP layer underneath."
+summary: "One state package shared by web and mobile: 22 slices, a PII-aware persistence blacklist, versioned persisted state, the shared gamification apply function, and the two-tier HTTP layer underneath."
 ---
 
 This document explains the state and data layer: where the slices live, what persists and what deliberately does not, how a check response fans out across the store, and how the HTTP client is structured so web and mobile share everything above the transport.
@@ -12,11 +12,11 @@ The slices live in the shared `packages/state`, and each app assembles its own s
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["21 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
+    SLICES["22 slices + shared logic<br/>applyRefreshUi · sorters · widgets ids<br/>streak milestones · date helpers"]
   end
 
   subgraph web["apps/web"]
-    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook · studyCycles"]
+    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook · studyCycles · quickNotes"]
   end
 
   subgraph mobile["apps/mobile"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## The 21 slices
+## The 22 slices
 
 | Slice | Holds |
 |-------|-------|
@@ -42,12 +42,13 @@ flowchart LR
 | mood | The diary, indexed by day: the level and the journal text for each day loaded. A map and not a list, because the widget's week and the page's month overlap, and two lists would have shown a day marked on the dashboard and blank on the page |
 | notebook | The study notebook, indexed by id: pages, boards by page, topic trees and the home. The same page shows up as a board node, a tree row, the page screen and a home card at once, and `applyStatuses` writes a status change into all four from the `changed` list the server returns, so a node turns green everywhere without a refetch |
 | studyCycles | The study cycles: today's slice (the notebook home's Today card and the dashboard widget), the active cycles, and every cycle opened in full, by id. `refreshStudyCycles` reads them again after the app's own writes and when an assistant tool reports the `studyCycles` domain, and a cycle that answers `STUDY_CYCLE_NOT_FOUND` leaves the slice |
+| quickNotes | The Ideas board: `active`, the notes on the board back to front, `archived`, which stays null until someone opens the archive since most visits never do, and `loaded`, so a page can tell an empty board from one not fetched yet. One action, `quickNoteUpserted`, files a note by its `archivedAt`, so an archive, a restore and a conversion all land in the right list. `quickNotesMoved` applies a drop before the server answers, so a note stays where it was dropped while the save is in flight. `refreshQuickNotes` reads the board again, and the archive only when it is already open, on mount and when an assistant tool reports the `quickNotes` domain |
 | register | One boolean for the post-registration success screen |
 | errorHandler | One global error string |
 
-The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps twenty-one slices from stepping on each other in two apps.
+The package's barrel is curated: action names that collide across slices are not re-exported and must be imported by deep path, and the profile slice's nameEnter is aliased to perfilNameEnter. That convention is what keeps twenty-two slices from stepping on each other in two apps.
 
-Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, the onboarding entity-creation helpers, the Daily Briefing's rules, the calendar's day grids, the notebook's `applyStatuses` and `pathLevels` (a board read as levels in study order, which is how the phone shows a roadmap), and `studyCycleView`, which gives a study block its title and the figure beside it so the two apps word it the same way on the Today card, the cycle screen, the widget and the briefing.
+Beside the slices sit the shared plain functions both apps use: the gamification apply function, the streak milestone list, the widget id registry, sorting logic, date helpers, the auto-refresh policy, the onboarding entity-creation helpers, the Daily Briefing's rules, the calendar's day grids, the notebook's `applyStatuses` and `pathLevels` (a board read as levels in study order, which is how the phone shows a roadmap), `studyCycleView`, which gives a study block its title and the figure beside it so the two apps word it the same way on the Today card, the cycle screen, the widget and the briefing, and the Ideas board's rules: `dropPosition` (the spot and `z` a drop saves, rounded, kept inside the board and brought to the front), `quickNoteTaskPrefill` (the first line of a note as the task's name and the rest as its description, each cut to 255) and `noteColors`, the paper, edge and ink of each note colour for the light and the dark base. The colours are concrete values on purpose, like the diagram palette, because the phone has no CSS variables and both apps must paint the same note.
 
 The briefing deliberately adds no slice. Its dialog is the only consumer of its data, so the response lives in component state and dies with the dialog. What is shared is the judgement around it: whether the dialog should open at all, what happens to the list when the user resolves a row, how long to keep asking for prose that arrives late (`pollNarrative`), which goal list to read (`briefingGoals`, falling back to the older field for a server that predates `goalsAhead`), how a goal's pace is worded (`goalPaceMessage`), and whether today's study and yesterday's are worth a section (`briefingStudy`, `briefingStudyRecap`, which leaves out a zero because "0 min studied yesterday" on a rest day reads as a reproach). The mood shown inside the dialog is the exception that does use a slice: it goes through the shared `mood` slice, so a face picked in the dialog is already right on the dashboard widget behind it. Those are exactly the decisions that get a subtly different answer on each platform within a month of shipping, and the difference stays invisible until somebody says the phone nags them and the web does not.
 
@@ -64,6 +65,7 @@ The web store persists to localStorage with a deliberate blacklist:
 | celebration | Transient by definition: a queued level-up must not replay after a reload |
 | notebook | Study notes, page by page, as personal as the journal and excluded for the same reason. Refetched on mount like `snapshot`, so nothing is lost by not keeping it. `PERSIST_VERSION` did not move: a key that was never persisted needs no migration |
 | studyCycles | Server data read on demand, like `notebook`, so none of it needs to reach the disk. Every screen that shows it reads it on mount. The persisted shape did not change, so `PERSIST_VERSION` did not move either |
+| quickNotes | Whatever crossed somebody's mind, free text written for themselves. Read on mount like `notebook`, so nothing is lost by not keeping it, and `PERSIST_VERSION` did not move for it |
 | mood | Journal text, the most personal thing the product stores. The failure is silent: everything works, and somebody's diary simply sits in localStorage after they close the tab. A test therefore reads the blacklist from source rather than trusting the entry to survive an edit |
 
 Everything else (entity lists, edit drafts, sort preferences) persists, so a reload paints instantly from local data while fresh data loads behind it.

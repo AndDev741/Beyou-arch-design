@@ -1,6 +1,6 @@
 ---
 title: "Redux e Arquitetura de Dados"
-summary: "Um pacote de estado dividido entre web e mobile: 21 slices, uma blacklist de persistência ciente de PII, estado persistido versionado, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
+summary: "Um pacote de estado dividido entre web e mobile: 22 slices, uma blacklist de persistência ciente de PII, estado persistido versionado, a função compartilhada de aplicar gamificação e a camada HTTP de dois níveis por baixo."
 ---
 
 Este documento explica a camada de estado e dados: onde os slices vivem, o que persiste e o que deliberadamente não persiste, como a resposta de um check se espalha pela store e como o cliente HTTP é estruturado para web e mobile dividirem tudo acima do transporte.
@@ -12,11 +12,11 @@ Os slices vivem no pacote compartilhado `packages/state`, e cada app monta a pr�
 ```mermaid
 flowchart LR
   subgraph pkg["packages/state"]
-    SLICES["21 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
+    SLICES["22 slices + lógica compartilhada<br/>applyRefreshUi · ordenação · ids de widgets<br/>marcos de streak · helpers de data"]
   end
 
   subgraph web["apps/web"]
-    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook · studyCycles"]
+    WSTORE["store + redux-persist<br/>blacklist: perfil · snapshot · celebration<br/>mood · notebook · studyCycles · quickNotes"]
   end
 
   subgraph mobile["apps/mobile"]
@@ -27,7 +27,7 @@ flowchart LR
   SLICES --> MSTORE
 ```
 
-## Os 21 slices
+## Os 22 slices
 
 | Slice | Guarda |
 |-------|--------|
@@ -42,12 +42,13 @@ flowchart LR
 | mood | O diário, indexado por dia: o nível e o texto de cada dia carregado. Um mapa e não uma lista, porque a semana do widget e o mês da página se sobrepõem, e duas listas teriam mostrado um dia marcado no dashboard e vazio na página |
 | notebook | O caderno de estudos, indexado por id: páginas, quadros por página, árvores de tópico e a home. A mesma página aparece ao mesmo tempo como nó de quadro, linha da árvore, tela da página e card da home, e o `applyStatuses` grava uma mudança de status nos quatro a partir da lista `changed` que o servidor devolve, então um nó fica verde em todo lugar sem refetch |
 | studyCycles | Os ciclos de estudo: a fatia de hoje (o card de Hoje na home do caderno e o widget do dashboard), os ciclos ativos e cada ciclo aberto por inteiro, por id. O `refreshStudyCycles` lê tudo de novo depois das escritas do próprio app e quando uma ferramenta do assistente avisa o domínio `studyCycles`, e um ciclo que responde `STUDY_CYCLE_NOT_FOUND` sai do slice |
+| quickNotes | O quadro de Ideias: `active`, as notas do quadro de trás para a frente, `archived`, que fica null até alguém abrir as arquivadas, já que a maioria das visitas nunca abre, e `loaded`, para a página distinguir um quadro vazio de um que ainda não chegou. Uma action só, `quickNoteUpserted`, põe a nota na lista certa pelo `archivedAt`, então arquivar, restaurar e converter caem todos no lugar certo. `quickNotesMoved` aplica a soltura antes de o servidor responder, para a nota ficar onde foi solta enquanto o salvamento está a caminho. `refreshQuickNotes` lê o quadro de novo, e as arquivadas só se já estiverem abertas, na montagem e quando uma ferramenta do assistente avisa o domínio `quickNotes` |
 | register | Um booleano para a tela de sucesso pós-cadastro |
 | errorHandler | Uma string global de erro |
 
-O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede vinte e um slices de pisarem uns nos outros em dois apps.
+O barrel do pacote é curado: nomes de action que colidem entre slices não são re-exportados e precisam de import por caminho profundo, e o nameEnter do slice de perfil vira perfilNameEnter no barrel. Essa convenção é o que impede vinte e dois slices de pisarem uns nos outros em dois apps.
 
-Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh, os helpers de criação de entidades do onboarding, as regras do Resumo do Dia, as grades de dias do calendário, o `applyStatuses` e o `pathLevels` do caderno (um quadro lido em níveis na ordem de estudo, que é como o celular mostra um roadmap), e o `studyCycleView`, que dá a um bloco de estudo o título e o número ao lado, para os dois apps escreverem igual no card de Hoje, na tela do ciclo, no widget e no resumo.
+Ao lado dos slices ficam as funções puras que os dois apps usam: a aplicação de gamificação, a lista de marcos de streak, o registro de ids de widgets, a lógica de ordenação, helpers de data, a política de auto-refresh, os helpers de criação de entidades do onboarding, as regras do Resumo do Dia, as grades de dias do calendário, o `applyStatuses` e o `pathLevels` do caderno (um quadro lido em níveis na ordem de estudo, que é como o celular mostra um roadmap), o `studyCycleView`, que dá a um bloco de estudo o título e o número ao lado, para os dois apps escreverem igual no card de Hoje, na tela do ciclo, no widget e no resumo, e as regras do quadro de Ideias: `dropPosition` (o lugar e o `z` que uma soltura salva, arredondados, dentro dos limites do quadro e trazidos para a frente), `quickNoteTaskPrefill` (a primeira linha da nota como nome da tarefa e o resto como descrição, cada um cortado em 255) e `noteColors`, o papel, a borda e a tinta de cada cor de nota para a base clara e a escura. As cores são valores concretos de propósito, como a paleta dos diagramas, porque o celular não tem variáveis CSS e os dois apps precisam pintar a mesma nota.
 
 O resumo não acrescenta slice nenhum, de propósito. O diálogo dele é o único consumidor dos seus dados, portanto a resposta vive em estado de componente e morre com o diálogo. O que é partilhado é o julgamento à volta: se o diálogo deve sequer abrir, o que acontece à lista quando o usuário resolve uma linha, por quanto tempo continuar a pedir o texto que chega atrasado (`pollNarrative`), que lista de metas ler (`briefingGoals`, que recua para o campo antigo quando o servidor ainda não tem `goalsAhead`), como se descreve o ritmo de uma meta (`goalPaceMessage`), e se o estudo de hoje e o de ontem merecem uma seção (`briefingStudy`, `briefingStudyRecap`, que deixa um zero de fora porque "0 min estudados ontem" num dia de descanso soa como bronca). O humor mostrado dentro do diálogo é a exceção que usa um slice: passa pelo slice `mood` partilhado, para um rosto escolhido no diálogo já estar certo no widget do painel atrás dele. São exactamente as decisões que ganham uma resposta subtilmente diferente em cada plataforma no espaço de um mês, e a diferença fica invisível até alguém dizer que o telemóvel chateia e a web não.
 
@@ -64,6 +65,7 @@ A store do web persiste em localStorage com uma blacklist deliberada:
 | celebration | Transitório por definição: um level-up na fila não pode tocar de novo depois de um reload |
 | notebook | Anotações de estudo, página por página, tão pessoais quanto o diário e excluídas pelo mesmo motivo. Rebuscadas na montagem como `snapshot`, então nada se perde por não guardá-las. O `PERSIST_VERSION` não mudou: uma chave que nunca foi persistida não precisa de migração |
 | studyCycles | Dado do servidor lido sob demanda, como `notebook`, então nada disso precisa ir para o disco. Toda tela que mostra esses dados lê na montagem. A forma persistida não mudou, então o `PERSIST_VERSION` também não |
+| quickNotes | O que passou pela cabeça de alguém, texto livre escrito para si. Lido na montagem como o `notebook`, então nada se perde por não guardá-lo, e o `PERSIST_VERSION` não mudou por causa dele |
 | mood | Texto de diário, o dado mais pessoal que o produto guarda. A falha é silenciosa: tudo funciona, e o diário de alguém fica simplesmente no localStorage depois de fechar a aba. Por isso um teste lê a blacklist do código-fonte em vez de confiar que a entrada sobrevive a uma edição |
 
 Todo o resto (listas de entidades, rascunhos de edição, preferências de ordenação) persiste, então um reload pinta na hora com dados locais enquanto dados frescos carregam por trás. O app mobile não persiste nada: tokens vivem no armazenamento seguro, dados rebuscam ao montar e o logout dele zera todos os slices pelo root reducer. No web, o logout purga o persistor e navega de forma dura, o que descarta a store em memória por inteiro.
