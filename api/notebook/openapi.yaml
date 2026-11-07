@@ -3743,7 +3743,10 @@ components:
         position:
           type: integer
           format: int32
-          description: Board order for nodes. Pages off the board sort after them.
+          description: |
+            Path order for nodes, the order the board itself shows: a node comes after the nodes that point
+            to it, and where the edges leave a choice, row by row, each row left to right. Pages off the board
+            sort after them.
       description: One row of a topic's sidebar tree.
     TreeResponseDTO:
       type: object
