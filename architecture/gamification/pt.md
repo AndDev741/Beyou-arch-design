@@ -45,12 +45,12 @@ A lógica de streak segue uma filosofia: **só uma falta real quebra um streak**
 |----------|------------------|
 | DONE | Conta e continua |
 | SKIPPED | Continua sem contar: um "hoje não" honesto não é fracasso |
-| NOT_SCHEDULED / NOT_IN_ROUTINE | Continua sem contar |
+| NOT_SCHEDULED / NOT_IN_ROUTINE | Continua sem contar. Inclui o dia que os dias da semana do próprio item deixam de fora: um hábito limitado ao sábado numa rotina de sábado e domingo fica NOT_SCHEDULED no domingo, nunca MISSED |
 | MISSED | Quebra |
 
 Nada incrementa contador. Streaks são re-derivados caminhando pelas linhas de desfecho diário de trás para frente a partir do hoje do próprio dono, e foi isso que aposentou os contadores frágeis antigos: um streak derivado não deriva à toa.
 
-Dois sistemas paralelos dividem essa caminhada. Cada hábito, tarefa e rotina tem seu próprio streak (atual, recorde, total de check-ins) guardado como escalares e recomputado a cada mudança, com o recorde funcionando como catraca que só sobe. O streak da conta, a "constância" do dashboard, caminha pelos dias completados do usuário contra o que estava agendado, e o usuário escolhe o que "completado" significa: ANY (marcar qualquer coisa no dia conta) ou COMPLETE (todo item da rotina do dia marcado ou pulado). As duas leituras funcionam igual numa rotina em lista e numa com seções: a lista guarda seus itens numa única seção interna, então a caminhada que os conta nunca precisou aprender uma segunda forma.
+Dois sistemas paralelos dividem essa caminhada. Cada hábito, tarefa e rotina tem seu próprio streak (atual, recorde, total de check-ins) guardado como escalares e recomputado a cada mudança, com o recorde funcionando como catraca que só sobe. O streak da conta, a "constância" do dashboard, caminha pelos dias completados do usuário contra o que estava agendado, e o usuário escolhe o que "completado" significa: ANY (marcar qualquer coisa no dia conta) ou COMPLETE (todo item da rotina do dia marcado ou pulado, e um item limitado a outros dias da semana não faz parte da rotina daquele dia). As duas leituras funcionam igual numa rotina em lista e numa com seções: a lista guarda seus itens numa única seção interna, então a caminhada que os conta nunca precisou aprender uma segunda forma.
 
 **O job de fechamento do dia** é o que transforma ausência em desfecho. Um scheduler de hora em hora, por timezone, fecha o dia de ontem numa janela de tolerância de madrugada (janela, e não hora exata, porque o horário de verão uma vez pulou a hora de fechamento e deixou um dia aberto para sempre). Ele escreve uma linha para cada dono que não tem nenhuma, só inserção, então um check real chegando durante a corrida nunca é sobrescrito por uma ausência. Rotinas ficam deliberadamente fora do fechamento: não existe escritor de presença para elas, então toda linha de rotina seria uma falta falsa.
 

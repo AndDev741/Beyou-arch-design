@@ -253,6 +253,8 @@ The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_
 
 **ItemGroup** (abstract, joined inheritance): startTime, endTime, orderIndex, and the ManyToOne back to its section. `orderIndex` is read only by list routines, which have no times to sort by; a daily routine orders its items by startTime in both clients and ignores the column, though it is written for both so the two shapes share one merge path. Concrete types HabitGroup (references a Habit) and TaskGroup (references a Task), each owning their check collections (cascade ALL, no orphan removal, so history survives).
 
+An item can also carry **days** (table item_group_days, mapped like a schedule's days): the weekdays it runs on, inside the days its routine runs on. A routine scheduled on Saturday and Sunday can hold "clean the fish tank" limited to Saturday. No rows means the item follows its routine, which is what every item meant before the table existed. The days sit on the item's place in one routine and not on the habit or task, so one habit can run on different days in two routines. `ScheduledOnDayResolver` holds the rule (`itemActiveOn`, `itemRunsOn`, `runsOn`), and everything that asks "did this run on day D" goes through it: the day-close pass stamps NOT_SCHEDULED for an item on a day its days leave out, so the habit's streak is untouched; `GET /routine/today` serves only the day's items; the snapshot records only them; COMPLETE mode counts only them; and a check or skip on such a day is refused with ROUTINE_ITEM_NOT_ACTIVE_ON_DAY. A routine whose every item is limited away from a day does not run that day at all.
+
 **BaseCheck** (abstract, joined inheritance): checkDate, checkTime, checked, skipped, xpGenerated. Concrete types HabitGroupCheck and TaskGroupCheck, each owned by their group.
 
 ## Daily history: EntityCheckDay and EntityXpDay
@@ -273,7 +275,7 @@ The entity is minimal: an id plus a set of WeekDay enums stored in the schedule_
 
 ## Routine snapshots
 
-**Product role**: routines change. Sections get renamed, habits get removed, whole routines get deleted. Without snapshots, yesterday's view of your day would silently rewrite itself. So every scheduled day, each routine is frozen into an immutable copy, and past days render exactly as they looked.
+**Product role**: routines change. Sections get renamed, habits get removed, whole routines get deleted. Without snapshots, yesterday's view of your day would silently rewrite itself. So every scheduled day, each routine is frozen into an immutable copy, and past days render exactly as they looked. The copy holds the items that ran that day: an item limited to other weekdays is left out of the structure and gets no SnapshotCheck, and a section it leaves empty is dropped.
 
 **RoutineSnapshot** (table routine_snapshot): unique per (routine, day).
 
@@ -624,6 +626,7 @@ Understanding the cascades matters most at account deletion, which relies on the
 | StudyCycle (DB level) | Its days, topics, blocks, lap blocks and closed laps; StudySession.cycle_id | ON DELETE CASCADE, and SET NULL for the session | Deleting a cycle takes everything under it. A logged session stays as the topic's history |
 | User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
 | Task (DB level) | QuickNote.converted_task_id | ON DELETE SET NULL | The archived note stays and stops pointing at the task. Deleting a task is never blocked by the post-it it came from |
+| ItemGroup (DB level) | item_group_days rows | ON DELETE CASCADE | The days mean nothing without the item. The account-deletion runbook deletes item groups in bulk SQL, which a plain FK would block |
 | ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
 | NotebookPage (DB level) | Child pages, board nodes and edges, cards and their reviews, sources and their chunks, outputs, chat messages | ON DELETE CASCADE | Deleting a page deletes its subtree. A page linked onto its boards from another topic has its home elsewhere and stays; only the node goes |
 | NotebookPage (DB level) | FocusCycle.notebook_page_id | ON DELETE SET NULL | The minutes stay on the record |
@@ -649,6 +652,7 @@ flowchart LR
     task_category
     goal_category
     schedule_days
+    item_group_days
   end
 
   subgraph routine["Routine"]

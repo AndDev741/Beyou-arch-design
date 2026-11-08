@@ -99,6 +99,11 @@ paths:
       tags:
       - routine-controller
       operationId: skipItem
+      description: >
+        Skips or unskips one item on a date. Skipping an item on a day its own `days` leave
+        out is refused with 400 ROUTINE_ITEM_NOT_ACTIVE_ON_DAY: the item is not part of that
+        day's routine, so the day's snapshot would have no row to keep the skip in. Unskipping
+        stays open.
       requestBody:
         content:
           application/json:
@@ -117,6 +122,12 @@ paths:
       tags:
       - routine-controller
       operationId: checkItem
+      description: >
+        Toggles one item for the owner's today. Checking an item whose own `days` leave
+        today out is refused with 400 ROUTINE_ITEM_NOT_ACTIVE_ON_DAY. Unchecking stays open,
+        so a check made before the item was limited can still be taken back. Only the item's
+        days are enforced here, not the routine's schedule: checking an item of a routine that
+        is not scheduled today is allowed, as it was before item days existed.
       requestBody:
         content:
           application/json:
@@ -135,6 +146,14 @@ paths:
       tags:
       - routine-controller
       operationId: getTodayRoutineScheduled
+      description: >
+        The routine scheduled on the owner's today (their timezone), holding only the items
+        that run today. Items whose own `days` leave today out are dropped, and so is any
+        section that drop leaves empty; a section that was already empty stays. A routine whose
+        every item is limited to other days is not today's routine, so the body is empty.
+        Filtered on the server so the dashboards, focus mode and progress counters of every
+        client, including builds that predate item days, count the right items. Cached per
+        user and owner-local date, so the answer turns over at the owner's midnight.
       responses:
         '200':
           description: OK
@@ -162,6 +181,31 @@ components:
         xpGenerated:
           type: number
           format: double
+    ItemDays:
+      type: array
+      description: >
+        The weekdays this item runs on, inside the days its routine runs on, in week order.
+        Empty means the item follows the routine, which is the default and what every item
+        created before item days existed has. An item runs on a date when the routine's
+        schedule covers the date AND (this list is empty OR names the date's weekday). The
+        days live on the item's place in one routine, not on the habit or task, so the same
+        habit can run on different days in two routines.
+      items:
+        type: string
+        enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+    ItemDaysRequest:
+      type: array
+      nullable: true
+      description: >
+        Optional. The weekdays this item runs on (see ItemDays). On an update, null or absent
+        KEEPS what the item has and an empty array clears it. That asymmetry is on purpose:
+        a client older than the field sends the whole routine back without it, and null
+        meaning "clear" would wipe the user's choice on every edit it makes. All seven days are
+        stored as none. Day names are accepted in any letter case and in Portuguese, like
+        the schedule's.
+      items:
+        type: string
+        enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
     CheckGroupRequestDTO:
       type: object
       properties:
@@ -249,6 +293,8 @@ components:
         taskId:
           type: string
           format: uuid
+        days:
+          $ref: '#/components/schemas/ItemDaysRequest'
     DiaryRoutineResponseDTO:
       type: object
       description: >
@@ -328,6 +374,8 @@ components:
             checkTime, checked, skipped and xpGenerated, so no client can tell which it got.
           items:
             $ref: '#/components/schemas/HabitGroupCheck'
+        days:
+          $ref: '#/components/schemas/ItemDays'
     HabitGroupCheck:
       type: object
       properties:
@@ -363,6 +411,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/HabitGroupCheck'
+        days:
+          $ref: '#/components/schemas/ItemDaysRequest'
     HabitGroupRequestDTO:
       type: object
       properties:
@@ -388,6 +438,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/HabitGroupCheck'
+        days:
+          $ref: '#/components/schemas/ItemDays'
     RefreshItemCheckedDTO:
       type: object
       properties:
@@ -583,6 +635,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TaskGroupCheck'
+        days:
+          $ref: '#/components/schemas/ItemDaysRequest'
     TaskGroupRequestDTO:
       type: object
       properties:
@@ -608,3 +662,5 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TaskGroupCheck'
+        days:
+          $ref: '#/components/schemas/ItemDays'

@@ -57,7 +57,7 @@ flowchart LR
 | goals | GoalService.getAllGoals | userId |
 | routines | DiaryRoutineService.getAllDiaryRoutines | userId |
 | routine | DiaryRoutineService.getDiaryRoutineById | userId + "_" + routineId |
-| todayRoutine | DiaryRoutineService.getTodayRoutineScheduled | userId, null results never cached |
+| todayRoutine | DiaryRoutineService.getTodayRoutineScheduled | userId plus the owner's local date (`userId_2026-11-08`), null results never cached |
 | schedules | ScheduleService.findAll | userId |
 
 All cached methods return DTOs, never JPA entities, so nothing lazy or detached ever comes out of a cache. The `routine` cache is the odd one: its composite key makes it the only domain cache Spring cannot evict per user, which shapes the whole eviction design below.
@@ -97,7 +97,7 @@ The eviction annotations are deliberately duplicated between the two user-scoped
 The agent's tools inject the same services the controllers use, so tool reads hit the same `@Cacheable` entries and tool writes run the same eviction. Consistency is by construction, not by discipline. Three details make it work:
 
 - The cached read methods carry `@Transactional(readOnly = true)` specifically because agent tools run on a reactive thread where Open-Session-in-View does not apply.
-- `getTodayRoutineScheduled` resolves "today" from the owner's timezone on the loaded data rather than from the request context, so it works off-request.
+- `getTodayRoutineScheduled` takes the owner's date as a parameter, and the controller and the agent tool both resolve it from the owner's timezone on a `User` they already hold, never from the request context, so it works off-request. The date is part of the key because the answer changes at the owner's midnight with no write to evict it: keyed by the user alone, the cache served yesterday's routine (and, since routine items can be limited to weekdays, yesterday's items) for up to its 30 minutes. Annotations cannot evict a date-keyed entry by user, so `evictTodayRoutine` drops the keys for the three dates around UTC today, which is every date a user's today can be.
 - The check/skip eviction lives on the outer service methods that both the controller and the tools funnel through, and an integration test exercises that seam directly so relocating the eviction breaks the build.
 
 ## What is deliberately not cached

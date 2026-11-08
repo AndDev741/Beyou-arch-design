@@ -251,6 +251,8 @@ A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabe
 
 **ItemGroup** (abstrata, herança joined): startTime, endTime, orderIndex e o ManyToOne de volta à seção. `orderIndex` só é lido por rotinas em lista, que não têm horário para ordenar; uma rotina diária ordena os itens por startTime nos dois clientes e ignora a coluna, ainda que ela seja gravada para as duas formas, para que compartilhem um único caminho de merge. Tipos concretos HabitGroup (referencia um Habit) e TaskGroup (referencia uma Task), cada um dono das suas coleções de checks (cascade ALL, sem orphan removal, então o histórico sobrevive).
 
+Um item também pode ter **dias** (tabela item_group_days, mapeada como os dias de um schedule): os dias da semana em que ele roda, dentro dos dias em que a rotina roda. Uma rotina agendada para sábado e domingo pode ter "limpar o aquário" só no sábado. Sem linhas, o item segue a rotina, que é o que todo item significava antes da tabela existir. Os dias ficam no lugar do item numa rotina e não no hábito ou na tarefa, então o mesmo hábito pode rodar em dias diferentes em duas rotinas. O `ScheduledOnDayResolver` guarda a regra (`itemActiveOn`, `itemRunsOn`, `runsOn`), e tudo que pergunta "isso rodou no dia D" passa por ele: o fechamento do dia grava NOT_SCHEDULED para o item num dia que os dias dele deixam de fora, então a streak do hábito fica intacta; o `GET /routine/today` só entrega os itens do dia; o snapshot só registra esses; o modo COMPLETE só conta esses; e um check ou skip num dia assim é recusado com ROUTINE_ITEM_NOT_ACTIVE_ON_DAY. Uma rotina em que todo item está limitado a outros dias não roda naquele dia.
+
 **BaseCheck** (abstrata, herança joined): checkDate, checkTime, checked, skipped, xpGenerated. Tipos concretos HabitGroupCheck e TaskGroupCheck, cada um pertencente ao seu grupo.
 
 ## Histórico diário: EntityCheckDay e EntityXpDay
@@ -271,7 +273,7 @@ A entidade é mínima: um id mais um conjunto de enums WeekDay guardados na tabe
 
 ## Snapshots de rotina
 
-**Papel no produto**: rotinas mudam. Seções são renomeadas, hábitos são removidos, rotinas inteiras são apagadas. Sem snapshots, a visão de ontem do seu dia se reescreveria em silêncio. Então, a cada dia agendado, cada rotina é congelada em uma cópia imutável, e os dias passados renderizam exatamente como eram.
+**Papel no produto**: rotinas mudam. Seções são renomeadas, hábitos são removidos, rotinas inteiras são apagadas. Sem snapshots, a visão de ontem do seu dia se reescreveria em silêncio. Então, a cada dia agendado, cada rotina é congelada em uma cópia imutável, e os dias passados renderizam exatamente como eram. A cópia guarda os itens que rodaram naquele dia: um item limitado a outros dias da semana fica fora da estrutura e não ganha SnapshotCheck, e a seção que ele deixa vazia sai junto.
 
 **RoutineSnapshot** (tabela routine_snapshot): único por (rotina, dia).
 
@@ -622,6 +624,7 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
 | User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
 | Task (nível de banco) | QuickNote.converted_task_id | ON DELETE SET NULL | A nota arquivada fica e deixa de apontar para a tarefa. Apagar uma tarefa nunca é barrado pelo post-it de onde ela veio |
+| ItemGroup (nível de banco) | Linhas de item_group_days | ON DELETE CASCADE | Os dias não significam nada sem o item. O runbook de exclusão de conta apaga grupos de item em SQL direto, e uma FK comum bloquearia isso |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
 | NotebookPage (nível de banco) | Páginas filhas, nós e arestas do quadro, cards e suas revisões, fontes e seus trechos, saídas, mensagens de chat | ON DELETE CASCADE | Apagar uma página apaga a subárvore. Uma página vinculada aos quadros dela a partir de outro tópico tem a casa em outro lugar e fica; só o nó sai |
 | NotebookPage (nível de banco) | FocusCycle.notebook_page_id | ON DELETE SET NULL | Os minutos continuam registrados |
@@ -647,6 +650,7 @@ flowchart LR
     task_category
     goal_category
     schedule_days
+    item_group_days
   end
 
   subgraph routine["Rotina"]

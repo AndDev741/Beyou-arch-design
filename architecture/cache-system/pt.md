@@ -57,7 +57,7 @@ flowchart LR
 | goals | GoalService.getAllGoals | userId |
 | routines | DiaryRoutineService.getAllDiaryRoutines | userId |
 | routine | DiaryRoutineService.getDiaryRoutineById | userId + "_" + routineId |
-| todayRoutine | DiaryRoutineService.getTodayRoutineScheduled | userId, resultados nulos nunca são cacheados |
+| todayRoutine | DiaryRoutineService.getTodayRoutineScheduled | userId mais a data local do dono (`userId_2026-11-08`), resultados nulos nunca são cacheados |
 | schedules | ScheduleService.findAll | userId |
 
 Todos os métodos cacheados devolvem DTOs, nunca entidades JPA, então nada lazy ou detached sai de um cache. O cache `routine` é o diferente: sua chave composta o torna o único cache de domínio que o Spring não consegue evictar por usuário, o que molda todo o design de evicção abaixo.
@@ -97,7 +97,7 @@ As anotações de evicção são deliberadamente duplicadas entre os dois métod
 As ferramentas do agente injetam os mesmos services que os controllers usam, então leituras de ferramenta acertam as mesmas entradas `@Cacheable` e escritas de ferramenta rodam a mesma evicção. A consistência é por construção, não por disciplina. Três detalhes fazem isso funcionar:
 
 - Os métodos de leitura cacheados carregam `@Transactional(readOnly = true)` especificamente porque as ferramentas do agente rodam em uma thread reativa onde o Open-Session-in-View não vale.
-- O `getTodayRoutineScheduled` resolve o "hoje" pelo timezone do dono a partir dos dados carregados, não do contexto da requisição, então funciona fora de uma requisição.
+- O `getTodayRoutineScheduled` recebe a data do dono como parâmetro, e o controller e a ferramenta do agente a resolvem pelo timezone do dono a partir de um `User` que já têm em mãos, nunca do contexto da requisição, então funciona fora de uma requisição. A data entra na chave porque a resposta muda na meia-noite do dono sem nenhuma escrita para evictar: com a chave só do usuário, o cache servia a rotina de ontem (e, já que itens de rotina podem ser limitados a dias da semana, os itens de ontem) por até 30 minutos. Anotação não consegue evictar por usuário uma entrada com data na chave, então o `evictTodayRoutine` derruba as chaves das três datas em volta do hoje em UTC, que cobrem todo dia que o hoje de um usuário pode ser.
 - A evicção de check/skip mora nos métodos externos de service por onde tanto o controller quanto as ferramentas passam, e um teste de integração exercita exatamente essa costura, então realocar a evicção quebra o build.
 
 ## O que fica sem cache de propósito
