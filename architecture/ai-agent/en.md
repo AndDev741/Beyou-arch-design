@@ -1,9 +1,9 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 79 real tools, streamed over SSE, running on a configurable LLM fallback chain, with three memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 79 real tools, streamed over SSE, calling one OpenAI-compatible LLM endpoint, with three memory layers and guardrails that assume the model will misbehave."
 ---
 
-This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, how free-tier LLM providers are chained into one reliable model, and what happens at every failure point.
+This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, where the model call goes, and what happens at every failure point.
 
 ## The shape of it
 
@@ -14,7 +14,7 @@ sequenceDiagram
   participant C as Client (web / mobile)
   participant BE as AiAgentService
   participant M as Memory advisor
-  participant LLM as Fallback chain
+  participant LLM as LLM endpoint
   participant T as Tools
 
   C->>BE: POST /ai/agent/chats/{id}/stream
@@ -29,28 +29,19 @@ sequenceDiagram
 
 Two details in that picture carry most of the reliability weight. Every event passes through one send function that records the turn before writing to the socket, so a dead client can never cost the transcript. And the turn is persisted before the done event is emitted; if persistence fails, the client is told (TRANSCRIPT_PERSIST_FAILED) instead of receiving a clean ending that never got saved.
 
-## The fallback chain
+## The model endpoint
 
-Beyou runs on free-tier LLMs, and free tiers fail: rate limits, quota resets, provider hiccups. The answer is a chain that behaves like one model:
+Every AI feature in Beyou calls one OpenAI-compatible endpoint, set by three values: `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`. In production the URL is an OmniRoute gateway and the model name is a combo defined there. The combo holds several free-tier providers and moves on to the next one when a provider is rate limited or down.
 
-| # | Provider | Default model |
-|---|----------|---------------|
-| 1 | Mistral | mistral-small-latest |
-| 2 | Gemini | gemini-2.5-flash |
-| 3 | GLM | glm-4.7-flash |
-| 4 | NVIDIA | meta/llama-3.3-70b-instruct |
-| 5 | DeepSeek | deepseek-v4-flash |
+The backend used to do that work itself. A `FallbackChatModel` walked an ordered list of five providers, cooled down the ones that failed and refused the ones on a blocklist. It was removed in November 2026, once the gateway in front of it was doing the same job. Two layers of fallback meant two configurations to keep in step and two places to look when an answer went wrong.
 
-The table shows the shipped defaults, and the lineup is configuration rather than code. Production runs two links, `mistral,gemini`, for the legal reason described below. NVIDIA had gone earlier for an ordinary one: it proved too slow in real use, and left the chain through an environment variable.
+What the backend still decides:
 
-The chain's rules, each there for a reason:
-
-- **Failover only fires while a provider has emitted nothing.** Once the first chunk streams, an error propagates instead of retrying, because half an answer from one model glued to half from another is worse than an honest error. Tools never re-run on failover.
-- **Failed providers cool down**: 300 seconds after a rate limit, 30 after other errors, so the chain stops paying latency for a provider that just said no. Rate limits are recognized by type where the SDK offers one and by message sniffing where it does not, since five providers surface quota errors five ways.
-- **The last link never skips.** Even mid-cooldown, the final provider always runs, so the chain ends in a real answer or a real exception, never in silence.
-- A provider with no API key is skipped at boot, which is how dev environments run DeepSeek-only without configuration ceremony.
-- **A blocked provider never joins the chain.** `ai.llm-chain.blocked` is a second list that wins over the order, checked before anything else. An order is an environment variable anyone can widen, so this is where a provider being left out gets recorded as a decision. If the two lists leave nothing behind, `FallbackChatModel` refuses to construct and the application fails to boot rather than serving a dead assistant.
-- Every call, fallback, and exhaustion increments a metric (beyou.ai.llm.*), and the Grafana AI dashboard is built on exactly these.
+- **Four timeouts, set one by one.** `LlmConfig` builds the client by hand so that connecting gets 10 seconds, the silence between two chunks 120, sending the request 30, and the whole call a little under the stream's five minutes. A single shared value once cut every long answer at the two-minute mark.
+- **No retries.** The gateway already retries across its providers, so a call that fails here reaches the user as an error straight away.
+- **Quota refusals get their own message.** `LlmErrors.isRateLimit` recognizes a rate limit by exception type or by wording, because the gateway relays whatever the provider behind it said. The stream then sends `AI_QUOTA_EXHAUSTED`, and every other failure is `AI_STREAM_FAILED`.
+- **A missing endpoint leaves the app running.** With the three values unset, which is how dev, CI and the e2e stack run, a stand-in model fails every call inside the process and each feature shows its own unavailable state.
+- **Metrics come from Spring AI.** The `gen_ai_*` series count calls, failures and tokens. Which provider answered a given request is in the gateway's logs.
 
 ## What the provider receives
 
@@ -68,9 +59,9 @@ Beyou's controller is established in Portugal, so a request reaching a provider 
 | Z.ai (GLM) | China | No adequacy decision |
 | DeepSeek | China | No adequacy decision |
 
-Production therefore runs `order: mistral,gemini` with `blocked: glm,deepseek`, both pinned in `application-prod.yaml`. GLM and DeepSeek stay configured and usable in development, where the data is invented, and cannot join the chain in production even if someone widens the order. The published privacy policy tells users this, which is the second reason the blocklist exists: a promise printed there should not rest on someone remembering why the order was narrow.
+The backend cannot enforce that table any more. Until November 2026 a blocklist in `application-prod.yaml` kept GLM and DeepSeek out of production whatever the order said. The backend now sees a single URL, and the companies behind it are whatever the gateway's combo lists. Editing the combo is a data-protection change for that reason. Every provider in it needs a route from the table above, and the published privacy policy has to name it before it receives a message.
 
-Two outbound calls from the study notebook sit outside this chain, and so outside the blocklist: the embeddings (`notebook.embedding.*`, any OpenAI-compatible endpoint, Mistral by default) and source discovery (Tavily, or Gemini with Google Search). Each takes its host from its own settings, and `blocked` has no say over either. The privacy policy names Mistral for the embeddings and Tavily or Gemini for discovery, so pointing either one somewhere else is a policy change before it is a config change. The daily briefing's prose and the notebook's study tools do go through the chain.
+Two outbound calls from the study notebook go elsewhere: the embeddings (`notebook.embedding.*`, any OpenAI-compatible endpoint, Mistral by default) and source discovery (Tavily, or Gemini with Google Search). Each takes its host from its own settings. The privacy policy names Mistral for the embeddings and Tavily or Gemini for discovery, so pointing either one somewhere else is a policy change before it is a config change. The daily briefing's prose and the notebook's study tools do go through the endpoint.
 
 The assistant is optional end to end. Nothing reaches a provider for a user who never opens it, and the chat history and both memory notes can be deleted from inside the app and come out in the data export.
 
@@ -89,7 +80,7 @@ Three absences in that list are deliberate. **A timer cycle cannot be written.**
 The authority model is the important part:
 
 - **Identity rides in the ToolContext**, built server-side from the authenticated request. The model never supplies a user id, so it can only ever act as the person talking to it.
-- **Every write argument is re-validated** with the same Jakarta constraints the REST DTOs carry, and violations come back listing every failed field so the model can correct itself. Arguments sent without their wrapper object bind the whole DTO as null, which used to surface as the validator's own unreadable complaint, so that case now says which shape the tool wanted. Times are parsed leniently too: a model that writes 7:00 instead of 07:00 is understood, and anything genuinely unparseable names the field and the format rather than throwing. What makes this worth the trouble is the cost of a miss — the free-tier chain has a daily quota and tools never re-run mid-turn, so every self-correction is a whole call spent on a bind error.
+- **Every write argument is re-validated** with the same Jakarta constraints the REST DTOs carry, and violations come back listing every failed field so the model can correct itself. Arguments sent without their wrapper object bind the whole DTO as null, which used to surface as the validator's own unreadable complaint, so that case now says which shape the tool wanted. Times are parsed leniently too: a model that writes 7:00 instead of 07:00 is understood, and anything genuinely unparseable names the field and the format rather than throwing. What makes this worth the trouble is the cost of a miss — the free tiers have a daily quota and tools never re-run mid-turn, so every self-correction is a whole call spent on a bind error.
 - **Reads are capped** at 100 items per type, and icon ids pass through a curated catalog that silently substitutes a default for anything unknown, because the model drops or invents icon ids often enough to matter. The catalog is grouped by what a habit is about rather than by id space, and each group offers both line icons and emoji so the model can match the register of the habit. It is also the reason to keep the list disciplined: every entry is rendered into the system prompt, so the catalog costs tokens on every single call. It earns a new entry when a whole area of life is missing — faith was, and someone tracking prayer got a generic star — not when a synonym of something already listed is absent.
 - Each write tool declares which frontend domains it touched, and the finished event carries that list, so the client refetches exactly the slices that changed and nothing else.
 
@@ -109,18 +100,18 @@ The prompt is short and rule-dense. The rules that do the most work: never inven
 
 ## Onboarding suggestions, the stateless sibling
 
-The AI onboarding wizard uses the same model chain through a completely different door: no tools, no memory, no advisors, one structured-output call per step, with the story so far riding in the request. The response is treated as hostile until proven useful: list sizes capped, names kept verbatim per requested category, importance and difficulty clamped into range, weekday names normalized, and item times clamped into their section window, a rule added after unclamped times produced a routine the wizard could not submit and the user could not fix. A malformed response gets one retry with a JSON-only warning appended, then a clean AI_UNAVAILABLE error. The frontend creates real entities from accepted suggestions through the ordinary REST endpoints, and it reads before it writes: each step asks what the account already holds and skips any suggestion whose name is there. That is what makes the error banner's Try again safe. A step used to create every habit and then every task and record nothing until both loops were done, so a task that failed left habits nothing had a reference to, and every press of the button added another copy of the whole set. One account that accepted three habits ended up carrying fifty-eight. Each batch is now written into the wizard's record the moment it lands. The error screen also stopped treating every failure as the model's: a failed suggestion call keeps the AI-unavailable copy, while a rejected entity write names the item, shows the server's translated reason and lists what is already saved. The screen that blamed the AI for a rejected POST /habit had sent both the user and the first diagnosis of that incident in the wrong direction.
+The AI onboarding wizard uses the same model endpoint through a completely different door: no tools, no memory, no advisors, one structured-output call per step, with the story so far riding in the request. The response is treated as hostile until proven useful: list sizes capped, names kept verbatim per requested category, importance and difficulty clamped into range, weekday names normalized, and item times clamped into their section window, a rule added after unclamped times produced a routine the wizard could not submit and the user could not fix. A malformed response gets one retry with a JSON-only warning appended, then a clean AI_UNAVAILABLE error. The frontend creates real entities from accepted suggestions through the ordinary REST endpoints, and it reads before it writes: each step asks what the account already holds and skips any suggestion whose name is there. That is what makes the error banner's Try again safe. A step used to create every habit and then every task and record nothing until both loops were done, so a task that failed left habits nothing had a reference to, and every press of the button added another copy of the whole set. One account that accepted three habits ended up carrying fifty-eight. Each batch is now written into the wizard's record the moment it lands. The error screen also stopped treating every failure as the model's: a failed suggestion call keeps the AI-unavailable copy, while a rejected entity write names the item, shows the server's translated reason and lists what is already saved. The screen that blamed the AI for a rejected POST /habit had sent both the user and the first diagnosis of that incident in the wrong direction.
 
 
 ## The Daily Briefing, the stateless sibling with a deadline
 
-The briefing's prose goes through the same chain and the same kind of door as the onboarding wizard: no tools, no memory, no advisors, one structured-output call. Two things about it differ on purpose.
+The briefing's prose goes through the same endpoint and the same kind of door as the onboarding wizard: no tools, no memory, no advisors, one structured-output call. Two things about it differ on purpose.
 
-**The model never computes anything the user reads.** Percentages, days remaining, where the streak stands, what a late check still pays: all of it is derived in Java from the same rows the rest of the app reads, and the model receives finished numbers with an instruction to invent none. Ask a free-tier model which goals are at risk and it gets the arithmetic wrong, invents goals that are not there, and answers differently each morning for identical data. Splitting it this way keeps the figures on screen correct, and it means a morning with the whole chain in cooldown still produces a working dialog instead of an empty one. The prompt is also where the product's own rules are stated outright, because those are what a model gets wrong when left to guess: that a skip is a choice the user made and never a failure, and that a day nothing was scheduled on cannot break a streak.
+**The model never computes anything the user reads.** Percentages, days remaining, where the streak stands, what a late check still pays: all of it is derived in Java from the same rows the rest of the app reads, and the model receives finished numbers with an instruction to invent none. Ask a free-tier model which goals are at risk and it gets the arithmetic wrong, invents goals that are not there, and answers differently each morning for identical data. Splitting it this way keeps the figures on screen correct, and it means a morning with the LLM endpoint down still produces a working dialog instead of an empty one. The prompt is also where the product's own rules are stated outright, because those are what a model gets wrong when left to guess: that a skip is a choice the user made and never a failure, and that a day nothing was scheduled on cannot break a streak.
 
 **What the model talks about is what the screen cannot show.** The first version handed it the same counts the panel renders and asked it to phrase them, and it did, every morning: "you have 25 items today and a 93-day streak" directly under the line that already said so. Those counts also went stale within a minute, because the user checks yesterday's items off beside the prose. So the facts block is split in two. What is on screen is labelled as context not to restate, and yesterday's open items are left out by name and by count. The rest is two weeks of signals computed in `DailyBriefingFactsBuilder` from the snapshot rows it was already reading: completion over the last seven days against the seven before, habits left open on most days they came up, habits checked every day, mood levels and their trend, and each goal's pace against a straight line from its start to its end date. The model is asked to pick the two or three that matter and say what they mean for today. Mood reaches it as levels only. The journal text never enters the briefing: the clients read yesterday's entry from the mood API themselves, the same rule the agent's `getUserMoodHistory` tool follows.
 
-**A failed call is reported in the response rather than thrown.** The onboarding wizard has nothing to show without its suggestions, so it raises `AI_UNAVAILABLE`. A briefing without prose is still a briefing, so `GET /daily-briefing` answers 200 whatever the chain does, and the clients render their own translated copy where the lines would be. There is no retry either. The caller is already holding a request open against a deadline, and the fallback is copy nobody will notice missing, so retrying would only make the dialog slower.
+**A failed call is reported in the response rather than thrown.** The onboarding wizard has nothing to show without its suggestions, so it raises `AI_UNAVAILABLE`. A briefing without prose is still a briefing, so `GET /daily-briefing` answers 200 whatever the model does, and the clients render their own translated copy where the lines would be. There is no retry either. The caller is already holding a request open against a deadline, and the fallback is copy nobody will notice missing, so retrying would only make the dialog slower.
 
 **The request does not wait for the call to finish.** A free tier can take half a minute, and the dialog opens from data the dashboard already holds, so only the prose area waits: about eight seconds, after which the request returns `PENDING` and the call is left running to store itself. The dialog then polls `GET /daily-briefing/narrative`, a primary-key read that never starts a call, on a schedule of about seventy seconds in ten requests, and gives up to the fallback line when it runs out. That poll arrived late. The first design counted on the next open of the same day to find the prose, but the dialog opens once a day, and for weeks every narration in production landed `READY` in its row while the screen showed a skeleton. Concurrent callers join one in-flight future keyed by the briefing row, so a user with the app open on two devices does not pay for the same paragraph twice.
 
@@ -128,7 +119,7 @@ Generation happens **on demand and never in the nightly pass**. The day-close pa
 
 ## The study notebook, grounded and tool-free
 
-The study notebook's AI (the study room's chat and outputs, the roadmap draft, node suggestions, "explain" and AI flashcards) is a third door onto the same chain, built like the onboarding one: `NotebookLlm` makes one structured call through `ChatClient.entity()`, retries once asking for valid JSON, and then raises `AI_UNAVAILABLE`. No tools, no streaming, no memory. The caller assembles the context and sends all of it every time. The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode. TUTOR, the study room's chat, answers from numbered passages first (the person's notes, then chunks retrieved from their sources), cites them as `[n]`, and goes on from its own knowledge where they stop, saying so. GROUNDED, the studio's outputs and the AI flashcards, answers only from the passages. SUPPORTED explains from the model's own knowledge and cites where the passages agree. PLANNING has no passages. `StudyContextBuilder` owns the numbering and drops any citation the model invents. A page with nothing to read answers `NOTEBOOK_NOTHING_TO_STUDY` before the model is called. These calls spend their own `notebook-ai` bucket, 60 an hour, so studying never eats the assistant's 30. The [study notebook topic](/architecture/study-notebook) covers retrieval and the rest.
+The study notebook's AI (the study room's chat and outputs, the roadmap draft, node suggestions, "explain" and AI flashcards) is a third door onto the same endpoint, built like the onboarding one: `NotebookLlm` makes one structured call through `ChatClient.entity()`, retries once asking for valid JSON, and then raises `AI_UNAVAILABLE`. No tools, no streaming, no memory. The caller assembles the context and sends all of it every time. The system prompt is `prompts/notebookTutor.st`, and each message opens with a mode. TUTOR, the study room's chat, answers from numbered passages first (the person's notes, then chunks retrieved from their sources), cites them as `[n]`, and goes on from its own knowledge where they stop, saying so. GROUNDED, the studio's outputs and the AI flashcards, answers only from the passages. SUPPORTED explains from the model's own knowledge and cites where the passages agree. PLANNING has no passages. `StudyContextBuilder` owns the numbering and drops any citation the model invents. A page with nothing to read answers `NOTEBOOK_NOTHING_TO_STUDY` before the model is called. These calls spend their own `notebook-ai` bucket, 60 an hour, so studying never eats the assistant's 30. The [study notebook topic](/architecture/study-notebook) covers retrieval and the rest.
 
 ## The client side
 
@@ -140,7 +131,7 @@ The web widget mounts once inside the protected shell, lazy-loads the panel on f
 
 | Failure | Behavior |
 |---------|----------|
-| Every link in the chain fails | Metric incremented, last exception surfaces as an error event; the client rolls back the optimistic bubble and restores the typed text into the composer |
+| The LLM endpoint fails | The exception surfaces as an error event, `AI_QUOTA_EXHAUSTED` for a quota refusal and `AI_STREAM_FAILED` for the rest; the client rolls back the optimistic bubble and restores the typed text into the composer |
 | Third concurrent stream | A short-lived emitter answers TOO_MANY_STREAMS without opening an LLM call (cap: 2 per user) |
 | Transcript persistence fails | The client gets TRANSCRIPT_PERSIST_FAILED instead of a false done |
 | Rate limit | 30 model calls per hour per user, one bucket for every POST on a chat (onboarding has its own separate 30, and the study notebook its own 60) |

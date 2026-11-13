@@ -19,8 +19,8 @@ info:
     Every figure a user reads is computed on the server, never by the model. A free-tier model
     asked to work out which goals are at risk gets the arithmetic wrong, invents goals, and
     answers differently each morning for identical data. The model receives finished numbers,
-    which means the numbers on screen are always right AND that a morning with the whole LLM
-    chain in cooldown still produces a usable dialog.
+    which means the numbers on screen are always right AND that a morning with the LLM
+    endpoint down still produces a usable dialog.
 
     What the model is asked to do with them changed once. The first version handed it only what
     the panel already renders and asked it to phrase that, and every morning it wrote the panel
@@ -421,8 +421,8 @@ components:
             `PENDING`: asked for, and the model had not answered by the request's deadline. It
             may still land; poll `GET /daily-briefing/narrative` for it.
             `READY`: the lines below are real.
-            `UNAVAILABLE`: the chain refused or failed. Not retried for the rest of the day, since a
-            chain in cooldown refuses the retry too and the panel reads identically either way.
+            `UNAVAILABLE`: the model call refused or failed. Not retried for the rest of the day,
+            since the panel reads identically with or without the prose.
             None of the three is an error.
         todayLines:
           type: array

@@ -3,7 +3,7 @@ flowchart LR
   API --> DOM["Domain services<br/>ownership checks · XP engine"]
   DOM --> DB[("🐘 PostgreSQL 17<br/>Flyway-owned schema")]
   API --> SEC["🛡️ Security<br/>JWT · rate limits · lockout"]
-  API --> AI["🤖 AI agent<br/>5-provider LLM chain"]
+  API --> AI["🤖 AI agent<br/>one LLM endpoint"]
   API --> NB["📓 Study notebook<br/>boards · cards · sources · grounded AI"]
   API --> DOCS["📚 Docs import + API"]
   CI["⚙️ GitHub Actions"] -->|"image → GHCR"| WT["🔄 Flux deploys"]

@@ -28,7 +28,7 @@ flowchart TD
   subgraph ai["Study AI"]
     RET["NotebookRetriever<br/>cosine in JVM → full text → opening chunks"]
     CTX["StudyContextBuilder<br/>numbered passages · drops invented citations"]
-    LLM["NotebookLlm<br/>fallback chain · one retry · AI_UNAVAILABLE"]
+    LLM["NotebookLlm<br/>shared LLM endpoint · one retry · AI_UNAVAILABLE"]
     CHUNKS --> RET --> CTX --> LLM
   end
 
