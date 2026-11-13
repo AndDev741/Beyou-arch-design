@@ -136,7 +136,6 @@ Vários caches em memória vivem fora do gerenciador, invisíveis ao dashboard d
 | Contadores de tentativa de login | O lockout por conta | Caffeine, máx 50.000, expiração igual à janela de lockout, chaveado por e-mail em minúsculas |
 | Chaves públicas do Google | Verificação de ID token | Cacheadas internamente pela biblioteca do Google |
 | Chaves dos provedores federados | Verificação de ID token OIDC: o JWKS de cada emissor, mais a hora do último refetch | Caffeine, máx 32 emissores, 6 h após escrita. Um `kid` desconhecido busca de novo no máximo uma vez por minuto por emissor (`OidcIdTokenVerifier`) |
-| Cooldowns de provedores de LLM | A cadeia de fallback pula um provedor falhando por um tempo | Mapa simples: 300 s após um 429, 30 s após outros erros |
 | Contadores de streams ativos | Limita streams SSE simultâneos do agente por usuário | Mapa simples |
 
 O cache de tentativas de login carrega um tradeoff documentado: é em memória de propósito para um deployment de host único, o que significa que um restart perdoa todos os contadores. O caminho de senha errada renova a janela, então um força-bruta persistente nunca envelhece para fora.

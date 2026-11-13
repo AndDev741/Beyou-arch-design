@@ -3,16 +3,9 @@ flowchart TD
   C -->|"POST /ai/agent/chats/{id}/stream"| SVC["🤖 AiAgentService<br/>2 streams max per user · 30/h"]
 
   SVC --> MEM["🧠 Memory<br/>global 2000 · chat 1000 · window 20"]
-  SVC --> CHAIN["⛓️ Fallback chain"]
+  SVC --> LLM["🔌 LLM endpoint<br/>one OpenAI-compatible URL<br/>the gateway picks the provider"]
 
-  subgraph CHAIN["⛓️ LLM fallback chain"]
-    P1["Mistral"] -->|"fail before first chunk"| P2["Gemini<br/>last link in prod · never skipped"]
-    P2 -.->|"dev only"| P3["GLM<br/>blocked in prod · CN"]
-    P3 -.-> P4["NVIDIA<br/>out of the order · too slow"]
-    P4 -.-> P5["DeepSeek<br/>blocked in prod · CN"]
-  end
-
-  CHAIN --> TOOLS["🛠️ 74 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
+  LLM --> TOOLS["🛠️ 74 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
   TOOLS --> DOM["⚙️ Same domain services<br/>as the REST API"]
 
   SVC -->|"token · tool · done events<br/>persist before done"| C

@@ -11,7 +11,7 @@ This is the map of the system as it runs in production: every client surface, th
 |-------|-------------|
 | **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board. The Ideas board is React Flow too |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
-| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (LLM fallback chain), PDFBox and jsoup for notebook sources |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (one OpenAI-compatible LLM endpoint), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 17 in production (a CloudNativePG cluster; tests and the local stacks run 15), Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
 | **Delivery** | GitHub Actions builds the backend image to GHCR; Flux (GitOps) rolls it out on a single-node k3s cluster; CI deploys the web and docs builds to Cloudflare Workers Static Assets with wrangler; Docker Compose for local development and e2e |
 | **Monitoring** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (Sentry-compatible) |

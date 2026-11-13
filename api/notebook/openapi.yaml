@@ -55,7 +55,7 @@ info:
     any number the model made up, so every citation a client shows opens a real passage. A page with
     no notes and no readable sources answers `NOTEBOOK_NOTHING_TO_STUDY` on every route but the chat,
     and the model is never called. When the
-    fallback chain cannot produce a usable answer (every provider failed, or the reply would not
+    LLM endpoint cannot produce a usable answer (the call failed, or the reply would not
     parse after one retry) the call answers `AI_UNAVAILABLE`. So does a call that runs out of its
     90-second budget, retry included, so the answer always arrives before the 100 seconds after
     which Cloudflare and the web client give up. "Explain" may use the model's own
@@ -1419,8 +1419,8 @@ paths:
       description: |
         A web search for what the person described, with the page's topic and title and the room's
         goal for context. Tavily answers when `TAVILY_API_KEY` is set, otherwise Gemini with Google
-        Search when `NOTEBOOK_DISCOVERY_GEMINI_API_KEY` is (it needs billing, so it does not reuse the
-        chat chain's key); with neither, this answers
+        Search when `NOTEBOOK_DISCOVERY_GEMINI_API_KEY` is (the key has to come from a project with
+        billing); with neither, this answers
         `NOTEBOOK_DISCOVERY_UNAVAILABLE` and the study room answers `discovery: false`. A search that
         fails answers `NOTEBOOK_DISCOVERY_FAILED`.
 

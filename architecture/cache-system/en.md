@@ -136,7 +136,6 @@ Several in-memory caches live outside the cache manager, invisible to the cache 
 | Login attempt counters | The per-account lockout | Caffeine, 50,000 max, expiry equals the lockout window, keyed by lowercased e-mail |
 | Google public keys | ID-token verification | Cached internally by Google's verifier library |
 | Federated provider keys | OIDC ID-token verification: each issuer's JWKS, plus the time of its last refetch | Caffeine, 32 issuers max, 6 h after write. An unknown `kid` refetches at most once a minute per issuer (`OidcIdTokenVerifier`) |
-| LLM provider cooldowns | The fallback chain skips a failing provider for a while | Plain map: 300 s after a 429, 30 s after other errors |
 | Active stream counters | Caps concurrent agent SSE streams per user | Plain map |
 
 The login-attempt cache carries a documented tradeoff: it is in-memory on purpose for a single-host deployment, which means a restart forgives all counters. The wrong-password path refreshes the window, so a persistent brute-forcer never ages out.
