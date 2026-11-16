@@ -278,7 +278,11 @@ components:
           description: |
             What each day from today through the end date has to add to land on the target,
             today included, to one decimal. Absent once the goal is overdue or the target is met:
-            neither has a daily amount to ask for.
+            neither has a daily amount to ask for. The clients show a value of one or more as a
+            daily amount. Below one a day they give it per week (seven times this value), below
+            one a week per month (thirty times it), and they leave the amount out when a month
+            still asks for less than one. A goal of twelve books a year used to read as "0 books a
+            day". The Second Brain page words its goals the same way.
         expectedPercent:
           type: integer
           format: int32

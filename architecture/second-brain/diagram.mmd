@@ -1,0 +1,32 @@
+flowchart TD
+  subgraph page["The page · web and phone"]
+    READ["GET /second-brain<br/>seven blocks · one read-only transaction"]
+    ASK["Questions<br/>refill · answer · skip"]
+    WRITE["Overview<br/>first one on request · then once a day"]
+    EDIT["Profile and switches<br/>20 facts of 200 characters · 6 sources"]
+  end
+
+  subgraph domain["domain/secondbrain"]
+    SVC["SecondBrainService<br/>no transaction open across a model call<br/>no model before the first overview"]
+    STORE["SecondBrainStore<br/>short transactions · advisory lock · owner in every lookup"]
+    SIG["SecondBrainSignals<br/>a source that is off is not queried"]
+    AI["SecondBrainAi<br/>three structured calls · no tools · time budgets"]
+  end
+
+  DATA[("Routine snapshots · goals · mood levels<br/>calendar tasks · topic titles · ideas")]
+  TABLES[("second_brain_sources · second_brain_facts<br/>second_brain_questions · second_brain_insights")]
+  LLM["🔌 Shared LLM endpoint"]
+  CHAT["🤖 Assistant chat<br/>reads the profile on every turn"]
+
+  READ --> SVC
+  ASK --> SVC
+  WRITE --> SVC
+  EDIT --> SVC
+  SVC --> STORE
+  SVC --> SIG
+  SVC --> AI
+  SIG -->|"enabled sources only"| DATA
+  STORE --> TABLES
+  AI --> LLM
+  STORE -->|"profile lines"| CHAT
+  ASK -.->|"a draft the person sends"| CHAT

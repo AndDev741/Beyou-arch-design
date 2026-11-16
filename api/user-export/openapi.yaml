@@ -22,7 +22,8 @@ paths:
         `goals` (with `parentId` and `archivedAt`), `tasks`, `routines` (`type` is
         DAILY or LIST, items carry `orderIndex`), `feedback`, `agentChats`,
         `checkHistory` (the last 366 days), `moodEntries` (notes in full),
-        `calendarTasks`, `quickNotes`, `notebook` (`pages`, `board`, `flashcards`,
+        `calendarTasks`, `quickNotes`, `secondBrain` (`facts`, `questions`,
+        `insight`, `sources`), `notebook` (`pages`, `board`, `flashcards`,
         `flashcardReviews`, `sources`, `studyChats`, `studyOutputs`, `roadmapDrafts`,
         `studyCycles` with each cycle's week, topics, blocks, lap progress and closed
         laps, archived cycles included, and `studySessions` with the cycle and lap
@@ -47,6 +48,17 @@ paths:
         `text`, `color`, the spot and stacking order (`x`, `y`, `z`), `archivedAt`,
         `convertedTaskId` (the task it became, or null), `createdAt` and `updatedAt`,
         so the file holds enough to draw the board again.
+
+        `secondBrain` is what the Second Brain page holds. `facts` is the profile,
+        oldest first: `id`, `kind`, `text`, `origin` (USER for a line the person
+        typed, ANSWER for one learned from an answer), `createdAt` and `updatedAt`.
+        `questions` is every question the page asked, oldest first, closed ones
+        included, with `id`, `kind`, `text`, `status`, `answer`, `createdAt` and
+        `answeredAt`. The answers travel because an answer is something the person
+        wrote. `insight` is the overview on record (`text`, `verdict`,
+        `generatedAt`), or null for an account that never had one. `sources` lists
+        all six switches with the value in effect, so the file says what Second
+        Brain was allowed to read even where the person never touched a switch.
 
         `notIncluded` names routine snapshots, the text read out of notebook
         sources, the day-by-day XP ledger, the briefing's numbers (recomputed on

@@ -11,7 +11,7 @@ This is the map of the system as it runs in production: every client surface, th
 |-------|-------------|
 | **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. The study notebook adds BlockNote on Mantine 8 for the editor and React Flow for the roadmap board. The Ideas board is React Flow too |
 | **Mobile app** | React Native + Expo (Android first), NativeWind, TypeScript. Shares the state, API client, and i18n packages with the web app through the monorepo |
-| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions and the study notebook's AI (one OpenAI-compatible LLM endpoint), PDFBox and jsoup for notebook sources |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI for the agent chat, onboarding suggestions, the daily briefing's prose, the study notebook's AI and Second Brain (one OpenAI-compatible LLM endpoint), PDFBox and jsoup for notebook sources |
 | **Database** | PostgreSQL 17 in production (a CloudNativePG cluster; tests and the local stacks run 15), Flyway-owned schema (Hibernate validates it, never writes it), UUID primary keys, Caffeine cache in front of hot reads |
 | **Delivery** | GitHub Actions builds the backend image to GHCR; Flux (GitOps) rolls it out on a single-node k3s cluster; CI deploys the web and docs builds to Cloudflare Workers Static Assets with wrangler; Docker Compose for local development and e2e |
 | **Monitoring** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (Sentry-compatible) |
@@ -50,6 +50,8 @@ erDiagram
   USER ||--o{ NOTEBOOK_PAGE : owns
   USER ||--o{ CALENDAR_TASK : owns
   USER ||--o{ QUICK_NOTE : owns
+  USER ||--o{ SECOND_BRAIN_FACT : owns
+  USER ||--o{ SECOND_BRAIN_QUESTION : owns
 
   CATEGORY }o--o{ HABIT : tagged
   CATEGORY }o--o{ TASK : tagged
@@ -90,6 +92,7 @@ erDiagram
 - **Check and XP history**: per-day records behind the dashboard's history and progress widgets.
 - **Calendar task**: a one-off task on a date, with an optional time and a reminder. It lives outside routines, pays a flat 10 XP when completed, and stays on its own day whether done or not.
 - **Quick note**: a post-it on the Ideas board, an inbox for raw ideas. Up to 500 characters, one of six colours, a spot on a free board and a stacking order. The server places a note that comes without a spot, at most 200 sit on the board at once, and a note can be archived, and turned into a task once. No XP.
+- **Second Brain**: what Beyou understands about a person, on one page. A profile of up to 20 short lines that every assistant conversation reads, the questions the page asked with their answers, one generated overview with a verdict (on course, drifting, or too early to tell), and six switches for which data it may read. Nothing on the page reaches the AI provider until the person asks for a first overview. No XP.
 - **Feedback**: in-app feedback reports, delivered with optional screenshots and browsable by an admin.
 - **Study notebook**: everything is a page, a topic being the root one. A page can hold one roadmap board whose nodes open other pages, flashcards on a spaced schedule, and sources (PDF, link, text) a grounded study AI answers from with citations. Study cycles put topics in a queue of time and goal blocks studied lap after lap, fed by pomodoros on the topic's pages and by sessions logged by hand.
 
@@ -139,7 +142,7 @@ sequenceDiagram
 
 ## API layer
 
-37 REST controllers organized by domain, all under `/api/v1`:
+38 REST controllers organized by domain, all under `/api/v1`:
 
 | Group | Controllers | Base paths |
 |-------|-----------|------------|
@@ -151,6 +154,7 @@ sequenceDiagram
 | **Diary** | Mood | /mood |
 | **Calendar** | Calendar | /calendar, /calendar/tasks |
 | **Ideas board** | QuickNote | /quick-notes |
+| **Second Brain** | SecondBrain | /second-brain |
 | **Study notebook** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Daily Briefing** | DailyBriefing | /daily-briefing |
 | **User** | User, UserPhoto, UserExport | /user, /user/photo |
