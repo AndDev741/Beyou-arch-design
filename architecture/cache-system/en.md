@@ -102,7 +102,7 @@ The agent's tools inject the same services the controllers use, so tool reads hi
 
 ## What is deliberately not cached
 
-Seven reads go to the database every time, and each service says why in its own javadoc. Three of them share one reason: the read takes a window of days, so a cache keyed on the user would answer one window with another window's rows, and a composite key would need its own eviction on every write that touches them.
+Eight reads go to the database every time, and each service says why in its own javadoc. Three of them share one reason: the read takes a window of days, so a cache keyed on the user would answer one window with another window's rows, and a composite key would need its own eviction on every write that touches them.
 
 | Read | Why it is not cached |
 |------|----------------------|
@@ -113,6 +113,7 @@ Seven reads go to the database every time, and each service says why in its own 
 | Study cycles (`StudyCycleService`) | The reads also write (a GOAL block gets its concept fixed when it is first opened), and every pomodoro and page status change moves the numbers, so a cached answer would need evicting from the focus, page, board and quiz paths |
 | Calendar (`CalendarService`) | A range per read, and the overview also draws on routine snapshots, goals and mood entries, so every routine check, goal edit and mood tap would have to evict it. What it costs instead is a handful of indexed queries over at most nine weeks |
 | Ideas board (`QuickNoteService`) | One indexed query over at most two hundred short rows, and nothing else in the product is computed from them. A cache would save nothing and could serve a board from before a drag saved on another device |
+| Second Brain (`SecondBrainStore`) | Every read of its own tables is one indexed query over a few dozen short rows, and a switch flipped on the phone has to show on the web at the next read. The page's goals, routine and areas blocks are computed on each read from the repositories of those domains |
 
 None of them is read by a cached method either, which is why their writes evict nothing. The exceptions write into cached data. Completing a calendar task and the notebook's rewards change the user's XP, and turning an Ideas note into a task creates a task, so those three paths run the ordinary per-user eviction.
 

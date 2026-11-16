@@ -11,7 +11,7 @@ Este é o mapa do sistema como ele roda em produção: cada superfície de clien
 |--------|-------------|
 | **Web app** | React 18, TypeScript, Vite, Redux Toolkit, Axios, react-hook-form + Zod, i18next (en/pt), Tailwind CSS 3. O caderno de estudos acrescenta o BlockNote sobre o Mantine 8 para o editor e o React Flow para o quadro de roadmap. O quadro de Ideias também é React Flow |
 | **App mobile** | React Native + Expo (Android primeiro), NativeWind, TypeScript. Divide os pacotes de estado, cliente de API e i18n com o web app pelo monorepo |
-| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding e a IA do caderno de estudos (um único endpoint de LLM compatível com OpenAI), PDFBox e jsoup para as fontes do caderno |
+| **Backend** | Spring Boot 4.1, Java 25 (virtual threads), Spring Security, JWT (auth0 java-jwt), Spring AOP, Spring AI para o chat do agente, as sugestões de onboarding, o texto do resumo do dia, a IA do caderno de estudos e o Segundo Cérebro (um único endpoint de LLM compatível com OpenAI), PDFBox e jsoup para as fontes do caderno |
 | **Banco de dados** | PostgreSQL 17 em produção (um cluster CloudNativePG; os testes e as stacks locais rodam o 15), schema controlado pelo Flyway (o Hibernate valida, nunca escreve), chaves primárias UUID, cache Caffeine na frente das leituras quentes |
 | **Entrega** | GitHub Actions constrói a imagem do backend para o GHCR; o Flux (GitOps) faz o rollout dela num cluster k3s de um nó; o CI faz o deploy dos builds do web e da documentação no Cloudflare Workers Static Assets com o wrangler; Docker Compose para desenvolvimento local e e2e |
 | **Monitoramento** | kube-prometheus-stack (Prometheus, Grafana), Loki + Alloy, GlitchTip (compatível com Sentry) |
@@ -50,6 +50,8 @@ erDiagram
   USER ||--o{ NOTEBOOK_PAGE : possui
   USER ||--o{ CALENDAR_TASK : possui
   USER ||--o{ QUICK_NOTE : possui
+  USER ||--o{ SECOND_BRAIN_FACT : possui
+  USER ||--o{ SECOND_BRAIN_QUESTION : possui
 
   CATEGORY }o--o{ HABIT : marcado
   CATEGORY }o--o{ TASK : marcado
@@ -90,6 +92,7 @@ erDiagram
 - **Histórico de checks e XP**: registros por dia que sustentam os widgets de histórico e progresso do dashboard.
 - **Tarefa do calendário**: uma tarefa avulsa numa data, com horário opcional e um lembrete. Fica fora das rotinas, paga 10 XP fixos quando concluída e continua no próprio dia, feita ou não.
 - **Nota rápida**: um post-it no quadro de Ideias, uma caixa de entrada para ideias cruas. Até 500 caracteres, uma de seis cores, um lugar num quadro livre e uma ordem de empilhamento. O servidor posiciona a nota que chega sem lugar, cabem no máximo 200 no quadro ao mesmo tempo, e uma nota pode ser arquivada, e virar tarefa uma vez. Sem XP.
+- **Segundo Cérebro**: o que o Beyou entende de uma pessoa, numa página. Um perfil de até 20 linhas curtas que toda conversa do assistente lê, as perguntas que a página fez com as respostas, uma visão geral gerada com um veredito (no rumo, à deriva ou cedo para dizer) e seis chaves para os dados que ela pode ler. Nada da página chega ao provedor de IA até a pessoa pedir uma primeira visão geral. Sem XP.
 - **Feedback**: relatos de feedback dentro do app, entregues com screenshots opcionais e navegáveis por um admin.
 - **Caderno de estudos**: tudo é uma página, e o tópico é a página raiz. Uma página pode ter um quadro de roadmap cujos nós abrem outras páginas, flashcards num cronograma espaçado e fontes (PDF, link, texto) a partir das quais uma IA de estudo responde com citações. Os ciclos de estudo põem os tópicos numa fila de blocos de tempo e de objetivo, estudada volta após volta, alimentada pelos pomodoros nas páginas do tópico e pelas sessões lançadas à mão.
 
@@ -139,7 +142,7 @@ sequenceDiagram
 
 ## Camada de API
 
-37 controllers REST organizados por domínio, todos sob `/api/v1`:
+38 controllers REST organizados por domínio, todos sob `/api/v1`:
 
 | Grupo | Controllers | Caminhos base |
 |-------|-------------|---------------|
@@ -151,6 +154,7 @@ sequenceDiagram
 | **Diário** | Mood | /mood |
 | **Calendário** | Calendar | /calendar, /calendar/tasks |
 | **Quadro de Ideias** | QuickNote | /quick-notes |
+| **Segundo Cérebro** | SecondBrain | /second-brain |
 | **Caderno de estudos** | Notebook, NotebookBoard, NotebookCard, NotebookSource, NotebookStudy, NotebookAi, StudyCycle | /notebook/* |
 | **Resumo do Dia** | DailyBriefing | /daily-briefing |
 | **Usuário** | User, UserPhoto, UserExport | /user, /user/photo |

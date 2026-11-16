@@ -1,6 +1,6 @@
 ---
 title: "Modelo de Domínio"
-summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, calendário, quadro de Ideias, caderno de estudos, feedback e chats de IA construídas ao redor."
+summary: "Cada entidade do Beyou: o ciclo central de hábitos, tarefas, metas e rotinas, mais as famílias de histórico, snapshots, Modo Foco, humor, calendário, quadro de Ideias, Segundo Cérebro, caderno de estudos, feedback e chats de IA construídas ao redor."
 ---
 
 Este documento cobre cada entidade do domínio do Beyou, explicando o que cada uma faz pelo usuário e como está estruturada no banco de dados. O objetivo é um modelo mental claro da camada de dados antes de ler ou escrever código.
@@ -9,7 +9,7 @@ Uma regra de base molda tudo aqui: o schema pertence ao Flyway. As migrações e
 
 ## O quadro geral
 
-O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, as tarefas com data do calendário, as notas do quadro de Ideias, o caderno de estudos, as threads de feedback e os chats do agente de IA.
+O domínio do Beyou gira em torno de uma ideia simples: o usuário cria hábitos, tarefas e metas, os organiza em categorias e os executa em rotinas diárias. Cada check gera XP e escreve histórico. Ao redor desse ciclo central ficam as famílias de apoio: as linhas de histórico diário, os snapshots imutáveis de rotina, os ciclos e micro-tarefas do Modo Foco, os registros de humor e o diário, as tarefas com data do calendário, as notas do quadro de Ideias, o perfil e as perguntas do Segundo Cérebro, o caderno de estudos, as threads de feedback e os chats do agente de IA.
 
 ```mermaid
 flowchart TD
@@ -393,6 +393,60 @@ O scheduler de snapshots roda por timezone, usando a coluna de timezone de cada 
 - `ON DELETE CASCADE` a partir de `users`, como `calendar_tasks`. Um quadro de ideias não significa nada depois da conta que o escreveu.
 - Deliberadamente sem cache, como o humor e o caderno. Uma leitura é uma consulta indexada sobre no máximo duzentas linhas curtas, e nada mais no produto é calculado a partir delas.
 
+## Segundo Cérebro
+
+**Papel no produto**: a página que diz à pessoa se ela está no rumo do que disse que quer, ou à deriva. Ela guarda quatro coisas: as chaves do que pode ler, um perfil curto, as perguntas que fez com as respostas, e a última visão geral que escreveu. As regras e a classe dona de cada uma estão no [tópico do Segundo Cérebro](/architecture/second-brain).
+
+Quatro tabelas chegaram juntas na V45.
+
+**SecondBrainSourceSetting** (tabela second_brain_sources): uma linha por conta e fonte em que a pessoa mexeu.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| userId / source | UUID / SecondBrainSource (varchar 24) | Juntos formam a chave primária. ROUTINES, GOALS, MOOD, CALENDAR, NOTEBOOK ou IDEAS, com um CHECK espelhando o enum. Não existe valor JOURNAL, de propósito: o diário de humor nunca é lido por esta funcionalidade |
+| enabled | boolean | |
+| updatedAt | Instant | |
+
+**SecondBrainFact** (tabela second_brain_facts): uma linha por linha do perfil.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| kind | SecondBrainFactKind (varchar 16) | OBJECTIVE, LIKE ou ABOUT, com um CHECK espelhando o enum |
+| text | String (200) | Uma linha, guardada sem os espaços das pontas. O limite também está na coluna, então um cliente que pule o DTO, ou um modelo que ignore o prompt, não consegue guardar mais do que um prompt de chat deveria carregar |
+| origin | SecondBrainFactOrigin (varchar 16) | USER para uma linha digitada na página, ANSWER para uma aprendida de uma resposta. Nunca é atualizada: uma linha aprendida que a pessoa corrigiu continua tendo sido aprendida |
+| createdAt / updatedAt | Instant | |
+
+**SecondBrainQuestion** (tabela second_brain_questions): uma linha por pergunta já feita, aberta ou fechada.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| kind | SecondBrainQuestionKind (varchar 24) | PROFILE_OBJECTIVES, PROFILE_LIKES, PROFILE_ABOUT, CHECK_IN ou FOLLOW_UP. O enum carrega o texto fixo dos quatro primeiros em inglês e em português |
+| text | String (300) | Guardado no idioma em que a conta lia o Beyou quando a pergunta foi feita |
+| status | SecondBrainQuestionStatus (varchar 12) | OPEN, ANSWERED ou SKIPPED, padrão OPEN |
+| answer | String (2000), anulável | O que a pessoa respondeu. Null enquanto OPEN e numa pergunta SKIPPED |
+| createdAt | Instant | |
+| answeredAt | Instant, anulável | Definido ao responder. Uma pergunta pulada fica com null |
+
+**SecondBrainInsight** (tabela second_brain_insights): a visão geral gerada, uma linha por conta, com o id da conta como chave e substituída a cada reescrita.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| text | String (1200) | O serviço corta o modelo em 900 caracteres (`SecondBrainInsight.TEXT_MAX`). A coluna deixa folga, então subir um pouco esse limite não é uma migração |
+| verdict | SecondBrainVerdict (varchar 16) | ON_COURSE, DRIFTING ou TOO_EARLY, com um CHECK espelhando o enum. Coluna própria porque a página o mostra como etiqueta |
+| generatedAt | Instant | A visão geral fica vencida quando isto cai antes do dia atual da conta |
+
+- **Chave ausente é o padrão.** Rotinas, metas e humor ligados, e calendário, caderno e ideias desligados. O padrão mora no enum `SecondBrainSource` e `SecondBrainStore.effectiveSources` é o único leitor, então nada foi preenchido para as contas antigas e uma fonte adicionada depois também não precisa de linhas. A linha é lida pelo JPA e gravada só por um `INSERT ... ON CONFLICT` nativo, porque dois toques numa chave ainda sem linha fariam os dois inserir.
+- **`userId` é um id solto nas quatro**, não uma relação mapeada. Nada aqui precisa da conta em si, e a chave estrangeira e o cascade moram na migração.
+- **No máximo 20 fatos e 5 perguntas abertas por conta.** As escritas que decidem a partir de tudo o que a conta tem (um fato novo, um refill das perguntas, os fatos aprendidos de uma resposta) pegam antes um advisory lock de transação com chave na conta (`pg_advisory_xact_lock(hashtext('second-brain:' + userId))`). Uma conta nova não tem linha para travar, e sem a trava uma página que monta duas vezes faria cada pergunta inicial duas vezes.
+- **As perguntas fechadas ficam guardadas.** A regra das perguntas iniciais ("nunca fazer esta pergunta duas vezes") e o prompt de acompanhamento ("não se repita") leem essas perguntas. Uma pergunta fecha uma vez, porque responder e pular a leem sob uma trava de linha.
+- **A linha da visão geral também é o aceite.** `SecondBrainStore.hasInsight` é como o serviço sabe que a pessoa pediu uma primeira visão geral, e até essa linha existir nenhum modelo é chamado para as perguntas nem para as respostas.
+- Toda busca de um fato ou de uma pergunta é por id e dono juntos (`findByIdAndUserId`, `lockByIdAndUserId`), então a linha de outra pessoa se comporta igual a uma que não existe: 404 `SECOND_BRAIN_FACT_NOT_FOUND` ou `SECOND_BRAIN_QUESTION_NOT_FOUND`. É o terceiro domínio a responder assim, depois do calendário e do quadro de Ideias.
+- Dois índices: `(user_id)` nos fatos, usado por toda leitura e pela contagem por trás do limite, e `(user_id, status)` nas perguntas, para a lista aberta da página e a contagem do refill.
+- O perfil é a única parte lida fora da página: o prompt de sistema do assistente o leva a cada turno (veja [Chats do agente de IA](#chats-do-agente-de-ia)).
+- O diário não tem coluna aqui e nunca é copiado para cá. Os níveis de humor são lidos na hora do pedido por uma consulta que não seleciona a anotação.
+- `ON DELETE CASCADE` a partir de `users` nas quatro, como `quick_notes`. Nada disso significa alguma coisa depois da conta que descreve.
+- Deliberadamente sem cache, como as notas rápidas e o humor. Toda leitura é uma consulta indexada sobre algumas dezenas de linhas curtas, e uma chave virada no celular precisa aparecer na web na leitura seguinte.
+
 ## Caderno de estudos
 
 **Papel no produto**: onde alguém organiza um assunto que está aprendendo. Um tópico vira um quadro de roadmap, cada nó abre uma página de anotações, fontes entram nas páginas para uma IA de estudo ancorada nelas, e flashcards voltam num cronograma espaçado. Nove tabelas chegaram juntas na V34, todas com cascade a partir de `users`. As regras e a classe dona de cada uma estão no [tópico do caderno de estudos](/architecture/study-notebook).
@@ -519,6 +573,7 @@ documento de segurança para a regra de resolução que essas linhas alimentam.
 - **Chat** (tabela chats): pertence a um User, tem título e userContextInChat, uma memória de 1000 caracteres do escopo do chat que o modelo reescreve conforme a conversa evolui. A entidade do usuário carrega o equivalente global de 2000 caracteres (userContext).
 - **AgentMessage** (tabela agent_message): deliberadamente sem relacionamento JPA com o Chat, só uma coluna chatId com o cascade por conta de uma FK do banco. Cada mensagem guarda o papel, um array JSON de segmentos de conteúdo e um sequenceId, único por chat, que torna a ordenação explícita em vez de dependente de timestamp.
 - O Spring AI gerencia sua própria tabela spring_ai_chat_memory para a janela de curto prazo do modelo; ela não tem entidade JPA.
+- O prompt de sistema de cada turno também leva o perfil do Segundo Cérebro da pessoa. Essas linhas não são estado do agente: moram em second_brain_facts (acima), o modelo não pode gravá-las, e resetar o agente as deixa no lugar.
 
 ## Entidades de auth e conta
 
@@ -623,6 +678,7 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | User (nível de banco) | StudyCycle, StudySession | ON DELETE CASCADE | As outras cinco tabelas do ciclo de estudos vêm em cascade por `study_cycles`, então a exclusão da conta leva as sete |
 | StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
 | User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
+| User (nível de banco) | Linhas de SecondBrainSourceSetting, SecondBrainFact, SecondBrainQuestion, SecondBrainInsight | ON DELETE CASCADE | Por conta da FK do banco. As chaves, o perfil, as perguntas com as respostas e a visão geral vão embora com a conta |
 | Task (nível de banco) | QuickNote.converted_task_id | ON DELETE SET NULL | A nota arquivada fica e deixa de apontar para a tarefa. Apagar uma tarefa nunca é barrado pelo post-it de onde ela veio |
 | ItemGroup (nível de banco) | Linhas de item_group_days | ON DELETE CASCADE | Os dias não significam nada sem o item. O runbook de exclusão de conta apaga grupos de item em SQL direto, e uma FK comum bloquearia isso |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
@@ -684,6 +740,13 @@ flowchart LR
     quick_notes
   end
 
+  subgraph secondbrain["Segundo Cérebro"]
+    second_brain_sources
+    second_brain_facts
+    second_brain_questions
+    second_brain_insights
+  end
+
   subgraph notebook["Caderno de estudos"]
     notebook_pages
     notebook_board_nodes
@@ -731,4 +794,4 @@ flowchart LR
   end
 ```
 
-Todas as chaves primárias são UUIDs, exceto a de xp_by_level, cuja chave é o próprio level. Os timestamps são definidos por callbacks de ciclo de vida do JPA. As tabelas docs_* seguem um padrão repetido: uma raiz de tópico com chave única mais uma linha de conteúdo por idioma, importadas do repositório beyou-arch-design.
+Todas as chaves primárias são UUIDs, exceto a de xp_by_level, cuja chave é o próprio level, e a de second_brain_sources, que é o par usuário e fonte. Os timestamps são definidos por callbacks de ciclo de vida do JPA. As tabelas docs_* seguem um padrão repetido: uma raiz de tópico com chave única mais uma linha de conteúdo por idioma, importadas do repositório beyou-arch-design.

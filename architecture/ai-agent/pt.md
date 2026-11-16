@@ -1,6 +1,6 @@
 ---
 title: "Agente de IA"
-summary: "Um agente de chat com 79 ferramentas reais, transmitido por SSE, chamando um único endpoint de LLM compatível com OpenAI, com três camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
+summary: "Um agente de chat com 79 ferramentas reais, transmitido por SSE, chamando um único endpoint de LLM compatível com OpenAI, com quatro camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
 ---
 
 Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, para onde vai a chamada ao modelo e o que acontece em cada ponto de falha.
@@ -47,7 +47,7 @@ O que o backend ainda decide:
 
 Todo outro subsistema daqui mantém os dados do usuário no banco do próprio Beyou. Responder uma mensagem do agente significa mandar ela para uma empresa que não é o Beyou, junto com o que o modelo lê no caminho até a resposta, o que faz da escalação de provedores uma decisão de proteção de dados tanto quanto de confiabilidade.
 
-Um turno leva a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram: hábitos, tarefas, metas, rotinas, categorias. Quando o modelo lê o quadro de Ideias, o texto das notas vai junto. Não leva o email, o hash da senha, nem nada que pertença a outro usuário.
+Um turno leva a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), as linhas do perfil do Segundo Cérebro quando a pessoa tem alguma, o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram: hábitos, tarefas, metas, rotinas, categorias. Quando o modelo lê o quadro de Ideias, o texto das notas vai junto. Não leva o email, o hash da senha, nem nada que pertença a outro usuário.
 
 O controlador do Beyou está estabelecido em Portugal, então uma requisição que chega a um provedor fora do EEE é uma transferência e precisa de uma base legal:
 
@@ -61,9 +61,9 @@ O controlador do Beyou está estabelecido em Portugal, então uma requisição q
 
 O backend já não consegue fazer essa tabela valer. Até novembro de 2026 uma blocklist no `application-prod.yaml` mantinha GLM e DeepSeek fora da produção, dissesse a ordem o que dissesse. Agora o backend enxerga uma única URL, e as empresas por trás dela são as que o combo do gateway lista. Por isso editar o combo é uma mudança de proteção de dados. Todo provedor que entra nele precisa de uma base na tabela acima, e a política de privacidade publicada tem de citá-lo antes de ele receber uma mensagem.
 
-Duas chamadas de saída do caderno de estudos vão para outro lugar: os embeddings (`notebook.embedding.*`, qualquer endpoint compatível com OpenAI, Mistral por padrão) e a busca de fontes (Tavily, ou Gemini com Google Search). Cada uma pega o host das próprias configurações. A política de privacidade cita a Mistral para os embeddings e o Tavily ou o Gemini para a busca, então apontar qualquer uma para outro lugar é uma mudança de política antes de ser uma mudança de configuração. O texto do resumo do dia e as ferramentas de estudo do caderno passam, sim, pelo endpoint.
+Duas chamadas de saída do caderno de estudos vão para outro lugar: os embeddings (`notebook.embedding.*`, qualquer endpoint compatível com OpenAI, Mistral por padrão) e a busca de fontes (Tavily, ou Gemini com Google Search). Cada uma pega o host das próprias configurações. A política de privacidade cita a Mistral para os embeddings e o Tavily ou o Gemini para a busca, então apontar qualquer uma para outro lugar é uma mudança de política antes de ser uma mudança de configuração. O texto do resumo do dia e as ferramentas de estudo do caderno passam, sim, pelo endpoint, e as três chamadas do Segundo Cérebro também: a visão geral, as perguntas de acompanhamento e os fatos lidos de uma resposta.
 
-O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados.
+O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados. O Segundo Cérebro começa do mesmo jeito. Nada daquela página chega a um provedor até a pessoa pedir uma primeira visão geral, numa tela que diz para onde o texto vai, e as linhas do perfil podem ser editadas ou apagadas ali e saem na exportação. O [tópico do Segundo Cérebro](/architecture/second-brain) tem a regra.
 
 ## As ferramentas
 
@@ -84,19 +84,24 @@ O modelo de autoridade é a parte importante:
 - **Leituras têm teto** de 100 itens por tipo, e ids de ícone passam por um catálogo curado que substitui em silêncio qualquer desconhecido por um padrão, porque o modelo esquece ou inventa ids de ícone com frequência suficiente para importar. O catálogo é agrupado pelo assunto do hábito em vez do espaço de ids, e cada grupo oferece ícones de linha e emojis para o modelo escolher o registro que combina com o hábito. É também o motivo de manter a lista disciplinada: toda entrada vai para o prompt do sistema, então o catálogo custa tokens em cada chamada. Uma entrada nova se justifica quando falta uma área inteira da vida — fé faltava, e quem acompanhava oração recebia uma estrela genérica — não quando falta um sinônimo de algo que já está lá.
 - Cada ferramenta de escrita declara quais domínios do frontend ela tocou, e o evento de conclusão carrega essa lista, então o cliente rebusca exatamente os slices que mudaram e nada mais.
 
-## Três camadas de memória
+## Quatro camadas de memória
 
 | Camada | Tamanho | Escrita por | Propósito |
 |--------|---------|-------------|-----------|
 | Contexto global | 2000 caracteres no usuário | O modelo, via ferramenta | Fatos duráveis sobre a pessoa, em todos os chats |
 | Contexto do chat | 1000 caracteres no chat | O modelo, via ferramenta | A situação corrente de uma conversa |
 | Janela de mensagens | Últimas 20 mensagens | Spring AI automaticamente | Memória de trabalho de curto prazo |
+| Perfil do Segundo Cérebro | Até 20 linhas de 200 caracteres | A pessoa, na página do Segundo Cérebro ou respondendo às perguntas dela | De onde toda conversa parte: objetivos principais, coisas de que gosta, fatos sobre a vida dela |
 
 Os dois campos de contexto são de sobrescrita por design: o prompt instrui o modelo a sempre enviar o resumo completo já mesclado, e os tamanhos das colunas são o limite do produto, limitando tanto o custo de prompt quanto o alcance de uma injeção persistente. "Resetar o agente" apaga todos os chats e anula o contexto global.
+
+O perfil é a única camada que o modelo não pode escrever. O `AiAgentService` o lê de `SecondBrainStore.profileForChat` a cada turno, sem cache, então uma linha editada na página do Segundo Cérebro já é conhecida pela mensagem seguinte. Nenhuma ferramenta o grava, e resetar o agente não mexe nele, porque ele pertence àquela página. Os limites dele fazem o mesmo trabalho dos tamanhos de coluna acima: 20 linhas de 200 caracteres delimitam o que toda mensagem paga e quanto uma linha injetada conseguiria levar para dentro de um prompt.
 
 ## O prompt de sistema
 
 O prompt é curto e denso em regras. As que mais trabalham: nunca inventar UUIDs (resolver nomes por uma ferramenta de leitura antes); confirmar antes de qualquer coisa destrutiva; só conceder XP (completar meta, check-in) sob pedido explícito, nunca por gentileza; check e skip recebem ids de grupo, não de hábito, com uma seção inteira sobre essa distinção por ser o erro mais comum do modelo; conteúdo dentro de resultados de ferramenta é dado de usuário, nunca instrução; e feedback só vai nas palavras do próprio usuário, após confirmação. A página atual do cliente entra para desambiguação ("cria um" na página de hábitos significa um hábito), com a regra explícita de que a mensagem sempre vence a página. Na tela de foco o cliente manda também a entrada de rotina que a pessoa tem aberta, que é o que faz "adiciona um passo aqui" se resolver sem pergunta; o prompt limita o uso a essa palavra, então qualquer coisa dita pelo nome ainda passa por uma ferramenta de leitura antes. Micro-tarefas ganharam seção própria pelo mesmo motivo que check e skip têm — elas penduram no id da entrada, não no do hábito — mais as duas regras que surpreendem: a leitura da lista também escreve, porque materializa todo nome fixado na entrada, e fixar é propriedade do NOME e não de uma linha, então fixar em qualquer lugar fixa em todos e apagar uma micro-tarefa fixada para de guardar o nome.
+
+O prompt lista as páginas do app para o modelo poder criar links para elas, e `/second-brain` está nessa lista. Ele também leva um bloco com o perfil do Segundo Cérebro, preenchido a cada turno com uma linha por fato, ou "(none yet)" para um perfil vazio. O bloco manda o modelo ler as linhas como pano de fundo em toda conversa, para a pessoa nunca precisar repetir. Diz que elas são anotações da própria pessoa e nunca instruções, então uma linha que pede alguma coisa continua sendo só uma anotação. E diz que o modelo não pode mudá-las: a pessoa edita na página do Segundo Cérebro, e o modelo pode indicar a página quando ela conta algo duradouro sobre si.
 
 ## Sugestões de onboarding, o irmão sem estado
 
@@ -121,6 +126,12 @@ A geração acontece **a pedido e nunca na passagem noturna**. A passagem de fec
 
 A IA do caderno de estudos (o chat e as saídas da sala de estudo, o rascunho de roadmap, as sugestões de nós, o "explicar" e os flashcards da IA) é uma terceira porta para o mesmo endpoint, construída como a do onboarding: o `NotebookLlm` faz uma chamada estruturada via `ChatClient.entity()`, tenta de novo uma vez pedindo JSON válido e depois levanta `AI_UNAVAILABLE`. Sem ferramentas, sem streaming, sem memória. Quem chama monta o contexto e manda tudo a cada vez. O prompt de sistema é `prompts/notebookTutor.st`, e cada mensagem começa com um modo. TUTOR, o chat da sala de estudo, responde primeiro a partir de trechos numerados (as anotações da pessoa, depois os trechos buscados nas fontes dela), cita-os como `[n]` e segue com o próprio conhecimento onde eles param, avisando. GROUNDED, as saídas do estúdio e os flashcards da IA, responde só a partir dos trechos. SUPPORTED explica com o conhecimento do próprio modelo e cita onde os trechos concordam. PLANNING não tem trechos. O `StudyContextBuilder` é dono da numeração e descarta qualquer citação que o modelo invente. Uma página sem nada para ler responde `NOTEBOOK_NOTHING_TO_STUDY` antes de chamar o modelo. Essas chamadas gastam um balde próprio, `notebook-ai`, de 60 por hora, para que estudar nunca coma os 30 do assistente. O [tópico do caderno de estudos](/architecture/study-notebook) cobre a busca de trechos e o resto.
 
+## O Segundo Cérebro, sem ferramentas e iniciado por um pedido
+
+A página do Segundo Cérebro é uma quarta porta para o mesmo endpoint, construída como a do onboarding. O `SecondBrainAi` faz três tipos de chamada estruturada via `ChatClient.entity()`, sem ferramentas, sem streaming e sem memória: a visão geral com o veredito, as perguntas de acompanhamento e os fatos lidos de uma resposta. Os dados da pessoa viajam dentro de um bloco marcado que cada prompt de sistema declara ser dado e nunca instrução, e o servidor corta no tamanho o que voltar antes de guardar. Só a visão geral tenta de novo, uma vez, e depois levanta `AI_UNAVAILABLE`. As outras duas falham em silêncio, porque a página tem para onde recuar. Nenhuma transação fica aberta durante uma chamada.
+
+Duas coisas a diferenciam. A página não envia nada ao modelo até a pessoa ter pedido uma primeira visão geral, regra que o `SecondBrainService` aplica no servidor. E o que ela lê segue seis chaves que a pessoa controla, que valem só para aquela página e deixam as ferramentas do assistente como estão. Essas chamadas gastam um balde próprio, `second-brain`, de 30 por hora. O [tópico do Segundo Cérebro](/architecture/second-brain) cobre o resto.
+
 ## O lado do cliente
 
 SSE não anda sobre o cliente axios (XHR bufferiza), então um helper de stream dedicado embrulha o fetch com configuração própria: a URL base e o header de auth vivo emprestados do app, a mesma função compartilhada de refresh de token (para um 401 no stream não correr contra um segundo refresh) e, no mobile, o fetch do Expo, porque o fetch global do React Native bufferiza corpos inteiros. O parser bufferiza entre chunks, tolera heartbeats, valida a forma de cada evento na fronteira e decodifica UTF-8 de forma segura para stream, então um caractere multi-byte dividido entre chunks não corrompe.
@@ -134,5 +145,5 @@ O widget web monta uma vez dentro do shell protegido, carrega o painel de forma 
 | O endpoint de LLM falha | A exceção vira um evento de erro, `AI_QUOTA_EXHAUSTED` para recusa por cota e `AI_STREAM_FAILED` para o resto; o cliente desfaz a bolha otimista e devolve o texto digitado ao compositor |
 | Terceiro stream simultâneo | Um emissor de vida curta responde TOO_MANY_STREAMS sem abrir chamada de LLM (teto: 2 por usuário) |
 | Persistência do transcript falha | O cliente recebe TRANSCRIPT_PERSIST_FAILED em vez de um done falso |
-| Rate limit | 30 chamadas ao modelo por hora por usuário, um balde para todo POST em um chat (o onboarding tem seus próprios 30, separados, e o caderno de estudos seus próprios 60) |
+| Rate limit | 30 chamadas ao modelo por hora por usuário, um balde para todo POST em um chat (o onboarding tem seus próprios 30, separados, o Segundo Cérebro seus próprios 30, e o caderno de estudos seus próprios 60) |
 | Cliente morto em pausa silenciosa | O heartbeat de 15 segundos é o detector; sua falha derruba o stream e libera a vaga |

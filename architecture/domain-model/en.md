@@ -1,6 +1,6 @@
 ---
 title: "Domain Model"
-summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, calendar, Ideas board, study notebook, feedback, and AI chat families built around it."
+summary: "Every entity in Beyou: the core loop of habits, tasks, goals, and routines, plus the history, snapshot, Focus Mode, mood, calendar, Ideas board, Second Brain, study notebook, feedback, and AI chat families built around it."
 ---
 
 This document covers every entity in the Beyou domain, explaining what each one does for the user and how it is structured in the database. The goal is a clear mental model of the data layer before reading or writing code.
@@ -9,7 +9,7 @@ One ground rule shapes everything here: the schema belongs to Flyway. Migrations
 
 ## The big picture
 
-Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, dated calendar tasks, the notes on the Ideas board, the study notebook, feedback threads, and the AI agent's chats.
+Beyou's domain revolves around a simple idea: a user creates habits, tasks, and goals, organizes them into categories, and executes them through daily routines. Every check generates XP and writes history. Around that core loop sit the supporting families: daily history rows, immutable routine snapshots, the Focus Mode's cycles and micro-tasks, mood entries and the journal, dated calendar tasks, the notes on the Ideas board, Second Brain's profile and questions, the study notebook, feedback threads, and the AI agent's chats.
 
 ```mermaid
 flowchart TD
@@ -395,6 +395,60 @@ The snapshot scheduler runs per timezone, using each account's own timezone colu
 - `ON DELETE CASCADE` from `users`, like `calendar_tasks`. An idea board means nothing past the account that wrote it.
 - Deliberately not cached, like mood and the notebook. A read is one indexed query over at most two hundred short rows, and nothing else in the product is computed from them.
 
+## Second Brain
+
+**Product role**: the page that tells a person whether they are on course toward what they said they want, or drifting. It keeps four things: the switches for what it may read, a short profile, the questions it asked with their answers, and the last overview it wrote. The rules and the class that owns each are in the [Second Brain topic](/architecture/second-brain).
+
+Four tables arrived together in V45.
+
+**SecondBrainSourceSetting** (table second_brain_sources): one row per account and source the person has touched.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| userId / source | UUID / SecondBrainSource (varchar 24) | Together they are the primary key. ROUTINES, GOALS, MOOD, CALENDAR, NOTEBOOK or IDEAS, with a CHECK mirroring the enum. There is no JOURNAL value, on purpose: the mood journal is never read by this feature |
+| enabled | boolean | |
+| updatedAt | Instant | |
+
+**SecondBrainFact** (table second_brain_facts): one row per line of the profile.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| kind | SecondBrainFactKind (varchar 16) | OBJECTIVE, LIKE or ABOUT, with a CHECK mirroring the enum |
+| text | String (200) | One line, stored with the ends trimmed. The cap sits in the column as well, so a client that skips the DTO, or a model that ignores its prompt, cannot store more than a chat prompt should carry |
+| origin | SecondBrainFactOrigin (varchar 16) | USER for a line typed on the page, ANSWER for one learned from an answer. Never updated: a learned line the person corrected was still learned |
+| createdAt / updatedAt | Instant | |
+
+**SecondBrainQuestion** (table second_brain_questions): one row per question ever asked, open or closed.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| kind | SecondBrainQuestionKind (varchar 24) | PROFILE_OBJECTIVES, PROFILE_LIKES, PROFILE_ABOUT, CHECK_IN or FOLLOW_UP. The enum carries the fixed wording of the first four in English and Portuguese |
+| text | String (300) | Stored in the language the account read Beyou in when the question was asked |
+| status | SecondBrainQuestionStatus (varchar 12) | OPEN, ANSWERED or SKIPPED, default OPEN |
+| answer | String (2000), nullable | What the person wrote back. Null while OPEN and for a SKIPPED question |
+| createdAt | Instant | |
+| answeredAt | Instant, nullable | Set when answered. A skipped question keeps it null |
+
+**SecondBrainInsight** (table second_brain_insights): the generated overview, one row per account, keyed by the account's id and replaced on every rewrite.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| text | String (1200) | The service stops the model at 900 characters (`SecondBrainInsight.TEXT_MAX`). The column leaves headroom, so raising that cap a little is not a migration |
+| verdict | SecondBrainVerdict (varchar 16) | ON_COURSE, DRIFTING or TOO_EARLY, with a CHECK mirroring the enum. A column of its own because the page shows it as a label |
+| generatedAt | Instant | The overview is stale once this falls before the account's current day |
+
+- **A missing switch is the default.** Routines, goals and mood are on, and calendar, notebook and ideas are off. The default lives in the `SecondBrainSource` enum and `SecondBrainStore.effectiveSources` is the only reader, so nothing was backfilled and a source added later needs no rows either. The row is read through JPA and written only by a native `INSERT ... ON CONFLICT`, because two toggles of a switch with no row yet would otherwise both insert.
+- **`userId` is a bare id on all four**, not a mapped relation. Nothing here needs the account itself, and the foreign key and its cascade live in the migration.
+- **At most 20 facts and 5 open questions per account.** The writes that decide from everything the account holds (a new fact, a refill of the questions, the facts learned from an answer) take a transaction-scoped advisory lock keyed on the account first (`pg_advisory_xact_lock(hashtext('second-brain:' + userId))`). A new account has no row to lock, and without the lock a page that mounts twice would ask every starter question twice.
+- **Closed questions are kept.** The starter rule ("never ask this question twice") and the follow-up prompt ("do not repeat yourself") both read them. A question closes once, because answer and skip read it under a row lock.
+- **The overview row is also the opt-in.** `SecondBrainStore.hasInsight` is how the service knows the person has asked for a first overview, and until that row exists no model is called for the questions or the answers.
+- Every lookup of a fact or a question is by id and owner together (`findByIdAndUserId`, `lockByIdAndUserId`), so someone else's row reads exactly like one that does not exist: 404 `SECOND_BRAIN_FACT_NOT_FOUND` or `SECOND_BRAIN_QUESTION_NOT_FOUND`. It is the third domain to answer that way, after the calendar and the Ideas board.
+- Two indexes: `(user_id)` on the facts, which every read and the count behind the limit use, and `(user_id, status)` on the questions, for the page's open list and the refill's count.
+- The profile is the one part read outside the page: the assistant's system prompt carries it on every turn (see [AI agent chats](#ai-agent-chats)).
+- The journal has no column here and is never copied here. Mood levels are read at request time through a query that does not select the note.
+- `ON DELETE CASCADE` from `users` on all four, like `quick_notes`. None of this has a meaning past the account it describes.
+- Deliberately not cached, like quick notes and mood. Every read is one indexed query over a few dozen short rows, and a switch flipped on the phone has to show on the web at the next read.
+
 ## Study notebook
 
 **Product role**: where somebody organises a subject they are learning. A topic is laid out as a roadmap board, every node opens a page of notes, sources attach to pages for a grounded study AI, and flashcards come back on a spaced schedule. Nine tables arrived together in V34, every one cascading from `users`. The rules and the class that owns each are in the [study notebook topic](/architecture/study-notebook).
@@ -521,6 +575,7 @@ resolution rule these rows feed.
 - **Chat** (table chats): belongs to a User, has a title and userContextInChat, a 1000-character chat-scoped memory the model rewrites as the conversation evolves. The user entity carries the 2000-character global counterpart (userContext).
 - **AgentMessage** (table agent_message): deliberately has no JPA relationship to Chat, just a chatId column with the cascade owned by a database FK. Each message stores its role, a JSON array of content segments, and a sequenceId, unique per chat, which makes ordering explicit instead of timestamp-dependent.
 - Spring AI manages its own spring_ai_chat_memory table for the model's short-term window; it has no JPA entity.
+- Every turn's system prompt also carries the person's Second Brain profile. Those lines are not agent state: they live in second_brain_facts (above), the model cannot write them, and resetting the agent leaves them in place.
 
 ## Auth and account entities
 
@@ -625,6 +680,7 @@ Understanding the cascades matters most at account deletion, which relies on the
 | User (DB level) | StudyCycle, StudySession | ON DELETE CASCADE | The other five study cycle tables cascade through `study_cycles`, so account deletion takes all seven |
 | StudyCycle (DB level) | Its days, topics, blocks, lap blocks and closed laps; StudySession.cycle_id | ON DELETE CASCADE, and SET NULL for the session | Deleting a cycle takes everything under it. A logged session stays as the topic's history |
 | User (DB level) | FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend rows | ON DELETE CASCADE | Handled by the database FK |
+| User (DB level) | SecondBrainSourceSetting, SecondBrainFact, SecondBrainQuestion, SecondBrainInsight rows | ON DELETE CASCADE | Handled by the database FK. The switches, the profile, the questions with their answers and the overview all go with the account |
 | Task (DB level) | QuickNote.converted_task_id | ON DELETE SET NULL | The archived note stays and stops pointing at the task. Deleting a task is never blocked by the post-it it came from |
 | ItemGroup (DB level) | item_group_days rows | ON DELETE CASCADE | The days mean nothing without the item. The account-deletion runbook deletes item groups in bulk SQL, which a plain FK would block |
 | ItemGroup (DB level) | FocusMicroTask rows, and FocusCycle.item_group_id | ON DELETE CASCADE, and SET NULL for the cycle | A micro-task means nothing without its item. A finished cycle stays on the record with its minutes |
@@ -686,6 +742,13 @@ flowchart LR
     quick_notes
   end
 
+  subgraph secondbrain["Second Brain"]
+    second_brain_sources
+    second_brain_facts
+    second_brain_questions
+    second_brain_insights
+  end
+
   subgraph notebook["Study notebook"]
     notebook_pages
     notebook_board_nodes
@@ -733,4 +796,4 @@ flowchart LR
   end
 ```
 
-All primary keys are UUIDs except xp_by_level, whose key is the level itself. Timestamps are set via JPA lifecycle callbacks. The docs_* tables follow one repeated pattern: a topic root with a unique key plus a per-locale content row, imported from the beyou-arch-design repository.
+All primary keys are UUIDs except xp_by_level, whose key is the level itself, and second_brain_sources, which is keyed by the user and the source. Timestamps are set via JPA lifecycle callbacks. The docs_* tables follow one repeated pattern: a topic root with a unique key plus a per-locale content row, imported from the beyou-arch-design repository.

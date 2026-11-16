@@ -2,10 +2,10 @@ flowchart TD
   C["⚛️ Web / 📱 Mobile<br/>SSE over fetch"]
   C -->|"POST /ai/agent/chats/{id}/stream"| SVC["🤖 AiAgentService<br/>2 streams max per user · 30/h"]
 
-  SVC --> MEM["🧠 Memory<br/>global 2000 · chat 1000 · window 20"]
+  SVC --> MEM["🧠 Memory<br/>global 2000 · chat 1000 · window 20<br/>Second Brain profile · 20 lines"]
   SVC --> LLM["🔌 LLM endpoint<br/>one OpenAI-compatible URL<br/>the gateway picks the provider"]
 
-  LLM --> TOOLS["🛠️ 74 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
+  LLM --> TOOLS["🛠️ 79 tools<br/>ToolContext carries identity<br/>args revalidated · reads capped"]
   TOOLS --> DOM["⚙️ Same domain services<br/>as the REST API"]
 
   SVC -->|"token · tool · done events<br/>persist before done"| C

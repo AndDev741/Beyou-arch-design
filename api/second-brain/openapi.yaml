@@ -1,0 +1,819 @@
+openapi: 3.1.0
+info:
+  title: Second Brain
+  version: v0
+  description: |
+    The Second Brain page: what Beyou understands about the caller's life, the questions it still
+    has, the short profile every assistant conversation reads, and the switches for what it may
+    read. The page answers one question, whether the person is on course toward what they said
+    they want or drifting away from it. Every route is authenticated by the default rule and
+    scoped to the caller.
+
+    **One read draws the page.** `GET /second-brain` returns all seven blocks (the overview, the
+    open questions, the goals ahead, routine adherence, the life areas, the profile and the six
+    switches) and writes nothing. Every percentage and every verdict in it is computed on the
+    server, so the web app and the phone app cannot round the same week two ways.
+
+    **Three routes can call a model, and the others never do.** `POST /second-brain/questions/refill`,
+    `POST /second-brain/questions/{id}/answer` and `POST /second-brain/insight/refresh` spend one
+    `second-brain` rate-limit bucket between them, 30 calls per user per hour. It has the
+    assistant's quota shape under a key of its own, so Second Brain never eats the assistant's
+    budget, and one key covers the three routes so that alternating between them buys no second
+    budget. The page read falls under the `read` tier, and the switches, the facts and a skip
+    under `write`.
+
+    **The model calls have no tools.** Each one is a stateless structured call to the shared LLM
+    endpoint with no memory and no advisors, so all the model can return is text, and the server
+    cuts that text to size before storing it. The person's data travels in the user message
+    inside a marked block, and each system prompt says that the block is data and never an
+    instruction. No database transaction is open while a call runs: the service reads what the
+    prompt needs in a short transaction, calls the model with none open, and writes what came
+    back in another short one.
+
+    **Nothing on this page reaches the model until the person asks for a first overview.** The
+    overview refresh is the opt-in. The page offers the first one as a button with the AI privacy
+    notice beside it and never writes it unprompted. The other two model-backed routes check on
+    the server that an overview row exists for the account before they call the model
+    (`SecondBrainService.aiInUse`). Until then a refill writes no follow-up, an answer to a
+    starter question is kept word for word as one profile fact, and an answer to a check-in adds
+    nothing to the profile. The rule lives on the server so that a client cannot start the AI
+    side by accident and a new client cannot forget to ask.
+
+    That rule covers this page's own model calls. The profile is also added to the assistant's
+    system prompt on every turn, so a person who uses the assistant sends their profile lines to
+    the provider with each message, whether or not they ever asked for an overview.
+
+    **With no LLM endpoint configured the page still works.** `aiAvailable` is false, the starter
+    questions and the daily check-in are still asked, an answer to a starter question becomes a
+    profile fact as written, and only the overview refresh is refused, with `AI_UNAVAILABLE`.
+
+    **The switches govern Second Brain only.** A source that is off is not queried at all, so it
+    reaches neither the page nor a prompt. The assistant chat keeps its own tools and its own
+    access to the same data. Diary text is never read under any setting: mood comes in as levels
+    through a query that does not select the note, and no switch exists that could turn the
+    journal on.
+
+    **Someone else's fact or question does not exist.** Every lookup carries the owner's id, so a
+    row the caller does not own answers 404 (`SECOND_BRAIN_FACT_NOT_FOUND`,
+    `SECOND_BRAIN_QUESTION_NOT_FOUND`), exactly like an id nobody ever used. A full profile
+    answers 409 `SECOND_BRAIN_FACT_LIMIT_REACHED`, and a question already answered or skipped
+    answers 409 `SECOND_BRAIN_QUESTION_CLOSED`. The statuses come from the two opt-in lists in
+    `GlobalExceptionHandler`, `NOT_FOUND_KEYS` and `CONFLICT_KEYS`, which the calendar and the
+    Ideas board use as well. `AI_UNAVAILABLE` and `INVALID_REQUEST` answer 400.
+
+    **Writes that decide from everything the account holds take turns.** A new fact (the limit of
+    20), a refill (the starter questions, the daily check-in, the limit of five open questions)
+    and the facts learned from an answer each read first and then write what the read decided.
+    Each takes a transaction-scoped Postgres advisory lock keyed on the account before it reads,
+    so a page that mounts twice does not ask every starter question twice. An advisory lock,
+    because a new account has no row to lock.
+
+    Nothing here is cached. Second Brain's own rows are a few dozen short ones behind indexed
+    queries, it reads the other domains through their repositories, and a switch flipped on the
+    phone has to show on the web at its next read.
+servers:
+- url: http://localhost:8099/api/v1
+  description: Generated server url
+paths:
+  /second-brain:
+    get:
+      tags:
+      - second-brain-controller
+      operationId: overview
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainOverviewDTO'
+      summary: The whole page in one read
+      description: |
+        Everything the page draws, read in one read-only transaction. It writes nothing: no
+        question is asked and no overview is written by opening the page. The page follows this
+        read with a refill when one is due, and with an overview refresh when an overview already
+        exists (`insight.text` is set), `insight.stale` is true and `aiAvailable` is true. A first
+        overview is never asked for automatically.
+
+        Three blocks come from the caller's other data and follow the switches. `goalsAhead` is
+        empty when GOALS is off. `routine` is null and `areas` is empty when ROUTINES is off. An
+        empty list alone does not say which case it is, so a client reads `sources` to tell
+        "switched off" from "nothing yet". MOOD, CALENDAR, NOTEBOOK and IDEAS feed the prompts
+        only, so turning them on or off changes nothing in this response besides their own entry
+        in `sources`.
+
+        "Today" is the account's own day, resolved from its timezone, and the two weeks the
+        routine and areas blocks cover end yesterday.
+  /second-brain/sources/{source}:
+    put:
+      tags:
+      - second-brain-controller
+      operationId: setSource
+      parameters:
+      - name: source
+        in: path
+        required: true
+        description: One of the six `SecondBrainSource` names. Letter case does not matter.
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainSourceToggleRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecondBrainSourceDTO'
+        '400':
+          description: '`INVALID_REQUEST`: a source name that is not one of the six, or a body
+            without `enabled`.'
+      summary: Turn one source on or off
+      description: |
+        Sets one switch and answers all six, in enum order, each with the value in effect, so the
+        client redraws the whole list from one response.
+
+        `enabled` is required. It is a boxed Boolean on the record, so a body without the field is
+        refused instead of being read as false. A name outside the list answers 400, and that
+        includes JOURNAL: the mood journal has no source on purpose.
+
+        A row is stored only for a switch the person has touched, and a source with no row
+        follows its default. The write is one `INSERT ... ON CONFLICT` statement, so two toggles
+        of a switch that has no row yet cannot collide.
+
+        The change applies to the next read and the next prompt. It does not rewrite the overview
+        or the questions already stored, so an overview written while a source was on keeps its
+        text until the next rewrite.
+  /second-brain/facts:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: createFact
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainFactRequestDTO'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainFactDTO'
+        '400':
+          description: A missing or unknown `kind`, blank text, or text over 200 characters. The
+            validation failures answer `INVALID_REQUEST` with a per-field map.
+        '409':
+          description: '`SECOND_BRAIN_FACT_LIMIT_REACHED`: the profile already holds 20 facts.
+            Deleting one makes room.'
+      summary: Add a line to the profile
+      description: |
+        A fact the person typed. Both fields are required, the text is stored with leading and
+        trailing spaces stripped, and the new fact has origin USER.
+
+        **At most 20 facts per account**, typed and learned together, of 200 characters each. The
+        whole profile is added to the assistant's system prompt on every turn, so its size is a
+        cost on every message. The model calls behind this page have no tools, which leaves one
+        thing a prompt injection hidden in the person's own data could do: change what gets saved
+        as a fact. These two caps bound how much of that can persist and later reach a chat
+        prompt. The count and the insert run under the account's advisory lock, so two creates at
+        19 cannot make 21.
+  /second-brain/facts/{id}:
+    put:
+      tags:
+      - second-brain-controller
+      operationId: editFact
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainFactRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainFactDTO'
+        '400':
+          description: A missing or unknown `kind`, blank text, or text over 200 characters.
+        '404':
+          description: '`SECOND_BRAIN_FACT_NOT_FOUND`: no such fact, or it belongs to someone else.'
+      summary: New words and kind for a fact
+      description: |
+        The same body as a create, and both fields are required. `updatedAt` moves. `origin` does
+        not: a fact learned from an answer and then corrected by the person was still learned,
+        and the page keeps saying where it came from.
+    delete:
+      tags:
+      - second-brain-controller
+      operationId: deleteFact
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: '`SECOND_BRAIN_FACT_NOT_FOUND`: no such fact, or it belongs to someone else.'
+      summary: Delete a fact
+      description: |
+        Removes the line from the profile, typed or learned. The assistant stops reading it on
+        its next turn, since the profile is read fresh for every message.
+  /second-brain/questions/refill:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: refill
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecondBrainQuestionDTO'
+      summary: Top the question list up
+      description: |
+        Decides which questions are due, stores them, and answers the OPEN questions, oldest
+        first. No body. The order is fixed:
+
+        1. **Starter questions.** Three fixed questions, one per fact kind. Each is asked when the
+           profile has no fact of its kind and that question was never asked before, answered or
+           skipped, so an account meets each one once at most.
+        2. **The daily check-in.** One per day of the account's own calendar, when the ROUTINES
+           source is on and a routine runs that day.
+        3. **Follow-ups.** Written by the model from the enabled sources, the profile and the
+           last 15 questions with what became of each. The model is asked only when an LLM
+           endpoint is configured, the account already has an overview, there is room under the
+           limit and no follow-up was stored in the last six hours.
+
+        **No overview yet means no model call.** Asking for the first overview is how a person
+        starts the AI side of the page, from a screen that says the text goes to an external AI
+        provider. Before that this route stops after the first two steps, which need no model,
+        and sends nothing of the person's anywhere.
+
+        **Never more than five questions are open at once.** More than a handful reads as a form
+        to fill in. The steps stop at the limit, and the model is asked for exactly as many
+        follow-ups as there is room left. The room and the six-hour pause are read again under
+        the account's lock when the follow-ups are stored, because the model was called with no
+        transaction open and another refill may have stored its own meanwhile. The second one to
+        arrive then stores nothing.
+
+        The starter and check-in wording is fixed in English and Portuguese and stored on the
+        question in the language the account reads Beyou in at that moment, so a question reads
+        the same after the person switches language. A follow-up is cut at 300 characters, and
+        one that repeats one of the last 15 questions word for word is dropped.
+
+        A model that fails or runs out of its 45 seconds costs nothing but a warning in the log.
+        The route still answers 200 with the questions that were already there.
+
+        The clients do not call this on every visit. A shared rule decides: an empty list always
+        asks, a full list never does, and anything in between asks at most once an hour per app.
+  /second-brain/questions/{id}/answer:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: answer
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainAnswerRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainAnswerResultDTO'
+        '400':
+          description: '`INVALID_REQUEST`: a blank answer, or one over 2000 characters.'
+        '404':
+          description: '`SECOND_BRAIN_QUESTION_NOT_FOUND`: no such question, or it belongs to
+            someone else.'
+        '409':
+          description: '`SECOND_BRAIN_QUESTION_CLOSED`: the question was already answered or
+            skipped. Nothing was stored and nothing was learned.'
+      summary: Answer a question
+      description: |
+        Closes the question with the answer and says which facts the answer added to the profile.
+
+        **The answer is stored before anything is learned from it.** The question is read under a
+        row lock and closed in a transaction that commits before the model is asked. The answer
+        is therefore kept whatever the model does next, and the second submit of a double click
+        gets 409 instead of a second set of facts.
+
+        **The model reads the answer only for an account that already has an overview**, and only
+        when an LLM endpoint is configured. Asking for the first overview is the person's opt-in
+        to the AI side of the page, and until then this route calls no model.
+
+        What is learned depends on the question's kind:
+
+        - **A starter question** always tries to leave something. With the model in use, it splits
+          the answer into at most three facts of that question's own kind, whatever kind the
+          model wrote. Before the first overview, with no endpoint configured, on a failed call or
+          on an empty split, the answer itself becomes one fact, word for word, cut to 200
+          characters.
+        - **A check-in or a follow-up** leaves only what the model judges will still be true a
+          month from now, at most two facts, the model choosing each kind. Most of these answers
+          are about today, so the usual result is none. Before the first overview, or with no
+          endpoint configured, nothing is learned.
+
+        **`learned` may be empty, and that is not an error.** The answer held nothing lasting, or
+        the model was not in use for a check-in or follow-up answer, or the profile is already at
+        its 20 facts, or the profile already holds the same fact word for word, or the model
+        failed on a check-in or follow-up answer. In every one of those cases the question is
+        closed and the answer is stored. Facts are added in the order the answer gave them, as
+        many as fit under the limit, each with origin ANSWER.
+
+        Answering never changes a routine, a habit or a task. After a check-in or a follow-up the
+        clients offer to hand the question and the answer to the assistant as a draft message,
+        and the assistant acts only once the person sends it.
+  /second-brain/questions/{id}/skip:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: skip
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainQuestionDTO'
+        '404':
+          description: '`SECOND_BRAIN_QUESTION_NOT_FOUND`: no such question, or it belongs to
+            someone else.'
+        '409':
+          description: '`SECOND_BRAIN_QUESTION_CLOSED`: the question was already answered or
+            skipped.'
+      summary: Skip a question
+      description: |
+        Closes the question without an answer: `status` becomes SKIPPED, and `answer` and
+        `answeredAt` stay null. The row is kept. A skipped starter question is never asked again,
+        and the follow-up prompt lists a skipped question as declined and tells the model to leave
+        its subject alone. No model is called, so this route spends the `write` tier.
+  /second-brain/insight/refresh:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: refreshInsight
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainInsightDTO'
+        '400':
+          description: '`AI_UNAVAILABLE`: no LLM endpoint is configured, the model failed on
+            the attempt and on its one retry, or it answered with no text. The overview on record
+            is left as it was.'
+      summary: Write the overview again
+      description: |
+        Has the model write the overview and answers it, with `stale` false. The account keeps one
+        overview, replaced on every refresh by a single upsert.
+
+        **The first call is the opt-in to the AI side of the page.** This route is the only one
+        that sends the person's data to the model for an account with no overview yet. Once it
+        has stored one, refills may write follow-ups and answers may be read for facts. The page
+        reaches the first call through a button, "Write my overview", with a notice beside it
+        saying that the overview and some of the questions are written by an external AI
+        provider, from the sources switched on, the profile lines and the answers.
+
+        The model is given one data block: a section for each enabled source, the profile, and
+        the person's latest answers, up to eight, each cut to 300 characters. It returns a verdict
+        and a text. The verdict is read leniently and anything unrecognised becomes TOO_EARLY,
+        because a verdict the model did not clearly give must not be shown as one. The text is
+        collapsed to one paragraph and cut at the last whole sentence that fits in 900 characters.
+
+        The call has 90 seconds in all, one retry included, and the retry starts only when at
+        least 20 seconds are left. The proxy in front of the API drops a request at 100 seconds,
+        so the server stops first and answers `AI_UNAVAILABLE`.
+
+        The page calls this in two cases. One is the person asking, for the first overview or for
+        a rewrite. The other is automatic, once per visit, when `GET /second-brain` reports an
+        existing overview stale and `aiAvailable` true. That second case is what rewrites the
+        overview on the first visit of each later day of the account's own calendar. The server
+        never writes an overview unasked, so a day without a visit writes nothing.
+components:
+  schemas:
+    SecondBrainSource:
+      type: string
+      enum:
+      - ROUTINES
+      - GOALS
+      - MOOD
+      - CALENDAR
+      - NOTEBOOK
+      - IDEAS
+      description: |
+        The Beyou data Second Brain may read, one switch each. ROUTINES, GOALS and MOOD are on
+        for an account that never touched them. CALENDAR, NOTEBOOK and IDEAS are off.
+
+        - ROUTINES: the routine snapshots of the 14 days ending yesterday, which are the routine
+          and areas blocks and the week's patterns in the prompts. The daily check-in question
+          needs it too.
+        - GOALS: the open goals that have an end date, the three closest to it, with their pace.
+        - MOOD: the level logged on each of those 14 days, given to the model as two weekly
+          averages. Never the journal text.
+        - CALENDAR: open calendar tasks dated up to 21 days ahead, the overdue ones included, at
+          most 30, as a title and a distance in days.
+        - NOTEBOOK: the titles of the 20 most recently updated study topics with how many of their
+          subtopics are done. Never what a page says.
+        - IDEAS: the text of the 15 newest notes on the Ideas board. Archived notes are left out.
+
+        A CHECK constraint in the table mirrors the list. There is no JOURNAL value on purpose.
+    SecondBrainFactKind:
+      type: string
+      enum:
+      - OBJECTIVE
+      - LIKE
+      - ABOUT
+      description: |
+        What a profile fact is about. OBJECTIVE is something the person is working toward, LIKE
+        something they enjoy, ABOUT their circumstances: who they live with, what they do, how
+        their week is shaped. The page groups the profile under these three headings.
+    SecondBrainFactOrigin:
+      type: string
+      enum:
+      - USER
+      - ANSWER
+      description: USER was typed on the page. ANSWER was learned from an answer to a question.
+        An edit does not change it.
+    SecondBrainQuestionKind:
+      type: string
+      enum:
+      - PROFILE_OBJECTIVES
+      - PROFILE_LIKES
+      - PROFILE_ABOUT
+      - CHECK_IN
+      - FOLLOW_UP
+      description: |
+        Why a question was asked. The three PROFILE kinds are the starter questions, each filling
+        one fact kind. CHECK_IN is the daily question about how the day is going. FOLLOW_UP is
+        written by the model about something specific in the person's data. The clients offer the
+        hand-off to the assistant after a CHECK_IN or a FOLLOW_UP answer only, because a starter
+        answer is the fact itself and calls for nothing to be done in the app.
+    SecondBrainQuestionStatus:
+      type: string
+      enum:
+      - OPEN
+      - ANSWERED
+      - SKIPPED
+      description: Where a question stands. It leaves OPEN once and never returns to it.
+    SecondBrainVerdict:
+      type: string
+      enum:
+      - ON_COURSE
+      - DRIFTING
+      - TOO_EARLY
+      description: |
+        What the overview says first, as a value of its own so the page can show it as a label
+        that is read at a glance. ON_COURSE means what the person does lines up with the goals
+        they hold and the objectives in their profile. DRIFTING means it does not, and the text
+        then names the one correction the data points at: change the plan, or get back to the
+        behaviour. TOO_EARLY means too little is recorded to say either, such as a first week. A
+        verdict the server cannot read in the model's answer is stored as TOO_EARLY too.
+    SecondBrainOverviewDTO:
+      type: object
+      properties:
+        insight:
+          $ref: '#/components/schemas/SecondBrainInsightDTO'
+          description: The generated overview. Always present, with nulls inside when none was
+            written yet.
+        goalsAhead:
+          type: array
+          items:
+            $ref: '#/components/schemas/BriefingGoalAheadDTO'
+          description: The goals the person is heading toward, the same records the Daily
+            Briefing carries, at most three. Empty when GOALS is off.
+        routine:
+          $ref: '#/components/schemas/SecondBrainRoutineDTO'
+          description: How the routines went over the last seven days against the seven before.
+            Null when ROUTINES is off.
+        areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainAreaDTO'
+          description: The same two weeks by category, best percentage first. Empty when
+            ROUTINES is off.
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainQuestionDTO'
+          description: The OPEN questions, oldest first. At most five.
+        facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainFactDTO'
+          description: The profile, oldest first. At most 20.
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainSourceDTO'
+          description: All six switches in enum order, each with the value in effect.
+        aiAvailable:
+          type: boolean
+          description: Whether an LLM endpoint is configured on the server. False means the
+            overview cannot be refreshed and no follow-up question will be written. True does not
+            mean the model is in use for this account. That also takes a first overview, which
+            `insight.text` shows.
+      description: The whole page in one read.
+    SecondBrainInsightDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          description: The overview, one paragraph of at most 900 characters. Null when none was
+            written yet.
+        verdict:
+          $ref: '#/components/schemas/SecondBrainVerdict'
+          description: Null when no overview was written yet.
+        generatedAt:
+          type: string
+          format: date-time
+          description: When the overview on record was written. Null when there is none.
+        stale:
+          type: boolean
+          description: |
+            True when there is no overview, or when the one on record was written before the
+            account's current day. It goes by the account's own calendar and not by hours, so
+            "today" means here what it means on the routine: an overview written at 23:50 is stale
+            ten minutes later. Once a first overview exists, the page rewrites a stale one on the
+            first visit of a day, so the verdict a person reads is never yesterday's. The refresh
+            route always answers false.
+      description: The generated overview and its verdict.
+    BriefingGoalAheadDTO:
+      type: object
+      description: |
+        A goal with its pace, the record the Daily Briefing API documents under the same name.
+        Reused here on purpose: the same goal read as behind in the morning dialog and on pace on
+        this page would be worse than showing neither.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        currentValue:
+          type: number
+          format: double
+        targetValue:
+          type: number
+          format: double
+        unit:
+          type: string
+        endDate:
+          type: string
+          format: date
+        daysRemaining:
+          type: integer
+          format: int64
+          description: Whole days from today. Negative means overdue.
+        percentComplete:
+          type: integer
+          format: int32
+        remainingValue:
+          type: number
+          format: double
+          description: How far the current value is from the target, never negative.
+        requiredPerDay:
+          type: number
+          format: double
+          description: |
+            What each day from today through the end date has to add to land on the target, to
+            one decimal. Null once the goal is overdue or the target is met. The clients word an
+            amount under one a day per week, then per month, and with no amount when a month
+            still asks for less than one.
+        expectedPercent:
+          type: integer
+          format: int32
+          description: Where a straight line from the start date to the end date says the goal
+            should be by today, 0 to 100.
+        pace:
+          type: string
+          enum:
+          - ON_TRACK
+          - BEHIND
+          - OVERDUE
+          - REACHED
+          description: The verdict against that straight line, decided on the server.
+    SecondBrainRoutineDTO:
+      type: object
+      properties:
+        thisWeekPercent:
+          type: integer
+          format: int32
+          description: The share of the routine items asked over the seven days ending yesterday
+            that were checked. A skipped item is out of both sides, because a skip is an answer
+            and not a miss. Null when nothing was asked, which is every account's first week.
+        previousWeekPercent:
+          type: integer
+          format: int32
+          description: The same for the seven days before those. Null likewise.
+        slipping:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainRoutineItemDTO'
+          description: Items left open this week on at least two of the days they came up and on
+            at least half of them. At most three, the most missed first.
+        steady:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainRoutineItemDTO'
+          description: Items that came up on at least four days this week and were checked on
+            every one. At most three.
+      description: Whether the person keeps to their routines. The same numbers the Daily
+        Briefing's prose is written from, so this page and the morning dialog cannot disagree
+        about one week.
+    SecondBrainRoutineItemDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          description: What the person calls the item, as the snapshots recorded it.
+        asked:
+          type: integer
+          format: int32
+          description: Days it came up this week and was not skipped.
+        checked:
+          type: integer
+          format: int32
+          description: Days it was checked.
+      description: One routine item's week.
+    SecondBrainAreaDTO:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconId:
+          type: string
+        asked:
+          type: integer
+          format: int32
+          description: Routine items of this category that came up over the 14 days ending
+            yesterday and were not skipped, counted once per day they came up.
+        checked:
+          type: integer
+          format: int32
+          description: How many of those were checked.
+        percent:
+          type: integer
+          format: int32
+          description: Checked over asked, rounded.
+      description: |
+        One life area, which is one of the person's categories. A check counts once for every
+        category of its habit or task, so an item in two categories counts in both. A check whose
+        habit or task was deleted since has no category left to count under and is left out. Only
+        categories with something asked appear. The list is sorted by percentage, highest first,
+        and the clients label only the first and the last, as strongest and weakest, when there
+        are at least two and their percentages differ.
+    SecondBrainQuestionDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SecondBrainQuestionKind'
+        text:
+          type: string
+          description: Written by the server in the account's language at the moment it was
+            asked, so a client shows it as it comes. At most 300 characters.
+        status:
+          $ref: '#/components/schemas/SecondBrainQuestionStatus'
+        answer:
+          type: string
+          description: What the person wrote back, with the ends stripped. Null while the
+            question is OPEN and for a SKIPPED one.
+        createdAt:
+          type: string
+          format: date-time
+        answeredAt:
+          type: string
+          format: date-time
+          description: Set when the question is answered. A skipped question keeps it null.
+      description: One question of the interview.
+    SecondBrainAnswerRequestDTO:
+      type: object
+      properties:
+        answer:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          description: Required and not blank. Free text, stored with the ends stripped. The cap
+            leaves room to describe a day. Only up to 200 characters of it can become one fact.
+      required:
+      - answer
+    SecondBrainAnswerResultDTO:
+      type: object
+      properties:
+        question:
+          $ref: '#/components/schemas/SecondBrainQuestionDTO'
+          description: The question, now ANSWERED.
+        learned:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainFactDTO'
+          description: The facts the answer added to the profile, in the order they were saved.
+            Possibly empty, see `POST /second-brain/questions/{id}/answer`.
+      description: What answering a question did.
+    SecondBrainFactDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SecondBrainFactKind'
+        text:
+          type: string
+          description: One short line, at most 200 characters.
+        origin:
+          $ref: '#/components/schemas/SecondBrainFactOrigin'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          description: Moves on an edit.
+      description: One line of the profile, as both clients and the account export see it. No
+        user id.
+    SecondBrainFactRequestDTO:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/SecondBrainFactKind'
+          description: Required.
+        text:
+          type: string
+          maxLength: 200
+          minLength: 1
+          description: Required and not blank. Leading and trailing spaces are stripped. One line
+            and not a page, because every fact travels with every assistant message. The column
+            carries the same cap.
+      required:
+      - kind
+      - text
+      description: A fact typed on the page, new or edited.
+    SecondBrainSourceDTO:
+      type: object
+      properties:
+        source:
+          $ref: '#/components/schemas/SecondBrainSource'
+        enabled:
+          type: boolean
+          description: The value in effect, the stored one or the source's default.
+      description: One switch.
+    SecondBrainSourceToggleRequestDTO:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Required. A body without it is refused.
+      required:
+      - enabled

@@ -102,7 +102,7 @@ As ferramentas do agente injetam os mesmos services que os controllers usam, ent
 
 ## O que fica sem cache de propósito
 
-Sete leituras vão ao banco toda vez, e cada service explica o motivo no próprio javadoc. Três delas dividem um motivo só: a leitura recebe uma janela de dias, então um cache com chave no usuário responderia a uma janela com as linhas de outra, e uma chave composta precisaria da própria evicção em toda escrita que mexe nelas.
+Oito leituras vão ao banco toda vez, e cada service explica o motivo no próprio javadoc. Três delas dividem um motivo só: a leitura recebe uma janela de dias, então um cache com chave no usuário responderia a uma janela com as linhas de outra, e uma chave composta precisaria da própria evicção em toda escrita que mexe nelas.
 
 | Leitura | Por que fica sem cache |
 |---------|------------------------|
@@ -113,6 +113,7 @@ Sete leituras vão ao banco toda vez, e cada service explica o motivo no própri
 | Ciclos de estudo (`StudyCycleService`) | As leituras também escrevem (um bloco GOAL tem o conceito fixado quando é aberto pela primeira vez), e cada pomodoro e cada mudança de status de página mexe nos números, então uma resposta em cache precisaria ser evictada nos caminhos de foco, página, quadro e quiz |
 | Calendário (`CalendarService`) | Um intervalo por leitura, e a visão geral também lê snapshots de rotina, metas e registros de humor, então todo check de rotina, edição de meta e toque no humor teria que evictá-la. O que ela custa no lugar disso é um punhado de consultas indexadas sobre no máximo nove semanas |
 | Quadro de Ideias (`QuickNoteService`) | Uma consulta indexada sobre no máximo duzentas linhas curtas, e nada mais no produto é calculado a partir delas. Um cache não economizaria nada e poderia servir um quadro de antes de um arraste salvo em outro aparelho |
+| Segundo Cérebro (`SecondBrainStore`) | Toda leitura das tabelas dele é uma consulta indexada sobre algumas dezenas de linhas curtas, e uma chave virada no celular precisa aparecer na web na leitura seguinte. Os blocos de metas, rotinas e áreas da página são calculados a cada leitura a partir dos repositórios desses domínios |
 
 Nenhum deles é lido por um método com cache, e por isso as escritas deles não evictam nada. As exceções escrevem em dados que têm cache. Concluir uma tarefa do calendário e as recompensas do caderno mudam o XP do usuário, e transformar uma nota do quadro de Ideias em tarefa cria uma tarefa, então esses três caminhos passam pela evicção comum por usuário.
 

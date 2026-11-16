@@ -5,7 +5,7 @@ flowchart LR
 
   subgraph pipeline["Request pipeline"]
     SF["🛡️ SecurityFilter<br/>Bearer JWT · HMAC256"]
-    RL["🚦 RateLimitFilter<br/>10 bucket tiers"]
+    RL["🚦 RateLimitFilter<br/>16 bucket tiers"]
     DS["🔏 DocsImportSecretFilter"]
   end
 
