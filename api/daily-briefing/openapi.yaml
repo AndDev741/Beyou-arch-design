@@ -26,7 +26,7 @@ info:
     the panel already renders and asked it to phrase that, and every morning it wrote the panel
     back out as prose. It now gets two weeks of signals the screen does not show (completion this
     week against the week before, habits slipping and holding, mood levels and their trend, each
-    goal's pace) and is told to talk about those and not to restate what is on screen. The
+    goal's pace; the slipping and holding lists count skips, the percentages leave them out) and is told to talk about those and not to restate what is on screen. The
     study cycles reach it as one line of facts among what is already on screen: today's minutes
     and first blocks per cycle, and yesterday's minutes and concepts understood. Mood
     reaches it as levels only. The journal text never enters the briefing at all: the clients read
