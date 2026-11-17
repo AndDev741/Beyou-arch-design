@@ -107,6 +107,39 @@ paths:
               schema:
                 type: object
                 additionalProperties: {}
+  /auth/apple/mobile:
+    post:
+      tags:
+      - authentication-controller
+      operationId: appleMobileAuth
+      description: >-
+        Sign in with Apple from the iOS app, on the same mobile contract as
+        `/auth/google/mobile`: the access JWT in the `X-Access-Token` header, and
+        `success` (the profile) plus `refreshToken` in the body, no cookie. The
+        backend verifies Apple's identity token against Apple's published keys
+        (issuer `https://appleid.apple.com`, `aud` one of `APPLE_AUDIENCES`, the
+        iOS bundle id by default) and checks that its `nonce` claim is the SHA-256
+        of the raw `nonce` sent here. It then signs in the account already linked
+        to that Apple ID, or links Apple to the account with the same verified
+        address, or creates the account. A password account that never verified
+        that address answers 403 `{"error":"EMAIL_NOT_VERIFIED"}`, as the other
+        doors do. An account already linked to a different Apple ID answers
+        `FEDERATED_IDENTITY_ISSUER_ALREADY_LINKED`, and a token that fails any
+        check answers `OIDC_TOKEN_INVALID`. Shares the auth rate-limit bucket.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleMobileLoginDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties: {}
   /auth/forgot-password:
     post:
       tags:
@@ -385,6 +418,56 @@ components:
             does not ship is dropped.
       required:
       - idToken
+    AppleMobileLoginDTO:
+      type: object
+      properties:
+        identityToken:
+          type: string
+          minLength: 1
+          description: >-
+            Apple's signed identity token, exactly as the device received it.
+        nonce:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: >-
+            The RAW nonce the app generated for this sign-in. Apple was given its
+            SHA-256 and puts that hash in the token, so a token lifted off one
+            sign-in cannot be replayed with another request.
+        authorizationCode:
+          type: string
+          maxLength: 2048
+          description: >-
+            Optional. When the Sign in with Apple key is configured, the backend
+            exchanges it once for an Apple refresh token, kept so that deleting
+            the account can revoke the Apple link. Without the key it is ignored.
+        givenName:
+          type: string
+          maxLength: 128
+          description: >-
+            Apple hands the name to the device on the first authorization only and
+            never puts it in the token. Used only when this sign-in creates the
+            account. Without it the account is named after the address, or
+            "Beyou" for a private relay address.
+        familyName:
+          type: string
+          maxLength: 128
+          description: >-
+            Same rule as `givenName`.
+        timezone:
+          type: string
+          description: >-
+            The device's IANA zone, for the same reason as in
+            `GoogleMobileLoginDTO`. Applied only when this sign-in creates the
+            account.
+        language:
+          type: string
+          description: >-
+            The language the app is showing, under the same rule as the zone.
+            `pt-BR` is stored as `pt`; a language the app does not ship is dropped.
+      required:
+      - identityToken
+      - nonce
     ResetPasswordRequestDTO:
       type: object
       properties:

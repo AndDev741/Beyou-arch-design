@@ -55,6 +55,7 @@ flowchart LR
 | /auth/resend-verification | POST | Não | Emite um novo token de verificação e o envia por e-mail; sempre o mesmo 200 |
 | /auth/google | GET | Não | Troca de código do Google OAuth (web) |
 | /auth/google/mobile | POST | Não | Verificação de ID token do Google (mobile) |
+| /auth/apple/mobile | POST | Não | Verificação do identity token do Sign in with Apple (iOS) |
 | /auth/oidc/providers | GET | Não | Os provedores federados configurados; lista vazia quando não há nenhum |
 | /auth/oidc/{provider} | POST | Não | Login federado por ID token (web) |
 | /auth/oidc/{provider}/mobile | POST | Não | Login federado por ID token (mobile) |
@@ -103,6 +104,16 @@ Dois caminhos separados, um por plataforma:
 Os dois caminhos fazem find-or-create pelo e-mail. Contas criadas via Google ganham `isGoogleAccount=true`, um marcador de senha que não é hash e pulam a verificação de e-mail (o Google já a fez).
 
 Os dois caminhos também recusam uma conta encontrada que seja de senha e com endereço não verificado, devolvendo o mesmo 403 EMAIL_NOT_VERIFIED do login. Até essa guarda existir, o `doLogin` era o único lugar do backend que lia `emailVerified`, então o Google era um desvio do portão — de leve, como cura acidental de um e-mail de verificação perdido, e a sério assim: qualquer um cadastra um endereço que não é seu, e a linha não verificada que sobra engoliria o login Google do dono de verdade, sem clique e sem aviso. O dono enche aquela linha com seus dados, e se um dia seguir o link de verificação que chegou quando o invasor se cadastrou, a flag vira e a senha do invasor abre a conta. Agora uma regra só vale em todas as portas, e ela é recuperável em vez de apenas rígida porque o endpoint de reenvio chegou junto. Uma conta de senha já verificada continua podendo vincular o Google à vontade.
+
+### Sign in with Apple
+
+O app do iPhone oferece o Google, e a regra 4.8 da App Store exige então o Sign in with Apple ao lado. O `POST /auth/apple/mobile` recebe o identity token da Apple, o nonce cru que o app gerou, o authorization code (opcional) e o nome. A Apple só entrega o nome ao aparelho na primeira autorização e nunca o coloca no token, então o backend só o usa quando cria a conta.
+
+O `AppleIdTokenVerifier` passa o token pelo `OidcIdTokenVerifier.verifySignedToken`, as mesmas checagens de todo provedor federado: RS256 contra o JWKS publicado pela Apple, emissor `https://appleid.apple.com`, um `aud` de `apple.sign-in.audiences` (`APPLE_AUDIENCES`, por padrão o bundle id `com.beyou.mobile`), expiração e subject. Depois vem o que é só da Apple. O `nonce` do token precisa ser o SHA-256 do nonce cru da requisição, comparado em tempo constante, para que um token tirado de um login não abra sessão para outra requisição. A Apple manda `email_verified` e `is_private_email` como booleanos nas contas mais novas e como as strings `"true"`/`"false"` nas mais antigas, e o verificador lê as duas formas.
+
+O `AppleAccountResolver` segue a porta mobile do Google, e não o `FederatedIdentityService.resolve`. Primeiro procura a linha `(iss, sub)`. Sem linha, vincula a Apple à conta dona do endereço verificado, e sem essa conta cria a conta e o vínculo juntos. A Apple prova os endereços que afirma, como o Google, e o celular não tem uma tela de "vincular nas configurações" para onde uma recusa pudesse mandar a pessoa. A guarda contra squatting de cima vale aqui também: uma conta de senha que nunca verificou o endereço recebe 403 EMAIL_NOT_VERIFIED. Uma conta que já tem outro ID Apple recebe `FEDERATED_IDENTITY_ISSUER_ALREADY_LINKED`, então um vínculo nunca é trocado em silêncio. Quem esconde o endereço entra com um relay `@privaterelay.appleid.com`, que não bate com nenhuma conta antiga, e ganha uma conta nova.
+
+Revogar é a metade que precisa de um segredo. A regra 5.1.1(v) pede que excluir a conta revogue o token da Apple. O endpoint de revogação da Apple quer um refresh token, e o único jeito de ter um é trocar o authorization code de um login usando um client secret assinado por uma chave do Sign in with Apple (`APPLE_TEAM_ID`, `APPLE_KEY_ID` e `APPLE_PRIVATE_KEY` com o .p8 em PEM). Com a chave configurada, o login faz essa troca uma vez por vínculo e guarda o token em `federated_identities.provider_refresh_token` (V46). A troca roda fora da transação, com timeouts limitados, e uma falha só custa a revogação depois, nunca o login. Sem a chave os dois passos são pulados e registrados no log, e um vínculo criado antes da chave existir ganha o token no próximo login com a Apple. A outra ponta está em Exclusão de conta, mais abaixo.
 
 ### Identidade federada, além do Google
 
@@ -230,7 +241,7 @@ Baldes bucket4j em um cache Caffeine, a primeira faixa que casa vence:
 
 | Faixa | Endpoints | Limite | Chaveado por |
 |-------|-----------|--------|--------------|
-| auth | login, register, forgot-password, resend-verification, google, google/mobile, POST oidc/{provider} e oidc/{provider}/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile, apple/mobile, POST oidc/{provider} e oidc/{provider}/mobile | 5 / 15 min | IP |
 | unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hora | usuário |
 | docs | /docs/* (público) | 30 / min | IP |
@@ -279,7 +290,8 @@ Excluir a conta é a única ação onde uma sessão logada deliberadamente não 
 2. `POST /user/deletion/confirm` checa, nesta ordem: já usado, expirado, tentativas demais (5) e então a comparação do hash. O contador de tentativas incrementa na própria transação REQUIRES_NEW, porque a exceção que segue um palpite errado desfaz a transação externa, e contar inline deixaria o teto inalcançável.
 3. Gastar o código apaga sua linha na mesma transação, o que dobra como lock: um segundo confirm em corrida bloqueia, perde e recebe um erro chaveado.
 4. A exclusão em si remove refresh tokens e tokens de reset explicitamente, as seis coleções possuídas pelo cascade do JPA (categorias, hábitos, tarefas, metas, rotinas, snapshots), os chats com a memória de IA, as linhas de histórico por cascades no nível do banco, e os registos de humor com o texto do diário dentro, também por cascade do banco. Toda tabela criada depois disso tem cascade a partir de `users` do mesmo jeito: foco, logins vinculados, o resumo do dia, o caderno e os ciclos de estudo dele, os e-mails de engajamento, as tarefas do calendário, as notas do quadro de Ideias, as quatro tabelas do Segundo Cérebro. O `AccountDeletionIntegrationTest` e o teste do runbook leem do schema as tabelas que apontam para `users`, colocam uma linha em cada, apagam e esperam que nada sobre, então uma tabela nova que esquecer o cascade falha ali. Os arquivos em disco são purgados depois do commit, em melhor esforço: os anexos de feedback e a foto de perfil. A foto passou batido no começo, porque as linhas do banco cascateiam e os bytes em disco não, então o JPEG sobrevivia à conta com um nome de arquivo que ainda era o id do usuário apagado.
-5. O cookie de refresh só é limpo após o sucesso, então um código recusado deixa a sessão intacta.
+5. Uma conta vinculada ao Sign in with Apple também tem o token da Apple revogado. O `AppleTokenRevocation` lê o refresh token antes do delete, como uma projeção simples, porque uma `FederatedIdentity` gerenciada apontando para o usuário apagado faria o flush falhar. Ele chama o endpoint de revogação da Apple depois do commit, como a purga de arquivos, então um rollback não revoga nada. Uma recusa ou silêncio da Apple vai para o log e não traz a conta de volta. Um vínculo sem token guardado (a chave não existia quando a pessoa entrou pela última vez) fica registrado como não revogado e continua listado no ID Apple da pessoa até ela removê-lo lá.
+6. O cookie de refresh só é limpo após o sucesso, então um código recusado deixa a sessão intacta.
 
 ## O diário, e o que se faz com ele
 

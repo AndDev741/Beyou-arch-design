@@ -55,6 +55,7 @@ flowchart LR
 | /auth/resend-verification | POST | No | Issue a new verification token and mail it; always the same 200 |
 | /auth/google | GET | No | Google OAuth code exchange (web) |
 | /auth/google/mobile | POST | No | Google ID-token verification (mobile) |
+| /auth/apple/mobile | POST | No | Sign in with Apple identity-token verification (iOS) |
 | /auth/oidc/providers | GET | No | The federated providers configured; empty list when none |
 | /auth/oidc/{provider} | POST | No | Federated ID-token sign-in (web) |
 | /auth/oidc/{provider}/mobile | POST | No | Federated ID-token sign-in (mobile) |
@@ -111,6 +112,16 @@ Two separate paths, one per platform:
 Both paths find-or-create the user by e-mail. Google-created accounts get `isGoogleAccount=true`, a non-hash password marker, and skip e-mail verification (Google already did it).
 
 Both paths also refuse a matched account that is a password account with an unverified address, returning the same 403 EMAIL_NOT_VERIFIED that login does. Until that guard existed, `doLogin` was the only reader of `emailVerified` in the backend, so Google was a way around the gate — mildly, as an accidental cure for a lost verification mail, and seriously as this: anyone can register an address they do not own, and the unverified row they leave behind would swallow the real owner's Google sign-in with no click and no warning. The owner fills that row with their data, and if they ever follow the verification link that arrived when the squatter registered, the flag flips and the squatter's password opens the account. One rule now holds at every door, and it is recoverable rather than merely strict because the resend endpoint landed with it. A verified password account may still link Google freely.
+
+### Sign in with Apple
+
+The iPhone app offers Google, and App Store guideline 4.8 then requires Sign in with Apple beside it. `POST /auth/apple/mobile` receives Apple's identity token, the raw nonce the app generated, the optional authorization code, and the name. Apple hands the name to the device on the first authorization only and never puts it in the token, so the backend uses it only when it creates the account.
+
+`AppleIdTokenVerifier` runs the token through `OidcIdTokenVerifier.verifySignedToken`, the checks every federated provider gets: RS256 against Apple's published JWKS, issuer `https://appleid.apple.com`, an `aud` from `apple.sign-in.audiences` (`APPLE_AUDIENCES`, by default the bundle id `com.beyou.mobile`), expiry and subject. What is Apple's own is checked after that. The token's `nonce` has to be the SHA-256 of the raw nonce in the request, compared in constant time, so a token lifted off one sign-in cannot open a session for another request. Apple sends `email_verified` and `is_private_email` as booleans on newer accounts and as the strings `"true"`/`"false"` on older ones, and the verifier reads both forms.
+
+`AppleAccountResolver` follows Google's mobile door rather than `FederatedIdentityService.resolve`. It looks up the `(iss, sub)` row first. With no row, it links Apple to the account holding the verified address, and with no such account it creates the account and the link together. Apple proves the addresses it asserts, as Google does, and the phone has no "link from settings" screen a refusal could send people to. The squatting guard above holds here too: a password account that never verified the address gets 403 EMAIL_NOT_VERIFIED. An account that already has a different Apple ID gets `FEDERATED_IDENTITY_ISSUER_ALREADY_LINKED`, so a link is never swapped silently. Someone who hides their address signs in with a `@privaterelay.appleid.com` relay, which matches no older account, so they get a new one.
+
+Revoking is the half that needs a secret. Guideline 5.1.1(v) asks that deleting an account revokes its Apple token. Apple's revoke endpoint wants a refresh token, and the only way to get one is to exchange the authorization code from a sign-in, with a client secret signed by a Sign in with Apple key (`APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` holding the .p8 as PEM). With the key set, sign-in makes that exchange once per link and keeps the token in `federated_identities.provider_refresh_token` (V46). The exchange runs outside the transaction with bounded timeouts, and a failure only costs the revocation later, never the sign-in. Without the key both steps are skipped and logged, and a link made before the key existed gets its token on its next Apple sign-in. Account deletion, below, is the other end.
 
 ### Federated identity, beyond Google
 
@@ -232,7 +243,7 @@ Bucket4j buckets in a Caffeine cache, first matching tier wins:
 
 | Tier | Endpoints | Limit | Keyed by |
 |------|-----------|-------|----------|
-| auth | login, register, forgot-password, resend-verification, google, google/mobile, POST oidc/{provider} and oidc/{provider}/mobile | 5 / 15 min | IP |
+| auth | login, register, forgot-password, resend-verification, google, google/mobile, apple/mobile, POST oidc/{provider} and oidc/{provider}/mobile | 5 / 15 min | IP |
 | unsubscribe | POST /notification/unsubscribe | 5 / 15 min | IP |
 | agent | POST /ai/agent/chats/* | 30 / hour | user |
 | docs | /docs/* (public) | 30 / min | IP |
@@ -281,7 +292,8 @@ Deleting an account is the one action where a logged-in session is deliberately 
 2. `POST /user/deletion/confirm` checks, in order: already used, expired, too many attempts (5), then the hash comparison. The attempts counter increments in its own REQUIRES_NEW transaction, because the exception that follows a wrong guess rolls the outer transaction back, and counting inline would have left the cap unreachable.
 3. Spending the code deletes its row inside the same transaction, which doubles as a lock: a racing second confirm blocks, loses, and gets a keyed error.
 4. The deletion itself removes refresh tokens and reset tokens explicitly, the six owned collections through the JPA cascade (categories, habits, tasks, goals, routines, snapshots), chats plus the AI memory, history rows through database-level cascades, and the mood entries with the journal text in them, also by database cascade. Every table added since cascades from `users` the same way: focus, linked sign-ins, the briefing, the notebook and its study cycles, the nudge mails, the calendar tasks, the notes on the Ideas board, Second Brain's four tables. `AccountDeletionIntegrationTest` and the runbook's test read the tables pointing at `users` from the live schema, put a row in each, delete, and expect none left, so a new table that forgets its cascade fails there. Files on disk are purged after commit, best-effort: feedback attachments and the profile photo. The photo was missed at first, because the database rows cascade and the bytes on disk do not, so the JPEG outlived the account under a filename that was still the deleted user's id.
-5. The refresh cookie is cleared only after success, so a refused code leaves the session intact.
+5. An account linked to Sign in with Apple also has its Apple token revoked. `AppleTokenRevocation` reads the refresh token before the delete, as a plain projection, because a managed `FederatedIdentity` pointing at the deleted user would fail the flush. It calls Apple's revoke endpoint after the commit, like the file purge, so a rollback revokes nothing. Apple refusing or not answering is logged and does not bring the account back. A link with no stored token (the key was missing when the person last signed in) is logged as not revoked, and stays listed under the person's Apple ID until they remove it there.
+6. The refresh cookie is cleared only after success, so a refused code leaves the session intact.
 
 ## The journal, and what is done with it
 

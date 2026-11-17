@@ -553,10 +553,15 @@ endereço dela poderia alcançar todas as contas.
 | emailAtLink | String | O que o provedor afirmou no momento do vínculo. Registrado, nunca consultado |
 | createdAt | LocalDateTime | |
 | lastLoginAt | LocalDateTime | Atualizado a cada entrada por esta identidade |
+| providerRefreshToken | String | V46. O refresh token da Apple, guardado só para que a exclusão da conta possa revogar o vínculo. Nulo para qualquer outro provedor, e quando nenhuma chave do Sign in with Apple estava configurada. Nunca exportado, nunca logado |
+| providerClientId | String | V46. O `aud` para o qual esse token foi emitido, que a chamada de revogação da Apple precisa informar |
 
 As linhas do Google aparecem preguiçosamente em vez de por migração em lote: o subject
 dele nunca foi guardado, então a linha é escrita no próximo login Google da conta. Veja o
 documento de segurança para a regra de resolução que essas linhas alimentam.
+
+O Sign in with Apple escreve a linha dele (issuer `https://appleid.apple.com`) no primeiro
+login com a Apple, e é o único provedor que preenche as duas colunas de token que a V46 adicionou.
 
 ## Feedback
 

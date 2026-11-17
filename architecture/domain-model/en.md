@@ -555,10 +555,15 @@ reach every account.
 | emailAtLink | String | What the provider claimed at link time. Recorded, never queried |
 | createdAt | LocalDateTime | |
 | lastLoginAt | LocalDateTime | Touched on every sign-in through this identity |
+| providerRefreshToken | String | V46. Apple's refresh token, kept only so that deleting the account can revoke the link. Null for every other provider, and when no Sign in with Apple key was configured. Never exported, never logged |
+| providerClientId | String | V46. The `aud` that token was issued to, which Apple's revoke call has to name |
 
 Google rows appear lazily rather than by backfill: its subject was never stored, so the
 row is written on the account's next Google sign-in. See the security document for the
 resolution rule these rows feed.
+
+Sign in with Apple writes its row (issuer `https://appleid.apple.com`) at the first Apple
+sign-in, and it is the only provider that fills the two token columns V46 added.
 
 ## Feedback
 
