@@ -645,8 +645,8 @@ components:
           type: integer
           format: int32
           description: The share of the routine items asked over the seven days ending yesterday
-            that were checked. A skipped item is out of both sides, because a skip is an answer
-            and not a miss. Null when nothing was asked, which is every account's first week.
+            that were checked. A skipped item is out of both sides, because one skip is an answer
+            the person gave. Null when nothing was asked, which is every account's first week.
         previousWeekPercent:
           type: integer
           format: int32
@@ -655,14 +655,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecondBrainRoutineItemDTO'
-          description: Items left open this week on at least two of the days they came up and on
-            at least half of them. At most three, the most missed first.
+          description: Items not done this week, skipped or left open, on at least two of the times
+            they came up and on at least half of them. Skips count here, unlike in the
+            percentages, because an item skipped again and again is a habit being dropped. At
+            most three, the most missed first.
         steady:
           type: array
           items:
             $ref: '#/components/schemas/SecondBrainRoutineItemDTO'
-          description: Items that came up on at least four days this week and were checked on
-            every one. At most three.
+          description: Items that came up at least four times this week and were checked every
+            time, with no skip. At most three.
       description: Whether the person keeps to their routines. The same numbers the Daily
         Briefing's prose is written from, so this page and the morning dialog cannot disagree
         about one week.
@@ -675,11 +677,17 @@ components:
         asked:
           type: integer
           format: int32
-          description: Days it came up this week and was not skipped.
+          description: Times it came up this week, skipped ones included. Counted per time and
+            not per day, so an item in two routines, or twice in one, counts twice on a day.
         checked:
           type: integer
           format: int32
-          description: Days it was checked.
+          description: Times it was checked.
+        skipped:
+          type: integer
+          format: int32
+          description: Times it was skipped. On a slipping item it tells a habit dropped on
+            purpose from one forgotten. A steady item always has zero.
       description: One routine item's week.
     SecondBrainAreaDTO:
       type: object
@@ -695,7 +703,7 @@ components:
           type: integer
           format: int32
           description: Routine items of this category that came up over the 14 days ending
-            yesterday and were not skipped, counted once per day they came up.
+            yesterday and were not skipped, counted once per time they came up.
         checked:
           type: integer
           format: int32
