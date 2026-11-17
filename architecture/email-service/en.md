@@ -20,7 +20,7 @@ The system sends eight e-mails, all owned by one service class in the notificati
 | 7 | Engagement nudge | A scheduled pass, at a civil hour where the reader lives | One thing at stake and the number behind it, a link into the app, and an unsubscribe line. The only mail that carries an unsubscribe link |
 | 8 | Calendar reminder | A pass every five minutes finds a reminder nobody reacted to within an hour of its instant | The task's title as the subject, its date, time and note, a button to the calendar on that day, and a footer pointing at the Reminders setting that turns these off |
 
-Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google sign-ups get nothing (Google already verified the address), and nothing announces password-reset completion or the account's actual deletion.
+Just as deliberate is what never sends: a feedback status change mails nobody (there is no listener, so no future endpoint can e-mail by accident), Google and Apple sign-ups get nothing (the provider already verified the address), and nothing announces password-reset completion or the account's actual deletion.
 
 The inbox alert is the only mail addressed to the operator rather than to a user, and its emptiness is the design. It carries a link and no category, no submitter and none of the submitted text: feedback can be personal, and copying it into a mail provider to save one click is a bad trade. Who receives it is whoever holds ROLE_ADMIN at the moment of the submission, minus the submitter, so an admin writing feedback gets the ordinary receipt and no second mail about themselves. One submission therefore produces one receipt plus one message per admin, each addressed individually — a shared To: line would show every admin the others' addresses.
 
@@ -75,6 +75,8 @@ Two operational notes, both the result of a fix rather than a design choice. Spr
 | MAIL_FROM | Sender address, defaults to MAIL_USERNAME |
 
 Mail is not optional. The four core values ship without defaults, and the from-address resolution fails bean creation when the variables are missing entirely, so the app does not boot without a mail environment. Empty values boot and then fail per-send. The only sanctioned no-SMTP mode is the e2e profile, which sidesteps mail instead of disabling it: registration auto-verifies and skips the event, and the deletion code is returned in the response body. Both escape hatches are blocked in production by the boot validator.
+
+Mail to a Sign in with Apple private relay (`@privaterelay.appleid.com`) arrives only when the sending address or its domain is registered in the Apple Developer account that owns the app, under Sign in with Apple for Email Communication, with SPF and DKIM passing. Otherwise Apple drops it. For someone who hid their address that means no reset mail and no deletion code, so they cannot delete their account. Register `MAIL_FROM` there before the iOS app ships.
 
 ## Templates and languages
 

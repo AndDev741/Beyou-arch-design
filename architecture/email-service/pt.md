@@ -20,7 +20,7 @@ O sistema envia oito e-mails, todos de uma única classe de serviço no pacote d
 | 7 | Nudge de engajamento | Uma passada agendada, num horário civil de onde quem lê está | Uma coisa em jogo e o número por trás dela, um link para o app e uma linha de cancelamento. O único que leva um link de cancelamento |
 | 8 | Lembrete do calendário | Uma passada a cada cinco minutos encontra um lembrete que ninguém respondeu até uma hora depois do seu instante | O título da tarefa como assunto, a data, o horário e a nota, um botão para o calendário naquele dia, e um rodapé que aponta para a configuração de Lembretes que desliga estes e-mails |
 
-Igualmente deliberado é o que nunca é enviado: uma mudança de status de feedback não avisa ninguém (não existe listener, então nenhum endpoint futuro pode enviar e-mail por acidente), cadastros via Google não recebem nada (o Google já verificou o endereço) e nada anuncia a conclusão do reset de senha nem a exclusão efetiva da conta.
+Igualmente deliberado é o que nunca é enviado: uma mudança de status de feedback não avisa ninguém (não existe listener, então nenhum endpoint futuro pode enviar e-mail por acidente), cadastros via Google e Apple não recebem nada (o provedor já verificou o endereço) e nada anuncia a conclusão do reset de senha nem a exclusão efetiva da conta.
 
 O aviso é o único e-mail endereçado a quem opera o produto, e não a um usuário, e o vazio dele é o projeto. Leva um link e nenhuma categoria, nenhum remetente e nada do texto enviado: feedback pode ser pessoal, e copiar isso para dentro de um provedor de e-mail só para poupar um clique é um mau negócio. Quem recebe é quem tem ROLE_ADMIN no momento do envio, menos quem escreveu, então um admin que manda feedback recebe o recibo de sempre e nenhuma segunda mensagem sobre si mesmo. Um envio produz, portanto, um recibo mais uma mensagem por admin, cada uma endereçada individualmente — um To: compartilhado mostraria a cada admin o endereço dos outros.
 
@@ -75,6 +75,8 @@ Duas notas operacionais, ambas resultado de correção e não de escolha de desi
 | MAIL_FROM | Endereço remetente, padrão MAIL_USERNAME |
 
 E-mail não é opcional. Os quatro valores centrais vêm sem defaults, e a resolução do remetente falha na criação do bean quando as variáveis estão ausentes, então o app não sobe sem um ambiente de mail. Valores vazios sobem e falham a cada envio. O único modo sem SMTP sancionado é o perfil e2e, que contorna o e-mail em vez de desligá-lo: o cadastro auto-verifica e pula o evento, e o código de exclusão volta no corpo da resposta. As duas saídas de emergência são bloqueadas em produção pelo validador de boot.
+
+E-mail para um relay privado do Sign in with Apple (`@privaterelay.appleid.com`) só chega quando o endereço remetente ou o domínio dele está cadastrado na conta Apple Developer dona do app, em Sign in with Apple for Email Communication, com SPF e DKIM passando. Senão a Apple descarta. Para quem escondeu o endereço isso significa nada de e-mail de reset e nada de código de exclusão, então a pessoa não consegue excluir a conta. Cadastre o `MAIL_FROM` lá antes de o app de iOS sair.
 
 ## Templates e idiomas
 
