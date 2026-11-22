@@ -332,6 +332,8 @@ A note is free text somebody wrote for themselves, so the `quickNotes` slice sit
 
 Second Brain is the third domain built this way. `SecondBrainFactRepository.findByIdAndUserId` and `SecondBrainQuestionRepository.lockByIdAndUserId` carry the owner, so a profile line or a question that belongs to someone else answers 404 `SECOND_BRAIN_FACT_NOT_FOUND` or `SECOND_BRAIN_QUESTION_NOT_FOUND` on every route, the same as an id nobody ever used. It adds two keys to `CONFLICT_KEYS`: a full profile (`SECOND_BRAIN_FACT_LIMIT_REACHED`) and a question that was already answered or skipped (`SECOND_BRAIN_QUESTION_CLOSED`). The switches and the overview have no id to guess, since both are keyed by the caller's own account. `second-brain.spec.ts` edits and deletes a fact and answers a question from a second account, expects the 404 on each, and checks that account reads an empty profile.
 
+The notes Second Brain keeps about a person's things follow the same rule. `SecondBrainNoteRepository` looks a note up by id and owner, so editing or deleting someone else's note answers 404 `SECOND_BRAIN_NOTE_NOT_FOUND`, the same as an id nobody used (`second-brain-memory.spec.ts` checks both from a second account). The assistant's `rememberAboutItem` resolves the habit, goal, routine or category through the caller's own account before it writes, and a note the model files under an id the account does not own, in an answer on the page, is dropped. A note has no foreign key to its thing, so nothing in the database stops a stray id; these checks are the boundary.
+
 Exactly one role rule exists: `/feedback/admin/**` requires ADMIN. The ADMIN role is granted only by a manual database update. No seed, no endpoint, no environment variable can mint an admin.
 
 ## Upload hardening

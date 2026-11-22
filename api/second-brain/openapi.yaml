@@ -4,14 +4,14 @@ info:
   version: v0
   description: |
     The Second Brain page: what Beyou understands about the caller's life, the questions it still
-    has, the short profile every assistant conversation reads, and the switches for what it may
-    read. The page answers one question, whether the person is on course toward what they said
+    has, the short profile every assistant conversation reads, the dated notes it keeps about the
+    caller's habits, goals, routines and categories, and the switches for what it may read. The page answers one question, whether the person is on course toward what they said
     they want or drifting away from it. Every route is authenticated by the default rule and
     scoped to the caller.
 
-    **One read draws the page.** `GET /second-brain` returns all seven blocks (the overview, the
-    open questions, the goals ahead, routine adherence, the life areas, the profile and the six
-    switches) and writes nothing. Every percentage and every verdict in it is computed on the
+    **One read draws the page.** `GET /second-brain` returns all nine blocks (the overview, the
+    open questions, the goals ahead, routine adherence, the life areas, the profile, the memory,
+    the old hidden note under review and the six switches) and writes nothing. Every percentage and every verdict in it is computed on the
     server, so the web app and the phone app cannot round the same week two ways.
 
     **Three routes can call a model, and the others never do.** `POST /second-brain/questions/refill`,
@@ -240,6 +240,131 @@ paths:
       description: |
         Removes the line from the profile, typed or learned. The assistant stops reading it on
         its next turn, since the profile is read fresh for every message.
+  /second-brain/notes/{id}:
+    put:
+      tags:
+      - second-brain-controller
+      operationId: editNote
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainNoteRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainNoteDTO'
+        '400':
+          description: Blank text, or text over 500 characters.
+        '404':
+          description: '`SECOND_BRAIN_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+      summary: New words for a note
+      description: |
+        Corrects one note about a thing. `updatedAt` moves and `origin` does not, as with a
+        profile line: a note the assistant saved and the person corrected was still saved by the
+        assistant. The note stays on its thing and in its place on the timeline.
+    delete:
+      tags:
+      - second-brain-controller
+      operationId: deleteNote
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: '`SECOND_BRAIN_NOTE_NOT_FOUND`: no such note, or it belongs to someone else.'
+      summary: Delete a note
+      description: |
+        Removes one note. A thing whose last note goes leaves the memory block, and a category
+        group with no thing left goes with it. Clearing the assistant's conversations does not
+        delete notes; this route and deleting the account are the only ways they go.
+  /second-brain/old-note/keep:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: keepOldNoteLine
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainOldNoteRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainOldNoteResultDTO'
+        '404':
+          description: '`SECOND_BRAIN_OLD_NOTE_LINE_NOT_FOUND`: the line is not in the old note
+            (any more).'
+        '409':
+          description: '`SECOND_BRAIN_FACT_LIMIT_REACHED`: the profile already holds 20 lines.
+            Nothing changes.'
+      summary: Keep one line of the old hidden note in the profile
+      description: |
+        The old note is what the assistant kept about the caller, out of sight, before Second
+        Brain had a memory. This moves one of its lines into the profile as an ABOUT line with
+        origin OLD_NOTE, and takes it out of the old note. `text` must be one of the strings
+        `oldNote` returned: the server splits the note with one function for both, on line
+        breaks and sentence ends, each line cut to 200 characters. The response carries the
+        lines left and the new profile line.
+  /second-brain/old-note/discard:
+    post:
+      tags:
+      - second-brain-controller
+      operationId: discardOldNoteLine
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondBrainOldNoteRequestDTO'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/SecondBrainOldNoteResultDTO'
+        '404':
+          description: '`SECOND_BRAIN_OLD_NOTE_LINE_NOT_FOUND`: the line is not in the old note
+            (any more).'
+      summary: Delete one line of the old hidden note
+      description: |
+        Takes one line out of the old note. The response carries the lines left, and `fact` is
+        null. Until the last line goes, what is left still rides with every assistant message, as
+        the whole note did before.
+  /second-brain/old-note:
+    delete:
+      tags:
+      - second-brain-controller
+      operationId: deleteOldNote
+      responses:
+        '204':
+          description: No Content
+      summary: Delete the whole old hidden note
+      description: |
+        Clears what is left of the old note in one go. The next assistant message carries none
+        of it. Answers 204 whether or not there was anything left.
   /second-brain/questions/refill:
     post:
       tags:
@@ -476,8 +601,11 @@ components:
       enum:
       - USER
       - ANSWER
+      - ASSISTANT
+      - OLD_NOTE
       description: USER was typed on the page. ANSWER was learned from an answer to a question.
-        An edit does not change it.
+        ASSISTANT was saved by the assistant in a conversation (`rememberAboutUser`). OLD_NOTE
+        was kept from the old hidden note. An edit does not change it.
     SecondBrainQuestionKind:
       type: string
       enum:
@@ -486,12 +614,15 @@ components:
       - PROFILE_ABOUT
       - CHECK_IN
       - FOLLOW_UP
+      - NEW_THING
       description: |
         Why a question was asked. The three PROFILE kinds are the starter questions, each filling
         one fact kind. CHECK_IN is the daily question about how the day is going. FOLLOW_UP is
-        written by the model about something specific in the person's data. The clients offer the
+        written by the model about something specific in the person's data. NEW_THING asks about
+        a habit, goal or routine created after the account's first visit, once per thing, with
+        its name in the text; its answer becomes notes on that thing. The clients offer the
         hand-off to the assistant after a CHECK_IN or a FOLLOW_UP answer only, because a starter
-        answer is the fact itself and calls for nothing to be done in the app.
+        answer is the fact itself and a NEW_THING answer is a reason, not a request.
     SecondBrainQuestionStatus:
       type: string
       enum:
@@ -550,6 +681,19 @@ components:
           items:
             $ref: '#/components/schemas/SecondBrainSourceDTO'
           description: All six switches in enum order, each with the value in effect.
+        memory:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainMemoryGroupDTO'
+          description: The notes about the person's things, grouped on the server so the two apps
+            cannot group them two ways. Categories by name, ignoring case, and the group with no
+            category (routines and LOOSE notes) last. Empty groups are not sent.
+        oldNote:
+          type: array
+          items:
+            type: string
+          description: The lines of the old hidden note still to review, in order. Empty when
+            there is none.
         aiAvailable:
           type: boolean
           description: Whether an LLM endpoint is configured on the server. False means the
@@ -771,7 +915,136 @@ components:
             $ref: '#/components/schemas/SecondBrainFactDTO'
           description: The facts the answer added to the profile, in the order they were saved.
             Possibly empty, see `POST /second-brain/questions/{id}/answer`.
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainNoteDTO'
+          description: The notes the answer left on the person's things. A NEW_THING answer
+            always leaves at least one; a check-in or follow-up answer leaves one only when the
+            model in use found something lasting about a specific thing. The clients reload the
+            page when this is not empty, since the memory is grouped on the server.
       description: What answering a question did.
+    SecondBrainSubjectType:
+      type: string
+      enum:
+      - HABIT
+      - GOAL
+      - ROUTINE
+      - CATEGORY
+      - LOOSE
+      description: |
+        What a note is about. LOOSE is a note whose thing is gone and had nowhere to go: a
+        deleted routine or category, or a habit or goal left with no category. A deleted habit
+        or goal hands its notes to its first category by name, as CATEGORY notes that keep the
+        thing's name and say what it was in `formerType`.
+    SecondBrainNoteOrigin:
+      type: string
+      enum:
+      - USER
+      - ANSWER
+      - ASSISTANT
+      description: Who wrote the note. ANSWER came from an answer on the page, ASSISTANT from a
+        conversation (`rememberAboutItem`). USER is reserved for notes written by hand, which the
+        page does not offer yet. An edit does not change it.
+    SecondBrainNoteDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          description: One note, at most 500 characters.
+        origin:
+          $ref: '#/components/schemas/SecondBrainNoteOrigin'
+        subjectName:
+          type: string
+          description: The name of the thing the note is about.
+        createdAt:
+          type: string
+          format: date-time
+          description: Where the note sits on its thing's timeline.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Moves on an edit.
+      description: One dated note about one thing. No user id.
+    SecondBrainMemorySubjectDTO:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/SecondBrainSubjectType'
+        id:
+          type: string
+          format: uuid
+          description: The thing's id; the category's id for a CATEGORY subject; null for LOOSE.
+        name:
+          type: string
+          description: The thing's current name, or the last name it had once it is gone.
+        iconId:
+          type: string
+          description: The thing's icon while it exists, else null.
+        formerType:
+          $ref: '#/components/schemas/SecondBrainSubjectType'
+          description: Set on the notes of a deleted habit, goal or routine. The page shows them as
+            their own card under the category, tagged with what the thing was.
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainNoteDTO'
+          description: Oldest first, so a change reads as a timeline. At most 30; a 31st note on
+            the same thing removes the oldest.
+      description: One thing with its notes.
+    SecondBrainMemoryGroupDTO:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+          description: Null for the group of routines and LOOSE notes.
+        categoryName:
+          type: string
+        categoryIconId:
+          type: string
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondBrainMemorySubjectDTO'
+          description: The category's own notes first, then the rest by name, ignoring case. A
+            habit or goal sits under its first category by name.
+      description: One category's things and their notes.
+    SecondBrainNoteRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 500
+          minLength: 1
+          description: Required and not blank.
+      required:
+      - text
+    SecondBrainOldNoteRequestDTO:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 200
+          minLength: 1
+          description: One line exactly as `oldNote` returned it.
+      required:
+      - text
+    SecondBrainOldNoteResultDTO:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            type: string
+          description: The lines of the old note still to review.
+        fact:
+          $ref: '#/components/schemas/SecondBrainFactDTO'
+          description: The profile line a keep created. Null after a discard.
+      description: What keeping or discarding a line of the old note did.
     SecondBrainFactDTO:
       type: object
       properties:

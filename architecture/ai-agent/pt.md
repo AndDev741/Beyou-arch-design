@@ -1,6 +1,6 @@
 ---
 title: "Agente de IA"
-summary: "Um agente de chat com 84 ferramentas reais, transmitido por SSE, chamando um único endpoint de LLM compatível com OpenAI, com quatro camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
+summary: "Um agente de chat com 86 ferramentas reais, transmitido por SSE, chamando um único endpoint de LLM compatível com OpenAI, com cinco camadas de memória e guarda-corpos que assumem que o modelo vai se comportar mal."
 ---
 
 Este documento explica o agente de IA: como uma mensagem vira uma resposta transmitida, como o modelo ganha poder real sobre os dados do usuário sem ganhar os de mais ninguém, para onde vai a chamada ao modelo e o que acontece em cada ponto de falha.
@@ -47,7 +47,7 @@ O que o backend ainda decide:
 
 Todo outro subsistema daqui mantém os dados do usuário no banco do próprio Beyou. Responder uma mensagem do agente significa mandar ela para uma empresa que não é o Beyou, junto com o que o modelo lê no caminho até a resposta, o que faz da escalação de provedores uma decisão de proteção de dados tanto quanto de confiabilidade.
 
-Um turno leva a mensagem, as mensagens anteriores daquela conversa, as duas notas de memória (global e por chat), as linhas do perfil do Segundo Cérebro quando a pessoa tem alguma, o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram: hábitos, tarefas, metas, rotinas, categorias. Quando o modelo lê o quadro de Ideias, o texto das notas vai junto, e quando lê o calendário, os títulos e as notas das tarefas de calendário daquele intervalo. Não leva o email, o hash da senha, nem nada que pertença a outro usuário.
+Um turno leva a mensagem, as mensagens anteriores daquela conversa, a nota da própria conversa, o que sobra da nota antiga da conta enquanto a pessoa a revisa, as linhas do perfil do Segundo Cérebro quando a pessoa tem alguma, os nomes das coisas sobre as quais ela tem anotações no Segundo Cérebro (as anotações em si só quando o modelo as lê com `readItemNotes`), o nome de exibição do usuário, e os nomes e descrições do que as ferramentas consultaram: hábitos, tarefas, metas, rotinas, categorias. Quando o modelo lê o quadro de Ideias, o texto das notas vai junto, e quando lê o calendário, os títulos e as notas das tarefas de calendário daquele intervalo. Não leva o email, o hash da senha, nem nada que pertença a outro usuário.
 
 O controlador do Beyou está estabelecido em Portugal, então uma requisição que chega a um provedor fora do EEE é uma transferência e precisa de uma base legal:
 
@@ -63,7 +63,7 @@ O backend já não consegue fazer essa tabela valer. Até novembro de 2026 uma b
 
 Duas chamadas de saída do caderno de estudos vão para outro lugar: os embeddings (`notebook.embedding.*`, qualquer endpoint compatível com OpenAI, Mistral por padrão) e a busca de fontes (Tavily, ou Gemini com Google Search). Cada uma pega o host das próprias configurações. A política de privacidade cita a Mistral para os embeddings e o Tavily ou o Gemini para a busca, então apontar qualquer uma para outro lugar é uma mudança de política antes de ser uma mudança de configuração. O texto do resumo do dia e as ferramentas de estudo do caderno passam, sim, pelo endpoint, e as três chamadas do Segundo Cérebro também: a visão geral, as perguntas de acompanhamento e os fatos lidos de uma resposta.
 
-O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas e as duas notas de memória podem ser apagados dentro do app e saem na exportação de dados. O Segundo Cérebro começa do mesmo jeito. Nada daquela página chega a um provedor até a pessoa pedir uma primeira visão geral, numa tela que diz para onde o texto vai, e as linhas do perfil podem ser editadas ou apagadas ali e saem na exportação. O [tópico do Segundo Cérebro](/architecture/second-brain) tem a regra.
+O assistente é opcional de ponta a ponta. Nada chega a provedor nenhum para quem nunca abre ele, e o histórico de conversas, as notas das conversas e tudo o que o assistente guardou no Segundo Cérebro podem ser apagados dentro do app e saem na exportação de dados. O Segundo Cérebro começa do mesmo jeito. Nada daquela página chega a um provedor até a pessoa pedir uma primeira visão geral, numa tela que diz para onde o texto vai, e as linhas do perfil e as anotações podem ser editadas ou apagadas ali e saem na exportação. O [tópico do Segundo Cérebro](/architecture/second-brain) tem a regra.
 
 ## As ferramentas
 
@@ -86,18 +86,19 @@ O modelo de autoridade é a parte importante:
 - **Leituras têm teto** de 100 itens por tipo, e ids de ícone passam por um catálogo curado que substitui em silêncio qualquer desconhecido por um padrão, porque o modelo esquece ou inventa ids de ícone com frequência suficiente para importar. O catálogo é agrupado pelo assunto do hábito em vez do espaço de ids, e cada grupo oferece ícones de linha e emojis para o modelo escolher o registro que combina com o hábito. É também o motivo de manter a lista disciplinada: toda entrada vai para o prompt do sistema, então o catálogo custa tokens em cada chamada. Uma entrada nova se justifica quando falta uma área inteira da vida — fé faltava, e quem acompanhava oração recebia uma estrela genérica — não quando falta um sinônimo de algo que já está lá.
 - Cada ferramenta de escrita declara quais domínios do frontend ela tocou, e o evento de conclusão carrega essa lista, então o cliente rebusca exatamente os slices que mudaram e nada mais.
 
-## Quatro camadas de memória
+## Cinco camadas de memória
 
 | Camada | Tamanho | Escrita por | Propósito |
 |--------|---------|-------------|-----------|
-| Contexto global | 2000 caracteres no usuário | O modelo, via ferramenta | Fatos duráveis sobre a pessoa, em todos os chats |
 | Contexto do chat | 1000 caracteres no chat | O modelo, via ferramenta | A situação corrente de uma conversa |
 | Janela de mensagens | Últimas 20 mensagens | Spring AI automaticamente | Memória de trabalho de curto prazo |
-| Perfil do Segundo Cérebro | Até 20 linhas de 200 caracteres | A pessoa, na página do Segundo Cérebro ou respondendo às perguntas dela | De onde toda conversa parte: objetivos principais, coisas de que gosta, fatos sobre a vida dela |
+| Perfil do Segundo Cérebro | Até 20 linhas de 200 caracteres | A pessoa na página do Segundo Cérebro, as respostas dela ali, e o modelo via `rememberAboutUser` | De onde toda conversa parte: objetivos principais, coisas de que gosta, fatos sobre a vida dela |
+| Anotações do Segundo Cérebro | Até 30 anotações de 500 caracteres por hábito, meta, rotina ou categoria | O modelo via `rememberAboutItem`, e as respostas da pessoa na página do Segundo Cérebro | Por que uma coisa começou, o que atrapalha, o que mudou. Lidas com `readItemNotes` quando a conversa chega naquela coisa |
+| Nota antiga da conta | O que sobra de 2000 caracteres no usuário | Ninguém mais | A nota que o modelo guardava escondida antes da memória do Segundo Cérebro. Pano de fundo somente leitura até a pessoa manter ou apagar as linhas dela na página do Segundo Cérebro |
 
-Os dois campos de contexto são de sobrescrita por design: o prompt instrui o modelo a sempre enviar o resumo completo já mesclado, e os tamanhos das colunas são o limite do produto, limitando tanto o custo de prompt quanto o alcance de uma injeção persistente. "Resetar o agente" apaga todos os chats e anula o contexto global.
+O contexto do chat é de sobrescrita por design: o prompt instrui o modelo a sempre enviar o resumo completo já mesclado, e o tamanho da coluna é o limite do produto, limitando tanto o custo de prompt quanto o alcance de uma injeção persistente. Até novembro de 2026 a nota da conta funcionava do mesmo jeito, por uma ferramenta `updateGlobalContext`. A pessoa não conseguia ver, corrigir nem apagar uma linha dela, então ela foi substituída pelas anotações do Segundo Cérebro, que a pessoa consegue. A ferramenta não existe mais. O que uma nota tinha aparece na página do Segundo Cérebro, uma frase por linha, e continua indo com cada mensagem até a pessoa resolver, para nada que o assistente sabia sumir sem ela ver. "Limpar todas as conversas" apaga todos os chats e deixa o perfil, as anotações e a nota antiga onde estão.
 
-O perfil é a única camada que o modelo não pode escrever. O `AiAgentService` o lê de `SecondBrainStore.profileForChat` a cada turno, sem cache, então uma linha editada na página do Segundo Cérebro já é conhecida pela mensagem seguinte. Nenhuma ferramenta o grava, e resetar o agente não mexe nele, porque ele pertence àquela página. Os limites dele fazem o mesmo trabalho dos tamanhos de coluna acima: 20 linhas de 200 caracteres delimitam o que toda mensagem paga e quanto uma linha injetada conseguiria levar para dentro de um prompt.
+O perfil e as anotações pertencem à página do Segundo Cérebro. O `AiAgentService` lê o perfil de `SecondBrainStore.profileForChat` a cada turno, sem cache, então uma linha editada na página já é conhecida pela mensagem seguinte, e preenche `{memorySubjects}` com até 30 nomes de coisas que têm anotações (`SecondBrainNotes.subjectsForChat`), para o modelo saber quando há algo para ler. O modelo acrescenta: `rememberAboutUser` grava uma linha do perfil e `rememberAboutItem` uma anotação numa coisa que ele achou por uma ferramenta de leitura, e o prompt manda dizer "Anotei: ..." ("Noted: ...") depois de cada gravação. Os dois cartões de escrita levam à página do Segundo Cérebro. Ele não consegue editar nem apagar nenhum dos dois; isso a pessoa faz na página. Os limites fazem o mesmo trabalho do tamanho de coluna acima: 20 linhas de 200 caracteres delimitam o que toda mensagem paga, e uma anotação sobre uma coisa só chega a um prompt quando o modelo pede.
 
 ## O prompt de sistema
 
