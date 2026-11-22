@@ -277,12 +277,13 @@ components:
           format: double
           description: |
             What each day from today through the end date has to add to land on the target,
-            today included, to one decimal. Absent once the goal is overdue or the target is met:
-            neither has a daily amount to ask for. The clients show a value of one or more as a
-            daily amount. Below one a day they give it per week (seven times this value), below
-            one a week per month (thirty times it), and they leave the amount out when a month
-            still asks for less than one. A goal of twelve books a year used to read as "0 books a
-            day". The Second Brain page words its goals the same way.
+            today included, to one decimal. Absent once the goal is overdue, met or one-time:
+            none of those has a daily amount to ask for. The clients do not word their sentence
+            from this value, because one decimal is too coarse to multiply: one interview in
+            fifteen days came as 0.1 and read "3 interviews a month". They work the amount out
+            from `remainingValue` and `daysRemaining`: per day from one a day up, per week or
+            per month only when the time left holds two of them, and otherwise what is left in
+            how many days ("5 more in 9 days"). The Second Brain page words its goals the same way.
         expectedPercent:
           type: integer
           format: int32
@@ -296,11 +297,15 @@ components:
           - BEHIND
           - OVERDUE
           - REACHED
+          - ONE_TIME
           description: |
             The verdict against that straight line. `BEHIND` means more than five percentage
             points under it; less than that is noise on any real week. `REACHED` is a met target
             not yet marked done, and it is worth its own state because a goal's XP is paid by
-            `PUT /goal/complete`, not by reaching the number.
+            `PUT /goal/complete`, not by reaching the number. `ONE_TIME` is an open goal with a
+            target of one (an interview, a race): it is done or not, so a straight line through
+            it would call it behind a few days in. The clients show it with no pace line and no
+            tick, and an app build that does not know the value shows the same.
     BriefingRecoveryWindowDTO:
       type: object
       description: |
