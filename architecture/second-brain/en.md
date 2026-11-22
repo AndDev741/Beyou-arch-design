@@ -1,15 +1,15 @@
 ---
 title: "Second Brain"
-summary: "A page that tells a person whether they are on course or drifting: an overview with a verdict rewritten once a day, one question at a time, a short profile every assistant conversation reads, and six switches for what may be read. The rules, the three model calls, what reaches the AI provider and when, and the class that owns each rule."
+summary: "A page that tells a person whether they are on course or drifting: an overview with a verdict rewritten once a day, one question at a time, a short profile every assistant conversation reads, dated notes about each habit, goal, routine and category, and six switches for what may be read. The rules, the three model calls, what reaches the AI provider and when, and the class that owns each rule."
 ---
 
-Second Brain is the page where somebody sees what Beyou understands about their life and steers it. It answers one question: is this person heading toward what they said they want, or drifting away from it. The page opens with a short overview that says so, asks one question at a time, keeps what it learns as a short profile that every assistant conversation reads, and lets the person switch off any part of their data it may read. It sits in the main navigation of the web app and the phone app, for every signed-in account, in English and Portuguese.
+Second Brain is the page where somebody sees what Beyou understands about their life and steers it. It answers one question: is this person heading toward what they said they want, or drifting away from it. The page opens with a short overview that says so, asks one question at a time, keeps what it learns as a short profile that every assistant conversation reads and as dated notes on the person's habits, goals, routines and categories, and lets the person switch off any part of their data it may read. It sits in the main navigation of the web app and the phone app, for every signed-in account, in English and Portuguese.
 
 This document covers the blocks of the page, the rules behind each and the class a rule lives in, then the model calls and what happens to the data. The routes themselves are in the Second Brain Controller API.
 
-## The seven blocks
+## The blocks
 
-`GET /second-brain` returns the whole page in one read-only transaction and writes nothing. The response carries seven blocks:
+`GET /second-brain` returns the whole page in one read-only transaction and writes nothing. The response carries nine blocks:
 
 | Block | What it shows | Where it comes from |
 |-------|---------------|---------------------|
@@ -19,11 +19,13 @@ This document covers the blocks of the page, the rules behind each and the class
 | Routines | The last seven days against the seven before, with the items that slipped and the ones that held | The ROUTINES source |
 | Areas | The person's categories ranked by the share of their routine items done over 14 days | The ROUTINES source |
 | Profile | Up to 20 short lines in three kinds | `second_brain_facts` |
+| Old note | The sentences of the note the assistant kept out of sight before the memory existed, to keep or delete. Only shown while there is one | `users.user_context` |
+| Memory | Dated notes about the person's habits, goals, routines and categories, grouped by category | `second_brain_notes` |
 | Sources | Six switches for what Second Brain may read | `second_brain_sources` |
 
 Every percentage and every verdict is computed on the server, so the two apps cannot round the same week two ways. A block whose source is switched off says so in place of its content. That is a different state from a source that is on with nothing in it, and the response lets a client tell the two apart: `routine` is null when ROUTINES is off, and the switch list settles the goals and the areas.
 
-On a wide screen the web page has two columns. The left one is for reading: the overview, the goals, the routines and the areas. The right one is for answering and deciding: the questions, the profile and the sources. Below the `lg` breakpoint the page is one column and the questions come second, right under the overview, because that block is the one that needs the person. The phone app uses that same single-column order.
+On a wide screen the web page has two columns. The left one is for reading: the overview, the goals, the routines, the areas and the memory, which is read more than written and grows with every thing a person tracks. The right one is for answering and deciding: the questions, the profile, the old note and the sources. Below the `lg` breakpoint the page is one column and the questions come second, right under the overview, because that block is the one that needs the person. The phone app uses that same single-column order.
 
 **Goals.** The list is `DailyBriefingFactsBuilder.goalsAhead`, the one the morning dialog shows: open goals that have an end date, sorted by distance from today on either side, capped at three, with a goal overdue by more than two weeks sent to the back. Each one carries the server's pace verdict, and both pages word it with the same shared function, `goalPaceMessage` in `@beyou/state`. That function changed twice with this page. A goal that needs less than one unit a day used to read "0 books a day still gets you there", because twelve books in a year is 0.03 a day and one decimal rounds that to nothing. The first fix moved the amount to the week, then to the month, by multiplying the server's rounded `requiredPerDay`. That produced its own nonsense, seen on the page on 2026-11-22: one interview due in fifteen days came as 0.1 a day and read "3 interviews a month", five documents in nine days read "3.5 documents a week", and one book in 39 days got a bare "Behind pace." with nothing after it. The sentence now works from `remainingValue` and `daysRemaining`. It gives the amount per day from one a day up, per week or per month only when the time left holds two of those periods, and otherwise says what is left and in how many days: "5 more in 9 days still gets you there". A goal with a target of one has its own verdict, `ONE_TIME`, because it is done or not and a straight line through it calls it behind a few days in. It gets no pace line and no tick, and the model is told it has no pace to be behind on. The Daily Briefing reads the same function, so its goals are worded the same way.
 
@@ -61,15 +63,16 @@ The person can also ask for a rewrite at any time with "Write it again". While o
 
 The page asks one question at a time, and the person answers in free text or skips it. One at a time is deliberate: a list of five reads as a form to fill in, and a form gets postponed.
 
-There are three kinds:
+There are four kinds:
 
 | Kind | When it is asked | Who writes it |
 |------|------------------|---------------|
 | Starter (`PROFILE_OBJECTIVES`, `PROFILE_LIKES`, `PROFILE_ABOUT`) | The profile has no fact of that kind, and that question was never asked before, answered or skipped | Fixed wording in English and Portuguese |
 | Check-in (`CHECK_IN`) | Once per day of the account's own calendar, when the ROUTINES source is on and a routine runs that day | Fixed wording |
 | Follow-up (`FOLLOW_UP`) | The model is in use for the account, there is room, and no follow-up was stored in the last six hours | The model, about something specific in the person's data |
+| New thing (`NEW_THING`) | A habit, goal or routine was created after the account's first visit, fewer than five questions are open, and that thing was never asked about | Fixed wording with the thing's name, written when the thing is created (see Memory below) |
 
-`POST /second-brain/questions/refill` runs those three steps in that order: `SecondBrainStore.seed` writes the first two, which need no model, then `SecondBrainAi.followUps` is asked and `SecondBrainStore.addFollowUps` stores what it wrote. The limits:
+`POST /second-brain/questions/refill` runs the first three in that order (a new-thing question is written by the create itself): `SecondBrainStore.seed` writes the first two, which need no model, then `SecondBrainAi.followUps` is asked and `SecondBrainStore.addFollowUps` stores what it wrote. The limits:
 
 - **Five questions open at once** (`SecondBrainQuestion.MAX_OPEN`). The steps stop there, and the model is asked for as many follow-ups as there is room left.
 - **Six hours between two sets of follow-ups** (`SecondBrainStore.FOLLOW_UP_PAUSE`). The pause counts from the last follow-up stored, so a call that came back with nothing does not start it.
@@ -89,7 +92,8 @@ Two refills of one account can run at once, since the page asks when it mounts. 
 Then the service learns from the answer, through `prompts/secondBrainFacts.st`:
 
 - **A starter answer becomes profile lines.** The model splits it into the separate things it says, at most three facts, all of the question's kind whatever kind the model wrote. When the model is not in use, the call fails or the split comes back empty, the answer itself becomes one fact, word for word, cut to 200 characters when it is longer.
-- **A check-in or follow-up answer adds only what will still be true later.** The prompt asks for what holds a month from now, such as a new objective, a lasting preference or a change in circumstances. At most two facts come back, the model choosing each kind, and the usual result is none. When the model is not in use, nothing is learned.
+- **A check-in or follow-up answer adds only what will still be true later.** The prompt asks for what holds a month from now, such as a new objective, a lasting preference or a change in circumstances. At most two facts come back, the model choosing each kind, and the usual result is none. The same call can leave notes on the person's things: the prompt lists their habits, goals and routines with their ids (20 of each, 60 at most), and a note the model files under an id the account does not own is dropped. When the model is not in use, nothing is learned.
+- **A new-thing answer becomes notes on that thing** (mode NEW_THING). With the model in use it is split into notes on the thing the question named, and anything lasting about the person goes to the profile. Without it, or when the split comes back empty, the answer itself becomes one note on that thing, cut to 500 characters. The response's `notes` lists what was written, and the apps reload the page when it is not empty, since the memory is grouped on the server.
 
 `SecondBrainStore.saveLearned` adds those facts under the account's lock: as many as fit under the limit of 20, each cut to 200 characters, with origin ANSWER, leaving out a fact the profile already holds word for word. The response's `learned` list can therefore be empty, and the page then says the answer was noted and nothing new went to the profile. The prompt also tells the model never to keep a password, a code, a card or document number or any other secret, even when the answer contains one.
 
@@ -97,15 +101,55 @@ A skip closes the question with no answer and no model call. The row is kept, wh
 
 ### The hand-off to the assistant
 
-An answer never changes a routine, a habit or a task. After a check-in or a follow-up, the result offers "Let the assistant act on it". `canActOnAnswer` in `@beyou/state` holds that rule for both apps, and it leaves the starter questions out because a starter answer is the fact itself. The button opens the assistant on a new conversation with a draft in its input: the question, the answer, and a line asking the assistant to do what the answer calls for in the person's routines, habits and tasks. A new conversation on purpose, since dropping the draft into whatever chat was last open would mix two subjects. Nothing is sent until the person sends it, and from there it is an ordinary assistant message, handled with the assistant's own tools and rules. The check-in's wording says what the hand-off is for: "How is your day going? Describe it and I can check or skip your routine items."
+An answer never changes a routine, a habit or a task. After a check-in or a follow-up, the result offers "Let the assistant act on it". `canActOnAnswer` in `@beyou/state` holds that rule for both apps, and it leaves the starter and new-thing questions out, because a starter answer is the fact itself and a new-thing answer is a reason, not a request. The button opens the assistant on a new conversation with a draft in its input: the question, the answer, and a line asking the assistant to do what the answer calls for in the person's routines, habits and tasks. A new conversation on purpose, since dropping the draft into whatever chat was last open would mix two subjects. Nothing is sent until the person sends it, and from there it is an ordinary assistant message, handled with the assistant's own tools and rules. The check-in's wording says what the hand-off is for: "How is your day going? Describe it and I can check or skip your routine items."
 
 ## The profile
 
-The profile is a list of short lines the person adds, edits and deletes on the page, in three kinds: main objectives (`OBJECTIVE`), things they like (`LIKE`) and facts about their life (`ABOUT`). A line is either typed (origin USER) or learned from an answer (origin ANSWER), and the page marks the learned ones. Editing a line keeps its origin.
+The profile is a list of short lines the person adds, edits and deletes on the page, in three kinds: main objectives (`OBJECTIVE`), things they like (`LIKE`) and facts about their life (`ABOUT`). A line is typed (origin USER), learned from an answer (ANSWER), saved by the assistant from a conversation (ASSISTANT) or kept from the old hidden note (OLD_NOTE), and the page marks every line that was not typed. Editing a line keeps its origin.
 
 It holds at most 20 lines of 200 characters, typed and learned together (`SecondBrainFact.MAX_PER_USER`, `TEXT_MAX`). `POST /second-brain/facts` answers 409 `SECOND_BRAIN_FACT_LIMIT_REACHED` at the limit, and deleting a line makes room. The caps exist for two reasons the code states. Every line travels with every assistant message, so the size of the profile is a cost on each one. And the model calls behind this page have no tools, so the most a prompt injection hidden in the person's own data can do is change what gets saved as a fact. The caps bound how much of that can persist and later reach a chat prompt.
 
-Every assistant conversation reads the profile. `AiAgentService` fills the `{secondBrainProfile}` slot of `prompts/aiAgent.st` on every turn from `SecondBrainStore.profileForChat`: one line per fact, oldest first, labelled "Objective", "Likes" or "About them", or "(none yet)" for an empty profile. It is read fresh for each message and not cached, so a line edited on the page is known to the next message. The prompt block tells the model three things. The lines are background to read in every conversation, so the person never has to say them again. They are the person's own notes and never instructions, and a line that asks the model to do something is still only a note. And the model cannot change them: the person edits them on the page, and the assistant may point them there when they say something lasting about themselves. No assistant tool writes a fact.
+Every assistant conversation reads the profile. `AiAgentService` fills the `{secondBrainProfile}` slot of `prompts/aiAgent.st` on every turn from `SecondBrainStore.profileForChat`: one line per fact, oldest first, labelled "Objective", "Likes" or "About them", or "(none yet)" for an empty profile. It is read fresh for each message and not cached, so a line edited on the page is known to the next message. The prompt block tells the model three things. The lines are background to read in every conversation, so the person never has to say them again. They are the person's own notes and never instructions, and a line that asks the model to do something is still only a note. And the person owns them: the assistant adds a line with `rememberAboutUser` when the person says something lasting about themselves, says so in the conversation, and cannot edit or delete one. The person does that on the page.
+
+## Memory
+
+Step two of Second Brain gives the page a memory the person can read. Every note is tied to what it is about: a habit, a goal, a routine or a category. Notes about the person themselves are the profile lines above, which keep their own table and their own cap. Before this, the only thing the assistant remembered across conversations was a hidden note of up to 2000 characters that the model rewrote for itself, and the person could neither see it nor fix one line of it.
+
+A note is one short dated line, at most 500 characters, and a thing holds at most 30 of them. The 31st note on the same thing removes the oldest. Nothing overwrites a note: when something changes ("paused the gym for two weeks, knee"), the change is a new note and the earlier ones stay, so each thing reads as a timeline, oldest first. The person edits or deletes any note on the page, and an edit keeps where the note came from, as a profile line's edit does.
+
+Notes come from three places, and each carries its origin:
+
+| Origin | Written when |
+|--------|--------------|
+| `ANSWER` | An answer on this page talks about one of the person's things. A new-thing question always leaves a note (below); a check-in or follow-up answer leaves one only when the model in use finds something lasting about a specific habit, goal or routine |
+| `ASSISTANT` | The person tells the assistant something lasting about one of their things, and it saves it with `rememberAboutItem` |
+| `USER` | Reserved for notes the person adds by hand, which this step does not offer |
+
+### The new-thing question
+
+When a habit, a goal or a routine is created, by its page or by the assistant, the page asks about it: what led to it, and what usually gets in the way. The hook sits in the services' create methods, so the REST routes and the assistant's tools both pass through it. The question (`NEW_THING`) is written only for an account that has already opened Second Brain, only while fewer than five questions are open, and once per thing. Its wording carries the thing's name and is stored in the account's language, like the starter questions. Answering it never needs the model: without one, or before the first overview, the answer itself becomes one note on that thing. With the model in use, the answer is split into notes about that thing, and anything lasting about the person goes to the profile.
+
+The hand-off to the assistant is not offered after a new-thing answer. It is a reason, not a request.
+
+### What the follow-ups read
+
+The follow-up questions and the overview read a NOTES section in their data block: the newest three notes of up to twelve things, preferring the routine items that slipped or held this week and the goals ahead. This is what lets a follow-up ask "you started the gym for more energy, and you missed it three times this week: did you stop, or is something else going on?" The answer to that question adds to the gym's timeline.
+
+### Where notes go when their thing goes
+
+Notes have no foreign key to the thing they are about, because the subject can be one of four tables. The delete paths move them in the same transaction:
+
+- A deleted habit or goal hands its notes to its first category by name. They keep the thing's name and remember what it was (`former_type`), so the page shows them under that category as "Gym, deleted habit".
+- A deleted routine, a deleted category, or a habit or goal with no category left turns its notes `LOOSE`. They stay, under the page's group for things without a category.
+- An open new-thing question about the deleted thing is removed, since there is nothing left to ask about.
+
+### The page
+
+The memory block groups things by category: a habit or a goal under its first category by name, a category's own notes at the top of its group, and routines and loose notes in a group of their own at the end. The grouping is built on the server (`memory` in `GET /second-brain`), so the two apps cannot group the same notes two ways.
+
+### The old hidden note
+
+The assistant no longer writes `users.user_context`. What an account already had there is shown on the page as lines to review (`oldNote`): the text is split on line breaks and sentence ends, and each line can be kept as an `ABOUT` profile line (origin `OLD_NOTE`) or deleted, one by one or all at once. The split is one function on the server, used both to list the lines and to find the one a client sends back. Until the person deals with it, the old note keeps riding with every assistant message, as it did before, so nothing the assistant knew disappears without the person seeing it go.
 
 ## The sources
 
@@ -138,7 +182,7 @@ A row in `second_brain_sources` exists only for a switch the person has touched.
 |------|--------|---------|-------------|---------------|
 | The overview | `secondBrainInsight.st` | A verdict and a text | 90 seconds, one retry included | `AI_UNAVAILABLE`, and the stored overview stays |
 | Follow-up questions | `secondBrainQuestions.st` | A list of questions | 45 seconds, one attempt | A warning in the log. The refill answers the questions that were already there |
-| Facts from an answer | `secondBrainFacts.st`, in PROFILE or LASTING mode | A list of facts | 45 seconds, one attempt | A starter answer is kept as written. Any other answer adds nothing |
+| Facts and notes from an answer | `secondBrainFacts.st`, in PROFILE, LASTING or NEW_THING mode | Profile facts, and notes on the person's things | 45 seconds, one attempt | A starter answer is kept as a profile line and a new-thing answer as one note, both as written. Any other answer adds nothing |
 
 Only the overview retries, because it is the only call with nothing to fall back on. The retry asks again for valid JSON and starts only when at least 20 seconds of the budget are left. Every attempt runs on a virtual thread, so the request can stop waiting at its deadline. The proxy in front of the API drops a request at 100 seconds, which is why the budgets stay under it.
 
@@ -151,7 +195,7 @@ Only the overview retries, because it is the only call with nothing to fall back
 Nothing on the page reaches the model until the person has asked for a first overview. `SecondBrainService.aiInUse` is true when an LLM endpoint is configured and the account has an overview row (`SecondBrainStore.hasInsight`), and it gates the two calls that are not the overview itself:
 
 - A refill writes no follow-up. The starter questions and the check-in still come, since they need no model.
-- An answer is not read by the model. A starter answer is kept word for word as one profile line, and a check-in answer adds nothing to the profile.
+- An answer is not read by the model. A starter answer is kept word for word as one profile line, a new-thing answer as one note on its thing, and a check-in answer adds nothing.
 
 `refreshInsight` is not gated, because it is the opt-in itself: the request is made from a screen that says the text goes to an external AI provider. The rule lives on the server so that a client cannot start the AI side by accident and a new client cannot forget to ask. The gate is the existence of the overview row, and no route deletes that row, so the AI side stays on for an account once it has started. The switches still decide what it reads.
 
@@ -165,20 +209,21 @@ The gate covers this page's own model calls. The profile is also part of the ass
 
 The three routes that can call a model spend one bucket of their own in `RateLimitFilter`: `POST /second-brain/questions/refill`, `POST /second-brain/questions/{id}/answer` and `POST /second-brain/insight/refresh`, 30 calls per user per hour under the key `second-brain`. It has the assistant's quota shape and a separate key, so the page never spends the assistant's budget. One key covers the three routes so that alternating between them buys no second budget.
 
-The routes are named one by one in the filter. The page read stays in the generic read tier (60 a minute), and the switches, the facts and a skip stay in the generic write tier (30 a minute), since none of them reaches a model. The daily rewrite is one of those three routes, so it draws on this bucket and not on the assistant's.
+The routes are named one by one in the filter. The page read stays in the generic read tier (60 a minute), and the switches, the facts, the notes, the old note and a skip stay in the generic write tier (30 a minute), since none of them reaches a model. The daily rewrite is one of those three routes, so it draws on this bucket and not on the assistant's.
 
-## The four tables
+## The five tables
 
-All four arrived in V45, each owned by one account and each `ON DELETE CASCADE` from `users`.
+The first four arrived in V45 and the notes in V47, each owned by one account and each `ON DELETE CASCADE` from `users`.
 
 | Table | One row per | Columns worth knowing |
 |-------|-------------|-----------------------|
 | `second_brain_sources` | Account and source the person has touched. Primary key `(user_id, source)` | `enabled`, `updated_at`. Written by one `INSERT ... ON CONFLICT`, so two toggles of a switch with no row yet cannot collide |
 | `second_brain_facts` | Profile line | `kind`, `text` (varchar 200), `origin`, `created_at`, `updated_at`. Indexed on `user_id`, which every read and the count behind the limit use |
-| `second_brain_questions` | Question ever asked, open or closed | `kind`, `text` (varchar 300), `status` (default OPEN), `answer` (varchar 2000, null until answered), `created_at`, `answered_at`. Indexed on `(user_id, status)` |
+| `second_brain_questions` | Question ever asked, open or closed | `kind`, `text` (varchar 300), `status` (default OPEN), `answer` (varchar 2000, null until answered), `created_at`, `answered_at`, and since V47 `subject_type` and `subject_id`, the thing a new-thing question is about. Indexed on `(user_id, status)` |
 | `second_brain_insights` | Account. Primary key `user_id` | `text` (varchar 1200), `verdict`, `generated_at`. Replaced on every rewrite |
+| `second_brain_notes` | Note about one thing | `subject_type`, `subject_id` (null only for LOOSE), `subject_name`, `former_type`, `text` (varchar 500), `origin`, `created_at`, `updated_at`. No foreign key to the thing, see Memory. Indexed on `(user_id, subject_type, subject_id)` |
 
-Every enum is a `varchar` with a CHECK constraint that mirrors it: the six sources, the three fact kinds, the two origins, the five question kinds, the three statuses and the three verdicts. Adding a value in Java without adding it to the constraint makes every write of that value fail. Closed questions are kept on purpose. The starter rule ("never ask this twice") and the follow-up prompt ("do not repeat yourself") both read them.
+Every enum is a `varchar` with a CHECK constraint that mirrors it: the six sources, the three fact kinds, the four fact origins, the six question kinds, the three statuses, the three verdicts, the five subject types and the three note origins. Adding a value in Java without adding it to the constraint makes every write of that value fail. Closed questions are kept on purpose. The starter rule ("never ask this twice") and the follow-up prompt ("do not repeat yourself") both read them.
 
 The journal has no column here and is never copied here, and mood levels are read at request time.
 
@@ -192,6 +237,10 @@ The journal has no column here and is never copied here, and mood levels are rea
 | At most 20 facts and 5 open questions, counted under a transaction-scoped advisory lock keyed on the account, because a new account has no row to lock | `SecondBrainStore`, `SecondBrainFactRepository.lockProfile` |
 | A question closes once: answer and skip read it under a row lock | `SecondBrainStore.answer`, `SecondBrainStore.skip` |
 | When an overview is stale | `SecondBrainStore.insight` |
+| A note is reachable only by its owner, holds 500 characters, and a thing keeps 30, the oldest going first | `SecondBrainNotes` |
+| How the page groups the memory | `SecondBrainNotes.memory` |
+| When a new thing is asked about, and where notes go when their thing is deleted, in the delete's own transaction | `SecondBrainHooks`, called from `HabitService`, `GoalService`, `DiaryRoutineService` and `CategoryService` |
+| How the old hidden note splits into lines | `OldNote` |
 | What each source reads, and that a source that is off is not queried | `SecondBrainSignals` |
 | The areas ranking, and the routine numbers shared with the briefing | `SecondBrainSignals.areas`, `DailyBriefingFactsBuilder.buildSignals` |
 | The three model calls, their time budgets and the cuts to size | `SecondBrainAi` |
@@ -199,27 +248,27 @@ The journal has no column here and is never copied here, and mood levels are rea
 | The verdict, and how the model's wording is read | `SecondBrainVerdict` |
 | The profile as the assistant reads it | `SecondBrainStore.profileForChat`, `SecondBrainSignals.profileLines` |
 | The shared hourly budget of the three model-backed routes | `RateLimitFilter.isSecondBrainLlmPath` |
-| When a client asks for a refill, which answers can go to the assistant, which areas get a label, how a verdict is drawn | `secondBrainRules.ts` in `@beyou/state` |
+| When a client asks for a refill, which answers can go to the assistant, which areas get a label, how a verdict is drawn, how an origin and a deleted thing are labelled | `secondBrainRules.ts` in `@beyou/state` |
 | How a goal's pace is worded, for this page and the briefing | `goalPaceMessage` in `@beyou/state` |
 
 ## The clients
 
-The types are in `@beyou/types`, the nine calls in `@beyou/api`, and the judgements both apps make in `@beyou/state`. Second Brain has no Redux slice. Nothing outside the page shows its data, so each app keeps the response in the state of its own screen and applies its own writes to it: an answer drops its question and appends what was learned, and a switch change is followed by a quiet reload, because one source can feed more than one block.
+The types are in `@beyou/types`, the fourteen calls in `@beyou/api`, and the judgements both apps make in `@beyou/state`. Second Brain has no Redux slice. Nothing outside the page shows its data, so each app keeps the response in the state of its own screen and applies its own writes to it: an answer drops its question and appends what was learned (and reloads the page when it left notes), and a switch change is followed by a quiet reload, because one source can feed more than one block.
 
 On the web the page is `/second-brain`, a lazy route inside the protected shell. It sits second in the sidebar, right under the dashboard, and first in the bottom nav's More sheet on a phone-sized screen. The assistant's prompt lists `/second-brain` among the app's pages, so the assistant can link to it.
 
 ## Privacy and data rights
 
-What reaches the AI provider, and when, is covered above: nothing from this page before the first overview, then the enabled sources, the profile lines and the answers. The [AI agent topic](/architecture/ai-agent) lists Second Brain among the features that send text to the provider.
+What reaches the AI provider, and when, is covered above: nothing from this page before the first overview, then the enabled sources, the profile lines, the notes and the answers. The [AI agent topic](/architecture/ai-agent) lists Second Brain among the features that send text to the provider.
 
-`GET /user/export` carries a `secondBrain` section with four keys. `facts` holds every profile line with its kind, origin and timestamps. `questions` holds every question with its answer, closed ones included, oldest first, since an answer is something the person wrote. `insight` is the overview on record with its verdict and the time it was written, or null for an account that never had one. `sources` lists all six switches with the value in effect, so the file says what Second Brain was allowed to read even where the person never touched a switch. It is four queries whatever the account holds.
+`GET /user/export` carries a `secondBrain` section with five keys. `notes` holds every note with the type and name of its thing, `former_type`, origin and timestamps. `facts` holds every profile line with its kind, origin and timestamps. `questions` holds every question with its answer, closed ones included, oldest first, since an answer is something the person wrote. `insight` is the overview on record with its verdict and the time it was written, or null for an account that never had one. `sources` lists all six switches with the value in effect, so the file says what Second Brain was allowed to read even where the person never touched a switch. It is five queries whatever the account holds.
 
-Deleting the account removes all four tables through the `users` cascade. The deletion tests put a row in each and expect none left.
+Clearing the assistant's conversations leaves the profile, the notes and the old note where they are: they are deleted on this page. Deleting the account removes all five tables through the `users` cascade. The deletion tests put a row in each and expect none left.
 
 On the device, nothing of the page reaches Redux, so nothing of it is persisted by redux-persist. The web keeps one timestamp in sessionStorage, the time of its last refill request.
 
 ## Tests
 
-On the backend, `SecondBrainServiceIT` runs the store's rules against Postgres: the defaults, the limits, the starter and check-in rules, ownership and staleness by the account's own day. `SecondBrainModelCallIT` checks that no transaction is open during a model call and that nothing reaches the model before the first overview. `SecondBrainAiTest` covers the cuts to size, the retry and the data block, `SecondBrainControllerTest` the status codes, and `RateLimitFilterTest` the budget shared by the three model-backed routes. `AgentSystemPromptTest` renders the assistant's prompt with a profile in it. The export and deletion tests (`UserExportCompletenessIntegrationTest`, `UserExportQueryCountTest`, `AccountDeletionIntegrationTest`) cover the four tables.
+On the backend, `SecondBrainServiceIT` runs the store's rules against Postgres: the defaults, the limits, the starter and check-in rules, ownership and staleness by the account's own day. `SecondBrainModelCallIT` checks that no transaction is open during a model call and that nothing reaches the model before the first overview. `SecondBrainAiTest` covers the cuts to size, the retry and the data block, `SecondBrainControllerTest` the status codes, and `RateLimitFilterTest` the budget shared by the three model-backed routes. `AgentSystemPromptTest` renders the assistant's prompt with a profile in it. `SecondBrainMemoryIT` covers the notes: the grouping, the trim at 30, ownership, the new-thing rules through the real create paths, the moves on delete and the old note. `MemoryToolsIT` covers the assistant's three memory tools, and `SecondBrainMemoryTextTest` the old note's split. The export and deletion tests (`UserExportCompletenessIntegrationTest`, `UserExportQueryCountTest`, `AccountDeletionIntegrationTest`) cover the five tables.
 
-On the clients, `secondBrainRules.test.ts` and `briefingRules.test.ts` in `@beyou/state` cover the shared rules, the slow-goal wording among them, and the web page has its own test file. `second-brain.spec.ts` in the e2e suite drives the API and the page, ownership and the phone-width order included.
+On the clients, `secondBrainRules.test.ts` and `briefingRules.test.ts` in `@beyou/state` cover the shared rules, the slow-goal wording among them, and the web page has its own test file. `second-brain.spec.ts` in the e2e suite drives the API and the page, ownership and the phone-width order included, and `second-brain-memory.spec.ts` the notes: the new-thing question, ownership, the move on delete, that clearing conversations keeps them, and the memory block.

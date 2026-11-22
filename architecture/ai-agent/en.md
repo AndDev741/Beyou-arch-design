@@ -1,6 +1,6 @@
 ---
 title: "AI Agent"
-summary: "A chat agent with 84 real tools, streamed over SSE, calling one OpenAI-compatible LLM endpoint, with four memory layers and guardrails that assume the model will misbehave."
+summary: "A chat agent with 86 real tools, streamed over SSE, calling one OpenAI-compatible LLM endpoint, with five memory layers and guardrails that assume the model will misbehave."
 ---
 
 This document explains the AI agent: how a message becomes a streamed answer, how the model gets real power over the user's data without getting anyone else's, where the model call goes, and what happens at every failure point.
@@ -47,7 +47,7 @@ What the backend still decides:
 
 Every other subsystem here keeps user data in Beyou's own database. Answering an agent message means sending it to a company that is not Beyou, together with whatever the model reads on the way to an answer, which makes the provider lineup a data-protection decision as much as a reliability one.
 
-A turn carries the message, the earlier messages in that conversation, the two memory notes (global and per-chat), the lines of the person's Second Brain profile when they have any, the user's display name, and the names and descriptions of whatever the tools looked up: habits, tasks, goals, routines, categories. When the model reads the Ideas board, the text of the notes on it goes too, and when it reads the calendar, the titles and notes of the calendar tasks in that range. It does not carry the email address, the password hash, or anything belonging to another user.
+A turn carries the message, the earlier messages in that conversation, the conversation's own note, what is left of the old account-wide note while the person reviews it, the lines of the person's Second Brain profile when they have any, the names of the things they have Second Brain notes about (the notes themselves only when the model reads them with `readItemNotes`), the user's display name, and the names and descriptions of whatever the tools looked up: habits, tasks, goals, routines, categories. When the model reads the Ideas board, the text of the notes on it goes too, and when it reads the calendar, the titles and notes of the calendar tasks in that range. It does not carry the email address, the password hash, or anything belonging to another user.
 
 Beyou's controller is established in Portugal, so a request reaching a provider outside the EEA is a transfer and needs a lawful route:
 
@@ -63,7 +63,7 @@ The backend cannot enforce that table any more. Until November 2026 a blocklist 
 
 Two outbound calls from the study notebook go elsewhere: the embeddings (`notebook.embedding.*`, any OpenAI-compatible endpoint, Mistral by default) and source discovery (Tavily, or Gemini with Google Search). Each takes its host from its own settings. The privacy policy names Mistral for the embeddings and Tavily or Gemini for discovery, so pointing either one somewhere else is a policy change before it is a config change. The daily briefing's prose and the notebook's study tools do go through the endpoint, and so do Second Brain's three calls: the overview, the follow-up questions and the facts read out of an answer.
 
-The assistant is optional end to end. Nothing reaches a provider for a user who never opens it, and the chat history and both memory notes can be deleted from inside the app and come out in the data export. Second Brain starts the same way. Nothing on that page reaches a provider until the person asks for a first overview, from a screen that says where the text goes, and the profile lines can be edited or deleted there and come out in the export. The [Second Brain topic](/architecture/second-brain) has the rule.
+The assistant is optional end to end. Nothing reaches a provider for a user who never opens it, and the chat history, the conversation notes and everything the assistant saved to Second Brain can be deleted from inside the app and come out in the data export. Second Brain starts the same way. Nothing on that page reaches a provider until the person asks for a first overview, from a screen that says where the text goes, and the profile lines and the notes can be edited or deleted there and come out in the export. The [Second Brain topic](/architecture/second-brain) has the rule.
 
 ## The tools
 
@@ -86,18 +86,19 @@ The authority model is the important part:
 - **Reads are capped** at 100 items per type, and icon ids pass through a curated catalog that silently substitutes a default for anything unknown, because the model drops or invents icon ids often enough to matter. The catalog is grouped by what a habit is about rather than by id space, and each group offers both line icons and emoji so the model can match the register of the habit. It is also the reason to keep the list disciplined: every entry is rendered into the system prompt, so the catalog costs tokens on every single call. It earns a new entry when a whole area of life is missing — faith was, and someone tracking prayer got a generic star — not when a synonym of something already listed is absent.
 - Each write tool declares which frontend domains it touched, and the finished event carries that list, so the client refetches exactly the slices that changed and nothing else.
 
-## Four layers of memory
+## Five layers of memory
 
 | Layer | Size | Written by | Purpose |
 |-------|------|-----------|---------|
-| Global context | 2000 chars on the user | The model, via a tool | Durable facts about the person, across all chats |
 | Chat context | 1000 chars on the chat | The model, via a tool | The running situation of one conversation |
 | Message window | Last 20 messages | Spring AI automatically | Short-term working memory |
-| Second Brain profile | Up to 20 lines of 200 chars | The person, on the Second Brain page or by answering its questions | What every conversation starts from: main objectives, things they like, facts about their life |
+| Second Brain profile | Up to 20 lines of 200 chars | The person on the Second Brain page, their answers there, and the model via `rememberAboutUser` | What every conversation starts from: main objectives, things they like, facts about their life |
+| Second Brain notes | Up to 30 notes of 500 chars per habit, goal, routine or category | The model via `rememberAboutItem`, and the person's answers on the Second Brain page | Why a thing started, what gets in the way, what changed. Read with `readItemNotes` when a conversation comes to that thing |
+| Old account-wide note | What is left of 2000 chars on the user | Nobody any more | The note the model kept out of sight before Second Brain memory. Read-only background until the person keeps or deletes its lines on the Second Brain page |
 
-The two context fields are overwrite-only by design: the prompt instructs the model to always send the full merged summary, and the column sizes are the product limit, bounding both prompt cost and how much a prompt injection could persist. "Reset the agent" clears every chat and nulls the global context.
+The chat context is overwrite-only by design: the prompt instructs the model to always send the full merged summary, and the column size is the product limit, bounding both prompt cost and how much a prompt injection could persist. Until November 2026 the account-wide note worked the same way, through an `updateGlobalContext` tool. The person could not see it, correct it or delete one line of it, so it was replaced by the Second Brain notes, which they can. The tool is gone. What a note held is shown on the Second Brain page one sentence per line, and it keeps riding with each message until the person deals with it, so nothing the assistant knew disappears unseen. "Clear all conversations" deletes every chat and leaves the profile, the notes and the old note alone.
 
-The profile is the one layer the model cannot write. `AiAgentService` reads it from `SecondBrainStore.profileForChat` on every turn, uncached, so a line edited on the Second Brain page is known to the next message. No tool writes it, and resetting the agent leaves it alone, since it belongs to that page. Its caps do the same job as the column sizes above: 20 lines of 200 characters bound what every message pays for and how much an injected line could carry into a prompt.
+The profile and the notes belong to the Second Brain page. `AiAgentService` reads the profile from `SecondBrainStore.profileForChat` on every turn, uncached, so a line edited on the page is known to the next message, and fills `{memorySubjects}` with up to 30 names of things that have notes (`SecondBrainNotes.subjectsForChat`), so the model knows when there is something to read. The model adds: `rememberAboutUser` writes a profile line and `rememberAboutItem` a note on a thing it resolved through a read tool, and the prompt tells it to say "Noted: ..." ("Anotei: ...") after each save. Both write cards link to the Second Brain page. It cannot edit or delete either; the person does that on the page. The caps do the same job as the column size above: 20 lines of 200 characters bound what every message pays for, and a note about a thing only reaches a prompt when the model asks for it.
 
 ## The system prompt
 

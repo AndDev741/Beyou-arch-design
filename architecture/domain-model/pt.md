@@ -60,7 +60,7 @@ flowchart TD
 | timezoneSource | enum TimezoneSource | DEFAULT, DETECTED ou EXPLICIT: se o fuso acima chegou a ser escolhido por alguém. Só DEFAULT pode ser corrigido automaticamente |
 | widgetsIdInUse | Lista de String | IDs dos widgets ativos do dashboard |
 | isTutorialCompleted | boolean | Flag do onboarding |
-| userContext | String (2000) | A memória global do agente de IA sobre este usuário |
+| userContext | String (2000) | O que sobra da nota que o agente de IA guardava sobre este usuário antes da memória do Segundo Cérebro. Nada grava mais nela: a pessoa mantém ou apaga as linhas dela na página do Segundo Cérebro, e até lá ela continua indo no prompt do agente |
 | xpDecayStrategy | Enum XpDecayStrategy | GRADUAL, FLAT ou TIME_WINDOW; como check-ins atrasados perdem XP |
 | maxConstance | Integer | Maior streak já alcançado |
 | completedDays | Set de LocalDate | Dias com atividade de rotina completada |
@@ -413,19 +413,20 @@ Quatro tabelas chegaram juntas na V45.
 |-------|------|-------|
 | kind | SecondBrainFactKind (varchar 16) | OBJECTIVE, LIKE ou ABOUT, com um CHECK espelhando o enum |
 | text | String (200) | Uma linha, guardada sem os espaços das pontas. O limite também está na coluna, então um cliente que pule o DTO, ou um modelo que ignore o prompt, não consegue guardar mais do que um prompt de chat deveria carregar |
-| origin | SecondBrainFactOrigin (varchar 16) | USER para uma linha digitada na página, ANSWER para uma aprendida de uma resposta. Nunca é atualizada: uma linha aprendida que a pessoa corrigiu continua tendo sido aprendida |
+| origin | SecondBrainFactOrigin (varchar 16) | USER para uma linha digitada na página, ANSWER para uma aprendida de uma resposta, ASSISTANT para uma que o assistente guardou numa conversa, OLD_NOTE para uma mantida da nota escondida antiga. Nunca é atualizada: uma linha aprendida que a pessoa corrigiu continua tendo sido aprendida |
 | createdAt / updatedAt | Instant | |
 
 **SecondBrainQuestion** (tabela second_brain_questions): uma linha por pergunta já feita, aberta ou fechada.
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
-| kind | SecondBrainQuestionKind (varchar 24) | PROFILE_OBJECTIVES, PROFILE_LIKES, PROFILE_ABOUT, CHECK_IN ou FOLLOW_UP. O enum carrega o texto fixo dos quatro primeiros em inglês e em português |
+| kind | SecondBrainQuestionKind (varchar 24) | PROFILE_OBJECTIVES, PROFILE_LIKES, PROFILE_ABOUT, CHECK_IN, FOLLOW_UP ou NEW_THING. O enum carrega o texto fixo dos quatro primeiros em inglês e em português, e os três textos de NEW_THING (hábito, meta, rotina) com o nome da coisa preenchido |
 | text | String (300) | Guardado no idioma em que a conta lia o Beyou quando a pergunta foi feita |
 | status | SecondBrainQuestionStatus (varchar 12) | OPEN, ANSWERED ou SKIPPED, padrão OPEN |
 | answer | String (2000), anulável | O que a pessoa respondeu. Null enquanto OPEN e numa pergunta SKIPPED |
 | createdAt | Instant | |
 | answeredAt | Instant, anulável | Definido ao responder. Uma pergunta pulada fica com null |
+| subjectType / subjectId | SecondBrainSubjectType (varchar 16) / UUID, anulável | O hábito, a meta ou a rotina de que trata uma pergunta NEW_THING, nulo em todos os outros tipos. Entrou na V47, para uma coisa ser perguntada uma vez só e a pergunta aberta sumir quando ela é apagada |
 
 **SecondBrainInsight** (tabela second_brain_insights): a visão geral gerada, uma linha por conta, com o id da conta como chave e substituída a cada reescrita.
 
@@ -435,8 +436,20 @@ Quatro tabelas chegaram juntas na V45.
 | verdict | SecondBrainVerdict (varchar 16) | ON_COURSE, DRIFTING ou TOO_EARLY, com um CHECK espelhando o enum. Coluna própria porque a página o mostra como etiqueta |
 | generatedAt | Instant | A visão geral fica vencida quando isto cai antes do dia atual da conta |
 
+**SecondBrainNote** (tabela second_brain_notes, V47): uma linha por anotação sobre uma das coisas da pessoa.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| subjectType | SecondBrainSubjectType (varchar 16) | HABIT, GOAL, ROUTINE, CATEGORY ou LOOSE, com uma CHECK espelhando o enum |
+| subjectId | UUID, anulável | O id da coisa. Nulo exatamente quando LOOSE, o que uma CHECK garante. Sem chave estrangeira: pode apontar para quatro tabelas, e apagar a coisa não pode apagar o que a pessoa disse sobre ela |
+| subjectName | String (256) | O nome da coisa quando a anotação foi escrita, e o último nome dela depois que some |
+| formerType | SecondBrainSubjectType (varchar 16), anulável | O que a coisa era, depois que as anotações dela mudaram de lugar numa exclusão: HABIT, GOAL ou ROUTINE |
+| text | String (500) | Uma anotação. Uma coisa guarda 30, e a 31ª apaga a mais antiga |
+| origin | SecondBrainNoteOrigin (varchar 16) | USER, ANSWER ou ASSISTANT. Nunca é atualizada, como a de um fato |
+| createdAt / updatedAt | Instant | createdAt põe a anotação na linha do tempo da coisa |
+
 - **Chave ausente é o padrão.** Rotinas, metas e humor ligados, e calendário, caderno e ideias desligados. O padrão mora no enum `SecondBrainSource` e `SecondBrainStore.effectiveSources` é o único leitor, então nada foi preenchido para as contas antigas e uma fonte adicionada depois também não precisa de linhas. A linha é lida pelo JPA e gravada só por um `INSERT ... ON CONFLICT` nativo, porque dois toques numa chave ainda sem linha fariam os dois inserir.
-- **`userId` é um id solto nas quatro**, não uma relação mapeada. Nada aqui precisa da conta em si, e a chave estrangeira e o cascade moram na migração.
+- **`userId` é um id solto nas cinco**, não uma relação mapeada. Nada aqui precisa da conta em si, e a chave estrangeira e o cascade moram na migração.
 - **No máximo 20 fatos e 5 perguntas abertas por conta.** As escritas que decidem a partir de tudo o que a conta tem (um fato novo, um refill das perguntas, os fatos aprendidos de uma resposta) pegam antes um advisory lock de transação com chave na conta (`pg_advisory_xact_lock(hashtext('second-brain:' + userId))`). Uma conta nova não tem linha para travar, e sem a trava uma página que monta duas vezes faria cada pergunta inicial duas vezes.
 - **As perguntas fechadas ficam guardadas.** A regra das perguntas iniciais ("nunca fazer esta pergunta duas vezes") e o prompt de acompanhamento ("não se repita") leem essas perguntas. Uma pergunta fecha uma vez, porque responder e pular a leem sob uma trava de linha.
 - **A linha da visão geral também é o aceite.** `SecondBrainStore.hasInsight` é como o serviço sabe que a pessoa pediu uma primeira visão geral, e até essa linha existir nenhum modelo é chamado para as perguntas nem para as respostas.
@@ -444,7 +457,7 @@ Quatro tabelas chegaram juntas na V45.
 - Dois índices: `(user_id)` nos fatos, usado por toda leitura e pela contagem por trás do limite, e `(user_id, status)` nas perguntas, para a lista aberta da página e a contagem do refill.
 - O perfil é a única parte lida fora da página: o prompt de sistema do assistente o leva a cada turno (veja [Chats do agente de IA](#chats-do-agente-de-ia)).
 - O diário não tem coluna aqui e nunca é copiado para cá. Os níveis de humor são lidos na hora do pedido por uma consulta que não seleciona a anotação.
-- `ON DELETE CASCADE` a partir de `users` nas quatro, como `quick_notes`. Nada disso significa alguma coisa depois da conta que descreve.
+- `ON DELETE CASCADE` a partir de `users` nas cinco, como `quick_notes`. Nada disso significa alguma coisa depois da conta que descreve.
 - Deliberadamente sem cache, como as notas rápidas e o humor. Toda leitura é uma consulta indexada sobre algumas dezenas de linhas curtas, e uma chave virada no celular precisa aparecer na web na leitura seguinte.
 
 ## Caderno de estudos
@@ -570,10 +583,10 @@ documento de segurança para a regra de resolução que essas linhas alimentam.
 
 **Papel no produto**: o chat do agente, que cria rotinas e responde perguntas, mantém as conversas no domínio, com duas camadas de memória.
 
-- **Chat** (tabela chats): pertence a um User, tem título e userContextInChat, uma memória de 1000 caracteres do escopo do chat que o modelo reescreve conforme a conversa evolui. A entidade do usuário carrega o equivalente global de 2000 caracteres (userContext).
+- **Chat** (tabela chats): pertence a um User, tem título e userContextInChat, uma memória de 1000 caracteres do escopo do chat que o modelo reescreve conforme a conversa evolui. A entidade do usuário ainda carrega a nota de 2000 caracteres da conta (userContext) que o modelo escrevia; agora ela é somente leitura, veja a tabela de User.
 - **AgentMessage** (tabela agent_message): deliberadamente sem relacionamento JPA com o Chat, só uma coluna chatId com o cascade por conta de uma FK do banco. Cada mensagem guarda o papel, um array JSON de segmentos de conteúdo e um sequenceId, único por chat, que torna a ordenação explícita em vez de dependente de timestamp.
 - O Spring AI gerencia sua própria tabela spring_ai_chat_memory para a janela de curto prazo do modelo; ela não tem entidade JPA.
-- O prompt de sistema de cada turno também leva o perfil do Segundo Cérebro da pessoa. Essas linhas não são estado do agente: moram em second_brain_facts (acima), o modelo não pode gravá-las, e resetar o agente as deixa no lugar.
+- O prompt de sistema de cada turno também leva o perfil do Segundo Cérebro da pessoa e os nomes das coisas sobre as quais ela tem anotações. Isso não é estado do agente: mora em second_brain_facts e second_brain_notes (acima). O modelo acrescenta por `rememberAboutUser` e `rememberAboutItem`, mas não consegue editar nem apagar, e limpar todas as conversas deixa tudo no lugar.
 
 ## Entidades de auth e conta
 
@@ -678,7 +691,8 @@ Entender os cascades importa acima de tudo na exclusão de conta, que depende de
 | User (nível de banco) | StudyCycle, StudySession | ON DELETE CASCADE | As outras cinco tabelas do ciclo de estudos vêm em cascade por `study_cycles`, então a exclusão da conta leva as sete |
 | StudyCycle (nível de banco) | Os dias, tópicos, blocos, lap blocks e voltas fechadas; StudySession.cycle_id | ON DELETE CASCADE, e SET NULL na sessão | Apagar um ciclo leva tudo que está embaixo dele. Uma sessão lançada fica como histórico do tópico |
 | User (nível de banco) | Linhas de FocusCycle, FocusMicroTask, FederatedIdentity, MoodEntry, CalendarTask, QuickNote, NotificationPreferences, NotificationSend | ON DELETE CASCADE | Por conta da FK do banco |
-| User (nível de banco) | Linhas de SecondBrainSourceSetting, SecondBrainFact, SecondBrainQuestion, SecondBrainInsight | ON DELETE CASCADE | Por conta da FK do banco. As chaves, o perfil, as perguntas com as respostas e a visão geral vão embora com a conta |
+| User (nível de banco) | Linhas de SecondBrainSourceSetting, SecondBrainFact, SecondBrainQuestion, SecondBrainInsight, SecondBrainNote | ON DELETE CASCADE | Por conta da FK do banco. As chaves, o perfil, as perguntas com as respostas, a visão geral e as anotações vão embora com a conta |
+| Habit, Goal, DiaryRoutine, Category (nível de serviço) | Linhas de SecondBrainNote sobre eles | Movidas, nunca apagadas | `SecondBrainHooks` na própria transação da exclusão. Não há FK, porque o assunto de uma anotação pode estar em quatro tabelas. Um hábito ou uma meta passa as anotações para a primeira categoria por nome; uma rotina, uma categoria, ou um hábito ou meta sem categoria as deixa LOOSE. Uma pergunta NEW_THING aberta sobre a coisa é apagada |
 | Task (nível de banco) | QuickNote.converted_task_id | ON DELETE SET NULL | A nota arquivada fica e deixa de apontar para a tarefa. Apagar uma tarefa nunca é barrado pelo post-it de onde ela veio |
 | ItemGroup (nível de banco) | Linhas de item_group_days | ON DELETE CASCADE | Os dias não significam nada sem o item. O runbook de exclusão de conta apaga grupos de item em SQL direto, e uma FK comum bloquearia isso |
 | ItemGroup (nível de banco) | Linhas de FocusMicroTask, e FocusCycle.item_group_id | ON DELETE CASCADE, e SET NULL no ciclo | Uma microtarefa não tem sentido sem o item dela. Um ciclo terminado continua registrado com os minutos |
@@ -745,6 +759,7 @@ flowchart LR
     second_brain_facts
     second_brain_questions
     second_brain_insights
+    second_brain_notes
   end
 
   subgraph notebook["Caderno de estudos"]
