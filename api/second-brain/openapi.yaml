@@ -622,9 +622,10 @@ components:
           format: double
           description: |
             What each day from today through the end date has to add to land on the target, to
-            one decimal. Null once the goal is overdue or the target is met. The clients word an
-            amount under one a day per week, then per month, and with no amount when a month
-            still asks for less than one.
+            one decimal. Null once the goal is overdue, met or one-time. The clients word the
+            amount from `remainingValue` and `daysRemaining` instead, as the daily briefing
+            describes: per day, per week or per month when two of those fit in the time left,
+            and otherwise what is left in how many days.
         expectedPercent:
           type: integer
           format: int32
@@ -637,7 +638,9 @@ components:
           - BEHIND
           - OVERDUE
           - REACHED
-          description: The verdict against that straight line, decided on the server.
+          - ONE_TIME
+          description: The verdict against that straight line, decided on the server. `ONE_TIME`
+            is an open goal with a target of one, which has no line to trail and shows no pace.
     SecondBrainRoutineDTO:
       type: object
       properties:
