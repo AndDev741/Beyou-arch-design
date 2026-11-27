@@ -83,7 +83,7 @@ A ordem das checagens é a parte interessante:
 
 1. O lockout por conta roda antes de tudo. Dez falhas na janela travam o e-mail por 15 minutos, e o contador registra e-mails desconhecidos também, então o próprio lockout não serve para descobrir quais contas existem.
 2. Conta travada e senha errada devolvem o mesmo corpo 401. Sem oráculo.
-3. Contas Google nunca passam nessa checagem: a senha guardada é um marcador literal, não um hash BCrypt, então o `matches` sempre falha.
+3. Contas criadas pelo Google, pelo Sign in with Apple ou por um provedor federado nunca passam nessa checagem: a senha guardada é um marcador literal (`GOOGLE_USER`, `FEDERATED_USER`), não um hash BCrypt, então o `matches` sempre falha.
 4. Uma conta não verificada recebe um 403 EMAIL_NOT_VERIFIED distinto. Esse caminho troca deliberadamente um pouco de resistência a enumeração por uma mensagem usável de "confira sua caixa de entrada", e a tela de login agora pendura um botão de reenvio nela, então a troca compra uma saída em vez de só uma explicação.
 5. O sucesso zera o contador de falhas.
 
@@ -267,7 +267,7 @@ O subsistema inteiro fica desligado nos perfis e2e e test, e as faixas chaveadas
 
 - O token de reset é `{rowId}.{segredo}`, com hash BCrypt em repouso, uso único, **TTL de 15 minutos**, e pedir um novo invalida todos os anteriores.
 - Um cooldown de 5 minutos separa pedidos por conta.
-- E-mails desconhecidos e contas Google recebem o mesmo 200 silencioso, então o endpoint não confirma existência de conta. Uma nuance está documentada com honestidade abaixo: um segundo pedido dentro do cooldown responde 400 para uma conta real e 200 para uma desconhecida.
+- E-mails desconhecidos e contas sem senha recebem o mesmo 200 silencioso, então o endpoint não confirma existência de conta. "Sem senha" é o `User.hasNoPassword()`: conta criada pelo Google, pelo Sign in with Apple ou por um provedor federado, que ainda guarda o marcador. Antes a checagem lia só o `isGoogleAccount`, que é falso para contas Apple e OIDC, então um link de redefinição podia colocar uma senha numa conta que só deveria abrir pelo provedor. O `POST /auth/reset-password` confere a mesma regra de novo e responde PASSWORD_RESET_NOT_ALLOWED, então um link emitido antes da regra valer também não consegue. Uma conta criada com senha que depois vinculou um provedor continua com o hash, e continua podendo redefinir. Uma nuance está documentada com honestidade abaixo: um segundo pedido dentro do cooldown responde 400 para uma conta real e 200 para uma desconhecida.
 - No sucesso, a senha ganha novo hash, o token é marcado como usado e todos os refresh tokens do usuário são revogados: todas as sessões morrem.
 - O e-mail só é enviado depois do commit da transação, e um envio falho apaga a linha do token para o cooldown não deixar o usuário preso com um link que nunca chegou.
 
