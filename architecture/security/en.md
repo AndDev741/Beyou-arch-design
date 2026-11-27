@@ -91,7 +91,7 @@ The order of the checks is the interesting part:
 
 1. The per-account lockout runs before anything else. Ten failures within the window lock the email for 15 minutes, and the counter tracks unknown emails too, so the lockout itself cannot be used to discover which accounts exist.
 2. A locked account and a wrong password return the same 401 body. No oracle.
-3. Google accounts can never pass this check: their stored password is a literal marker, not a BCrypt hash, so `matches` always fails.
+3. Accounts created through Google, Sign in with Apple or a federated provider can never pass this check: their stored password is a literal marker (`GOOGLE_USER`, `FEDERATED_USER`), not a BCrypt hash, so `matches` always fails.
 4. An unverified account gets a distinct 403 EMAIL_NOT_VERIFIED. That path deliberately trades a little enumeration resistance for a usable "check your inbox" message, and the login screen now hangs a resend button off it, so the trade buys a way out rather than only an explanation.
 5. Success clears the failure counter.
 
@@ -269,7 +269,7 @@ The whole subsystem is off in the e2e and test profiles, and user-keyed tiers pa
 
 - The reset token is `{rowId}.{secret}`, BCrypt-hashed at rest, single-use, **15-minute TTL**, and requesting a new one invalidates all previous tokens.
 - A 5-minute cooldown separates requests per account.
-- Unknown e-mails and Google accounts get the same silent 200, so the endpoint does not confirm account existence. One nuance is documented honestly below: a second request inside the cooldown answers 400 for a real account and 200 for an unknown one.
+- Unknown e-mails and accounts without a password get the same silent 200, so the endpoint does not confirm account existence. "Without a password" is `User.hasNoPassword()`: created through Google, Sign in with Apple or a federated provider, and still holding the marker. It used to read `isGoogleAccount` alone, which is false for Apple and OIDC accounts, so a forgot-password link could put a password on an account meant to open only through its provider. `POST /auth/reset-password` checks the same rule again and answers PASSWORD_RESET_NOT_ALLOWED, so a link issued before the rule held cannot do it either. An account that registered with a password and linked a provider later keeps its hash, and keeps its reset. One nuance is documented honestly below: a second request inside the cooldown answers 400 for a real account and 200 for an unknown one.
 - On success the password is re-hashed, the token is stamped used, and every refresh token the user owns is revoked: all sessions die.
 - The e-mail is sent only after the transaction commits, and a failed send deletes the token row so the cooldown cannot strand a user with a link that was never delivered.
 
